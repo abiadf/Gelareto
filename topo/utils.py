@@ -1,5 +1,4 @@
 """Module for util functions, places here to avoid redundant and circular imports"""
-
 import gc
 import os
 import psutil
@@ -9,6 +8,8 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 import numpy as np
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class DataUtils:
     """Deals with making datasets"""
@@ -121,7 +122,6 @@ class DataUtils:
         return x
 
 
-
 class MemoryUtils:
     """Keeps all memory cleaning/handling in one place"""
 
@@ -161,5 +161,4 @@ class MemoryUtils:
         """Returns current process RAM in MiB for a certain time. To get the RAM of a specific function,
         call this function before AND after the function is used, and take the difference in RAM usage"""
         return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
-
 

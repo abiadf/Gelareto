@@ -1,5 +1,4 @@
 """Sublevel Set Persistence of H0 on GPU + numba. Extrema detectino in torch, persistence in numpy+numba (cause its sequential)"""
-from time import perf_counter
 import torch
 import numpy as np
 from numba import njit, prange
@@ -87,7 +86,7 @@ def find_extrema_in_timeseries(y_vals, device) -> tuple[torch.Tensor, torch.Tens
     keypoint_idx, keypoint_types = all_idx[mask], all_types[mask]
     return keypoint_idx, keypoint_types
 
-@njit( cache=True)
+@njit(cache=True)
 def _find_basin_root_1d(basin_membership_ids: np.ndarray, rank: int):
     """Unified two-pass iterative path compression for both 1D and 2D arrays."""
     """Finds the ultimate root valley (deepest min) owning the basin at neighbor_rank.
@@ -122,7 +121,7 @@ def _find_basin_root_1d(basin_membership_ids: np.ndarray, rank: int):
         cursor = next_node
     return root
 
-@njit( cache=True)
+@njit(cache=True)
 def _find_basin_root_2d(basin_membership_ids: np.ndarray, row: int, rank: int):
     """Two-pass iterative path compression preventing C-stack overflow in 2D arrays."""
     cursor = rank
@@ -135,7 +134,7 @@ def _find_basin_root_2d(basin_membership_ids: np.ndarray, row: int, rank: int):
         cursor = next_node
     return root
 
-@njit( cache=True)
+@njit(cache=True)
 def _run_1d_sweep_loop(sorted_ranks_idx: np.ndarray, keypoint_types: np.ndarray, keypoint_idx_array: np.ndarray, 
                        timeseries_values: np.ndarray, basin_membership_ids: np.ndarray,
                        submerged_keypoints: np.ndarray, num_keypoints: int, pairs_out: np.ndarray):
