@@ -1,24 +1,13 @@
 
-In this repo we explore many methods for encoding timeseries (and some tabular) data, for prediction in regression. Considered methods include components:
-- Basic architectures: multi-layer perceptron (MLP), CNN, Barlow twins, Long Short Term Memory (LSTM)
-- Autoencoders (AE): [variational] AE (VAE), Conditional VAE (C-VAE), β-VAE
-- Timeseries encoders: TS2Vec, TimeVAE, MOMENT
+This project looks at the persistent homology of arrays that expand in a streaming fashion, meaning arriving chunks keep incrementing an array, hence the name **Pe**rsistence **Ch**unks **Stre**aming.
 
-Plus hyperparam search, benchmarking, evaluation metrics
+One way to compute an array's persistence is to re-compute it for the entire array every time a new chunk arrives. While this works fine, it does unnecessary work, especially for massive data like maps or videos.
 
-More recently, I pivoted to a topological-geometric approach (see `geo` folder), hoping to gain novel insights and inductive biases. I used a combination of the above components, plus the following (some are borrowed from others, some are homemade): spherical MLP/LSTM encoders, toroidal MLP/LSTM encoder, von Mises-Fisher sampling, manifolds ...
+The filtration method used to process the birth and death of the data depends on the modality. For instance:
+- 2D arrays, like images, commonly use sublevel/superlevel set filtration based on pixel intensity or a scalar function
+- point clouds use distance-based filtration like Vietoris-Rips, Alpha/Delaunay, Čech, or witness complexes
+- time series often do sublevel set on the signal, or alternately, undergo time delay (Takens) embedding to turn into a point cloud, after which distance-based filtrations are applied
+- Graphs/networks mostly use weight filtrations on edges or nodes
 
-![Project idea](images/project_idea.png)
-<!-- ![Topo Diagram](images/topo_diagram.png) -->
-![Latent Progression](images/z_progression.png)
-![Point cloud](images/point_cloud.png)
-![Persistence diagrams](images/persistence_diagrams.png)
-![Persistence images](images/persistence_images.png)
-![Berri curves](images/betti_curves.png)
+Our method focuses on the sublevel set filtration and uses a cubical complex.
 
-<!-- ![Torus](images/torus.png)
-![Torus Persistence](images/torus_persistence.png)
-![Torus Betti Curves](images/torus_betti.png) -->
-
-The topmost image shows the architecture of the current idea.
-The bottom images show a noisy torus structure, along with its persistence diagram, and Betti curves.

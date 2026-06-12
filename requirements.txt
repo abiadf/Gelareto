@@ -1,53 +1,38 @@
-adjustText
-catboost
-category_encoders
-dtype_diet
-einops
-# fastdtw
-fvcore
-geomstats
-# h5py
-# huggingface_hub
+# adjustText
+# catboost
+# category_encoders
+# dtype_diet
+# einops
+# fvcore
+# geomstats
 ipykernel
 jupyter
-lightgbm
-# lttb
+# lightgbm
 matplotlib
-metasynth
-memory-profiler
-# momentfm
-# nixtla
-numpy<2.0.0,>=1.23.5 # numpy
+# metasynth
+# memory-profiler
+numpy #<2.0.0,>=1.23.5 # numpy
 numba
-numexpr
+# numexpr
 opt-einsum
 pandas
 polars
-pykan
-pycatch22
-pyriemann
+# pyriemann
 # ==== hyperparam search ====
-ray[data,train,tune,serve]
-hpbandster #for ray
-ConfigSpace #for ray
-optuna
+# ray[data,train,tune,serve]
+# hpbandster #for ray
+# ConfigSpace #for ray
+# optuna
 # =============
-# rdp # Ramer-Douglas-Peucker Algorithm
-scikit-learn ==1.4.2 #Giotto is problematic
-scikit-dimension
-seaborn
-# shap
-statsmodels
-# ==
-# tensorflow==2.15.0; sys_platform == "linux"
-# tensorflow-macos==2.15.0; sys_platform == "darwin"
-# protobuf==4.25.3 #this is with tensorflow
-# ==
+# scikit-learn ==1.4.2 #Giotto is problematic
+# scikit-dimension
+# statsmodels
 
+# Torch family
 torch==2.8.0
 # torchvision
 # torchaudio
-torchmetrics
+# torchmetrics
 # torch-geometric
 # torch-scatter
 # torch-sparse
@@ -55,16 +40,11 @@ torchmetrics
 #torch-spline-conv
 
 tqdm
-tslearn
-pykeops
+# tslearn
+# pykeops
 PyYAML
-ts2vec
 umap-learn # not umap
-wandb
-wfdb
-xarray
-xgboost
-zarr
+# wandb
 
 #TDA
 ripser
