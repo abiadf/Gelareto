@@ -27,6 +27,7 @@ polars
 # scikit-learn ==1.4.2 #Giotto is problematic
 # scikit-dimension
 # statsmodels
+scikit-image
 
 # Torch family
 torch==2.8.0
@@ -39,11 +40,11 @@ torch==2.8.0
 # torch-cluster
 #torch-spline-conv
 
-tqdm
+# tqdm
 # tslearn
 # pykeops
 PyYAML
-umap-learn # not umap
+# umap-learn # not umap
 # wandb
 
 #TDA

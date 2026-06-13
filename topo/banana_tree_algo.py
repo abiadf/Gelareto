@@ -1,4 +1,4 @@
-
+"""Implementation of 'Dynamically maintaining the persistent homology of time series' by Montesano et al. https://epubs.siam.org/doi/abs/10.1137/1.9781611977912.11"""
 from __future__ import annotations
 import numpy as np
 from numba import njit
