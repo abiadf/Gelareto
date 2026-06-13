@@ -11,17 +11,19 @@ The filtration method used to process the birth and death of the data depends on
 - Graphs/networks mostly use weight filtrations on edges or nodes
 
 Our method focuses on the sublevel set filtration, using a cubical complex. We compute the H0 and H1 persistence in a row-wise streaming fashion, processing incoming spatial chunks independently, then stitching the old element-new element boundary. The process is as follows.
+**Note**: we currently tackle the 2D case, with plans for 1D/3D
 
-Base scenario:
-1. Take a 3D function like shown in Fig. 1-2 and represent grid as cubical complex (vertex = pixel, edge = connection, face = square between 4 pixels)
+**Base scenario:**
+1. Take a 2-parameter function like shown in Fig. 1-2 and represent grid as cubical complex (vertex = pixel, edge = connection, face = square between 4 pixels)
 2. Sort all grid edges by their vertex value, from lowest to highest
 3. H0 (components). Loop forward through sorted edges, use union-find to track connected components. When an edge connects 2 components, the elder component (lower vertex birth value) survives, and the younger dies, creating H0 = [pixel_birth, edge_death]
-4. H1 (loops): loop backward through edges (highest to lowest). In this view, each edge acts as barrier between 2 adjacent squares (faces). When a high-value is processed, it removes the barrier between 2 faces. If these face components were isolated, removing the edge connects them, meaning a loop has been closed. The loop is born at that edge, and dies at the higher valued face, creating H1 = [edge_birth, face_death]
+4. H1 (loops): loop backward through edges (highest to lowest). In this view, each edge acts as barrier between 2 adjacent squares (faces). When a high-value edge is processed, it removes the barrier between 2 faces. If these face components were isolated, removing the edge connects them, meaning a loop has been closed. The loop is born at that edge, and dies at the higher valued face, creating H1 = [edge_birth, face_death]
 
-Streaming logic (to avoid re-computing from scratch):
+**Streaming logic** (to avoid re-computing from scratch):
+
 5. new array is appended to existing array grid
-6. Feature extraction: instead of re-evluating everything, the algorithm isolates new internal edges of the new chunk and the stitching edges that cross the boundary between old and new arrays
-7. Incremental state resolution: the system sorts and sweeps only these new edges. If an open geometric feature (like a half-loop at the bottom edge of the old array) is completed by the incoming chunk, the boundary-stitching edge triggers a merge in the union-find structure. Path compression (flattens the chain of pointers so every element points directly to its absolute root) instantly resolves the global connectivity. This correctly closes the loop and records the newly formed persistent pair.
+6. Feature extraction: instead of re-evaluating everything, the algorithm isolates new internal edges of the new chunk and the stitching edges that cross the boundary between old and new arrays
+7. Incremental state resolution: the system sorts and sweeps only these new edges. If an open geometric feature (like a half-loop at the bottom edge of the old array) is completed by the incoming chunk, the boundary-stitching edge triggers a merge in the union-find structure. Path compression instantly resolves the global connectivity (it flattens the chain of pointers so every element points directly to its absolute root). This correctly closes the loop and records the newly formed persistent pair.
 
 To allow the streaming behaviour we maintain 2 arrays:
 - `parent` array: 1D disjoint-set mapping elements to their absolute root* (ie, eldest?), allowing boundary conenctivity checks via apth compression
@@ -31,33 +33,39 @@ To allow the streaming behaviour we maintain 2 arrays:
 - For H0, it is the pixel with the lowest value (local minimum/birth)
 - For H1, it is the face with the highest value (local maximum/death) or the grid's exterior boundary (which is ignored)
 
-<figure>
-  <img src="images/surfaceplot.png" width="300">
-  <figcaption>Fig. 1: Surface plot of a sample function</figcaption>
-</figure>
+<table>
+  <tr>
+    <td align="center">
+      <img src="images/surfaceplot.png" width="300"><br>
+      <em>Fig. 1: Surface plot of a sample function</em>
+    </td>
+    <td align="center">
+      <img src="images/2d array.png" width="300"><br>
+      <em>Fig. 2: 2D matrix of function</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="images/persistence_barcode.png" width="300"><br>
+      <em>Fig. 3: Persistence barcode of the field (Gudhi)</em>
+    </td>
+    <td align="center">
+      <img src="images/persistence_diagram.png" width="300"><br>
+      <em>Fig. 4: Persistence diagram of the field (Gudhi)</em>
+    </td>
+  </tr>
+</table>
 
-<figure>
-  <img src="images/2d array.png" width="300">
-  <figcaption>Fig. 2: 2D matrix of function</figcaption>
-</figure>
-
-<figure>
-  <img src="images/persistence_barcode.png" width="300">
-  <figcaption>Fig. 3: Persistence barcode of the field (Gudhi) </figcaption>
-</figure>
-
-<figure>
-  <img src="images/persistence_diagram.png" width="300">
-  <figcaption>Fig. 4: Persistence diagram of the field (Gudhi) </figcaption>
-</figure>
-
-We benchmark against the libraries Gudhi and CubicalRipser.
+We benchmark against the libraries [Gudhi](https://gudhi.inria.fr/python/latest/) and [CubicalRipser](https://github.com/shizuo-kaji/CubicalRipser).
 
 
 Fixes and possible extensions:
+- adapt algorithm for other dimensions: 1D (code exists in this repo, need to benchmark), 3D
 - speedups, ie smarter type casting and less switching
 - better memory and array handling, ie handle multiple arrays at once
 - hardware: better utilize hardware and parallelize threads/cores
 - simplify topological structures, ie via discrete Morse (less accurate, faster)
 - change streaming shape; we currently do row-wise incrementing, but consider column-wise, or replacing specific tiles in the array
-- adapt algorithm for other dimensions: 1D scenario (code exists in this repo, need to benchmark), or 3D?
+
+
+The manuscript, currently under construction: [**paper manuscript**](pechstre_manuscript.pdf)
