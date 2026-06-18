@@ -15,7 +15,7 @@
 src/cuda*
 
 # data
-# *images/
+*images/
 public_datasets/2D
 public_datasets/3D
 

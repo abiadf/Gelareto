@@ -62,10 +62,10 @@ def find_2d_extrema(y_arr: torch.Tensor):
     return y_keypoints
 
 
-# ✅ ====== BASE SCENARIO ========
-
+# ====== BASE SCENARIO ========
+# to remove
 @njit(cache=True)
-def _root(parent, node):
+def OLD_root(parent, node):
     """Return union-find root with path compression."""
     current = node
     while parent[current] != current:
@@ -73,8 +73,9 @@ def _root(parent, node):
         current = parent[current]
     return current
 
+# to remove
 @njit(cache=True)
-def _sweep_h0_forward(edge_vals, e_idx1, e_idx2, pix_vals, num_pixels, h0_out):
+def OLD_sweep_h0_forward(edge_vals, e_idx1, e_idx2, pix_vals, num_pixels, h0_out):
     """Compute H0 persistence via forward union-find sweep."""
     parent    = np.full(num_pixels, -1, dtype=np.int64)
     birth_val = np.zeros(num_pixels, dtype=np.float32)
@@ -96,8 +97,9 @@ def _sweep_h0_forward(edge_vals, e_idx1, e_idx2, pix_vals, num_pixels, h0_out):
             parent[victim] = survivor
     return h0_count
 
+# to remove
 @njit(cache=True)
-def _sweep_h1_backward(edge_vals, edge_f1, edge_f2, face_vals, num_faces, pre_sorted_order, h1_pairs):
+def OLD_sweep_h1_backward(edge_vals, edge_f1, edge_f2, face_vals, num_faces, pre_sorted_order, h1_pairs):
     EXTERIOR = num_faces
     h1_count = 0
     
@@ -136,176 +138,7 @@ def _sweep_h1_backward(edge_vals, edge_f1, edge_f2, face_vals, num_faces, pre_so
             parent_f[victim] = survivor
     return h1_count
 
-# 🚰 ===== STREAMING SCENARIO ======
-
-def run_streaming_persistence(data: dict):
-    """Ingests pre-allocated array segments instantly without loop iterations.
-    Pure streaming execution path."""
-    meta = data["metadata"]
-    
-    stream_engine = StreamingPersistentBasinForest(
-        num_pixels=meta["num_pixels"], num_faces=meta["num_faces"], 
-        pix_vals=data["pix_vals"], face_vals=data["face_vals"])
-
-    # Load data directly into staging variables
-    stream_engine.h0_edges = data["stream_h0"]
-    stream_engine.h1_edges = data["stream_h1"]
-
-    # Compute persistence pairs and clear the edge arrays
-    stream_engine.flush_accumulated_edges()
-    return stream_engine.get_diagrams()
-
-@njit(parallel=True, cache=True)
-def _prepare_multi_chunk_streaming_numba(grid, split_rows):
-    R, C = grid.shape
-    num_pixels = R * C
-    num_faces = (R - 1) * (C - 1)
-    pix_vals = grid.ravel()
-
-    # 1. Compute face values
-    face_vals = np.empty(num_faces, dtype=np.float32)
-    for r in prange(R - 1):
-        for c in range(C - 1):
-            f_idx = r * (C - 1) + c
-            face_vals[f_idx] = max(max(grid[r, c], grid[r, c + 1]), max(grid[r + 1, c], grid[r + 1, c + 1]))
-
-    # Pre-calculate how many chunks we have
-    num_splits = len(split_rows)
-    num_chunks = num_splits + 1
-
-    # Create helper lookup tables for row classifications
-    is_split = np.zeros(R, dtype=np.bool_)
-    for i in range(num_splits):
-        is_split[split_rows[i]] = True
-
-    # Map each row to its respective chunk index
-    row_chunk_idx = np.zeros(R, dtype=np.int64)
-    curr_chunk = 0
-    for r in range(R):
-        row_chunk_idx[r] = curr_chunk
-        if r < R - 1 and is_split[r + 1]:
-            curr_chunk += 1
-
-    # 2. Count exact streaming structural allocations dynamically across all m chunks
-    chunk_h_counts = np.zeros(num_chunks, dtype=np.int64)
-    stitch_h_count = 0
-    for r in range(R):
-        if is_split[r]:
-            stitch_h_count += C - 1
-        else:
-            chunk_h_counts[row_chunk_idx[r]] += C - 1
-
-    chunk_v_counts = np.zeros(num_chunks, dtype=np.int64)
-    stitch_v_count = 0
-    for r in range(R - 1):
-        # A vertical edge is a stitch if it crosses a split row boundary
-        if row_chunk_idx[r] != row_chunk_idx[r + 1]:
-            stitch_v_count += C
-        else:
-            chunk_v_counts[row_chunk_idx[r]] += C
-
-    # Sum total allocations
-    total_edges = np.sum(chunk_h_counts) + np.sum(chunk_v_counts) + stitch_h_count + stitch_v_count
-    stream_h0 = np.empty((total_edges, 3), dtype=np.float32)
-    stream_h1 = np.empty((total_edges, 3), dtype=np.float32)
-
-    # 3. Establish strict segment pointers for packing [Chunk 0 | Chunk 1 | ... | Stitch]
-    chunk_ptrs = np.zeros(num_chunks, dtype=np.int64)
-    running_sum = 0
-    for m in range(num_chunks):
-        chunk_ptrs[m] = running_sum
-        running_sum += chunk_h_counts[m] + chunk_v_counts[m]
-    st_ptr = running_sum
-
-    # Intermediate track offsets to avoid parallel write collisions
-    h_offsets = np.zeros(R, dtype=np.int64)
-    curr_h_offsets = np.zeros(num_chunks, dtype=np.int64)
-    curr_st_h_offset = 0
-    for r in range(R):
-        if is_split[r]:
-            h_offsets[r] = st_ptr + curr_st_h_offset
-            curr_st_h_offset += C - 1
-        else:
-            m = row_chunk_idx[r]
-            h_offsets[r] = chunk_ptrs[m] + curr_h_offsets[m]
-            curr_h_offsets[m] += C - 1
-
-    # 4. Populate Horizontal Structural Arrays safely
-    for r in prange(R):
-        h0_idx = h_offsets[r]
-        for c in range(C - 1):
-            u = r * C + c
-            v = u + 1
-            val = max(grid[r, c], grid[r, c + 1])
-
-            f1 = (r - 1) * (C - 1) + c if r > 0 else num_faces
-            f2 = r * (C - 1) + c if r < R - 1 else num_faces
-
-            idx = h0_idx + c
-            stream_h0[idx, 0] = val
-            stream_h0[idx, 1] = float(u)
-            stream_h0[idx, 2] = float(v)
-
-            stream_h1[idx, 0] = -val
-            stream_h1[idx, 1] = float(f1)
-            stream_h1[idx, 2] = float(f2)
-
-    # Calculate starting point for vertical edges within chunk blocks
-    v_offsets = np.zeros(R - 1, dtype=np.int64)
-    curr_v_offsets = np.copy(chunk_h_counts) # vertical elements sit right after horizontal ones
-    curr_st_v_offset = stitch_h_count
-    for r in range(R - 1):
-        if row_chunk_idx[r] != row_chunk_idx[r + 1]:
-            v_offsets[r] = st_ptr + curr_st_v_offset
-            curr_st_v_offset += C
-        else:
-            m = row_chunk_idx[r]
-            v_offsets[r] = chunk_ptrs[m] + curr_v_offsets[m]
-            curr_v_offsets[m] += C
-
-    # 5. Populate Vertical Structural Arrays safely
-    for r in prange(R - 1):
-        v0_idx = v_offsets[r]
-        for c in range(C):
-            u = r * C + c
-            v = u + C
-            val = max(grid[r, c], grid[r + 1, c])
-
-            f1 = r * (C - 1) + (c - 1) if c > 0 else num_faces
-            f2 = r * (C - 1) + c if c < C - 1 else num_faces
-
-            idx = v0_idx + c
-            stream_h0[idx, 0] = val
-            stream_h0[idx, 1] = float(u)
-            stream_h0[idx, 2] = float(v)
-
-            stream_h1[idx, 0] = -val
-            stream_h1[idx, 1] = float(f1)
-            stream_h1[idx, 2] = float(f2)
-
-    return num_pixels, num_faces, pix_vals, face_vals, stream_h0, stream_h1
-
-def prepare_multi_chunk_wrapper(grid_tensor: torch.Tensor, m_chunks: int):
-    grid = grid_tensor.detach().cpu().numpy().astype(np.float32)
-    R, _ = grid.shape
-    
-    # Generate the exact row boundary indices where blocks split
-    split_rows = np.array([i * (R // m_chunks) for i in range(1, m_chunks)], dtype=np.int64)
-
-    num_pixels, num_faces, pix_vals, face_vals, stream_h0, stream_h1 = (
-        _prepare_multi_chunk_streaming_numba(grid, split_rows)
-    )
-
-    return {
-        "metadata": {"num_pixels": num_pixels, "num_faces": num_faces, "exterior": num_faces},
-        "pix_vals": pix_vals,
-        "face_vals": face_vals,
-        "stream_h0": stream_h0,
-        "stream_h1": stream_h1,
-    }
-
-# =================
-# saved algo
+# ========= Shared ========
 
 @njit(cache=True, fastmath=True)
 def _numba_sort_inplace_3d(arr):
@@ -398,53 +231,7 @@ def _flush_h1_numba(h1_edges, parent_f, birth_val_f, face_vals, exterior, h1_pai
             parent_f[victim] = survivor
     return h1_count
 
-class StreamingPersistentBasinForest:
-    def __init__(self, num_pixels, num_faces, pix_vals, face_vals):
-        self.num_pixels = num_pixels
-        self.num_faces = num_faces
-        self.exterior = num_faces
-        self.pix_vals = pix_vals
-        self.face_vals = face_vals
-
-        self.parent = np.full(num_pixels, -1, dtype=np.int64)
-        self.birth_val = np.zeros(num_pixels, dtype=np.float32)
-
-        self.parent_f = np.full(num_faces + 1, -1, dtype=np.int64)
-        self.birth_val_f = np.zeros(num_faces + 1, dtype=np.float32)
-
-        self.h0_edges = np.empty((0, 3), dtype=np.float32)
-        self.h1_edges = np.empty((0, 3), dtype=np.float32)
-
-        self.h0_pairs = np.empty((0, 2), dtype=np.float32)
-        self.h1_pairs = np.empty((0, 2), dtype=np.float32)
-
-    def flush_accumulated_edges(self):
-        """Processes collected array states into global topological persistence components."""
-        if len(self.h0_edges) > 0:
-            # Shift sort directly into compiled Numba space
-            h0_arr = _numba_sort_inplace_3d(self.h0_edges)
-            self.h0_edges = np.empty((0, 3), dtype=np.float32)
-            
-            h0_out = np.empty((len(h0_arr), 2), dtype=np.float32)
-            h0_count = _flush_h0_numba(h0_arr, self.parent, self.birth_val, self.pix_vals, h0_out)
-            self.h0_pairs = h0_out[:h0_count]
-
-        if len(self.h1_edges) > 0:
-            h1_arr = _numba_sort_inplace_3d(self.h1_edges)
-            self.h1_edges = np.empty((0, 3), dtype=np.float32)
-
-            h1_out = np.empty((len(h1_arr), 2), dtype=np.float32)
-            h1_count = _flush_h1_numba(h1_arr, self.parent_f, self.birth_val_f, self.face_vals, self.exterior, h1_out)
-            self.h1_pairs = h1_out[:h1_count]
-
-    def get_diagrams(self):
-        h0, h1 = self.h0_pairs, self.h1_pairs
-        if len(h0) > 0: h0 = h0[h0[:, 1] > h0[:, 0]]
-        if len(h1) > 0: h1 = h1[h1[:, 1] > h1[:, 0]]
-        if len(self.pix_vals) > 0:
-            global_min = np.array([[self.pix_vals.min(), np.inf]], dtype=np.float32)
-            h0 = np.concatenate([h0, global_min]) if len(h0) > 0 else global_min
-        return h0, h1
+# ========= BASE CASE========
 
 def compute_h0_h1_fast(grid: torch.Tensor):
     """Ultra-streamlined global representation removing redundant index-expansion matrices."""
@@ -511,3 +298,220 @@ def compute_h0_h1_fast(grid: torch.Tensor):
     
     global_min = np.array([[pix_vals_np.min(), np.inf]], dtype=np.float32)
     return np.concatenate([h0[h0[:, 1] > h0[:, 0]], global_min]), h1[h1[:, 1] > h1[:, 0]]
+
+
+# 🚰 ===== STREAMING SCENARIO ======
+
+class StreamingPersistentBasinForest:
+    def __init__(self, num_pixels, num_faces, pix_vals, face_vals):
+        self.num_pixels = num_pixels
+        self.num_faces  = num_faces
+        self.exterior   = num_faces
+        self.pix_vals   = pix_vals
+        self.face_vals  = face_vals
+
+        self.parent      = np.full(num_pixels, -1, dtype=np.int64)
+        self.birth_val   = np.zeros(num_pixels, dtype=np.float32)
+        self.parent_f    = np.full(num_faces + 1, -1, dtype=np.int64)
+        self.birth_val_f = np.zeros(num_faces + 1, dtype=np.float32)
+
+        self.h0_edges = np.empty((0, 3), dtype=np.float32)
+        self.h1_edges = np.empty((0, 3), dtype=np.float32)
+        self.h0_pairs = np.empty((0, 2), dtype=np.float32)
+        self.h1_pairs = np.empty((0, 2), dtype=np.float32)
+
+    def flush_accumulated_edges(self):
+        """Processes collected array states into global topological persistence components."""
+        if len(self.h0_edges) > 0:
+            # Shift sort directly into compiled Numba space
+            h0_arr = _numba_sort_inplace_3d(self.h0_edges)
+            self.h0_edges = np.empty((0, 3), dtype=np.float32)
+            
+            h0_out   = np.empty((len(h0_arr), 2), dtype=np.float32)
+            h0_count = _flush_h0_numba(h0_arr, self.parent, self.birth_val, self.pix_vals, h0_out)
+            self.h0_pairs = h0_out[:h0_count]
+
+        if len(self.h1_edges) > 0:
+            h1_arr = _numba_sort_inplace_3d(self.h1_edges)
+            self.h1_edges = np.empty((0, 3), dtype=np.float32)
+
+            h1_out   = np.empty((len(h1_arr), 2), dtype=np.float32)
+            h1_count = _flush_h1_numba(h1_arr, self.parent_f, self.birth_val_f, self.face_vals, self.exterior, h1_out)
+            self.h1_pairs = h1_out[:h1_count]
+
+    def get_diagrams(self):
+        h0, h1 = self.h0_pairs, self.h1_pairs
+        if len(h0) > 0: h0 = h0[h0[:, 1] > h0[:, 0]]
+        if len(h1) > 0: h1 = h1[h1[:, 1] > h1[:, 0]]
+        if len(self.pix_vals) > 0:
+            global_min = np.array([[self.pix_vals.min(), np.inf]], dtype=np.float32)
+            h0 = np.concatenate([h0, global_min]) if len(h0) > 0 else global_min
+        return h0, h1
+
+
+def run_streaming_persistence(data: dict):
+    """Ingests pre-allocated array segments instantly without loop iterations.
+    Pure streaming execution path."""
+    meta = data["metadata"]
+    
+    stream_engine = StreamingPersistentBasinForest(
+        num_pixels=meta["num_pixels"], num_faces=meta["num_faces"], 
+        pix_vals=data["pix_vals"], face_vals=data["face_vals"])
+
+    # Load data directly into staging variables
+    stream_engine.h0_edges = data["stream_h0"]
+    stream_engine.h1_edges = data["stream_h1"]
+
+    # Compute persistence pairs and clear the edge arrays
+    stream_engine.flush_accumulated_edges()
+    return stream_engine.get_diagrams()
+
+@njit(parallel=True, cache=True)
+def _prepare_multi_chunk_streaming_numba(grid, split_rows):
+    R, C = grid.shape
+    num_pixels = R * C
+    num_faces  = (R - 1) * (C - 1)
+    pix_vals   = grid.ravel()
+
+    # 1. Compute face values
+    face_vals = np.empty(num_faces, dtype=np.float32)
+    for r in prange(R - 1):
+        for c in range(C - 1):
+            f_idx = r * (C - 1) + c
+            face_vals[f_idx] = max(max(grid[r, c], grid[r, c + 1]), max(grid[r + 1, c], grid[r + 1, c + 1]))
+
+    # Pre-calculate how many chunks we have
+    num_splits = len(split_rows)
+    num_chunks = num_splits + 1
+
+    # Create helper lookup tables for row classifications
+    is_split = np.zeros(R, dtype=np.bool_)
+    for i in range(num_splits):
+        is_split[split_rows[i]] = True
+
+    # Map each row to its respective chunk index
+    row_chunk_idx = np.zeros(R, dtype=np.int64)
+    curr_chunk    = 0
+    for r in range(R):
+        row_chunk_idx[r] = curr_chunk
+        if r < R - 1 and is_split[r + 1]:
+            curr_chunk += 1
+
+    # 2. Count exact streaming structural allocations dynamically across all m chunks
+    chunk_h_counts = np.zeros(num_chunks, dtype=np.int64)
+    stitch_h_count = 0
+    for r in range(R):
+        if is_split[r]:
+            stitch_h_count += C - 1
+        else:
+            chunk_h_counts[row_chunk_idx[r]] += C - 1
+
+    chunk_v_counts = np.zeros(num_chunks, dtype=np.int64)
+    stitch_v_count = 0
+    for r in range(R - 1):
+        # A vertical edge is a stitch if it crosses a split row boundary
+        if row_chunk_idx[r] != row_chunk_idx[r + 1]:
+            stitch_v_count += C
+        else:
+            chunk_v_counts[row_chunk_idx[r]] += C
+
+    # Sum total allocations
+    total_edges = np.sum(chunk_h_counts) + np.sum(chunk_v_counts) + stitch_h_count + stitch_v_count
+    stream_h0   = np.empty((total_edges, 3), dtype=np.float32)
+    stream_h1   = np.empty((total_edges, 3), dtype=np.float32)
+
+    # 3. Establish strict segment pointers for packing [Chunk 0 | Chunk 1 | ... | Stitch]
+    chunk_ptrs  = np.zeros(num_chunks, dtype=np.int64)
+    running_sum = 0
+    for m in range(num_chunks):
+        chunk_ptrs[m] = running_sum
+        running_sum += chunk_h_counts[m] + chunk_v_counts[m]
+    st_ptr = running_sum
+
+    # Intermediate track offsets to avoid parallel write collisions
+    h_offsets      = np.zeros(R, dtype=np.int64)
+    curr_h_offsets = np.zeros(num_chunks, dtype=np.int64)
+    curr_st_h_offset = 0
+    for r in range(R):
+        if is_split[r]:
+            h_offsets[r] = st_ptr + curr_st_h_offset
+            curr_st_h_offset += C - 1
+        else:
+            m = row_chunk_idx[r]
+            h_offsets[r] = chunk_ptrs[m] + curr_h_offsets[m]
+            curr_h_offsets[m] += C - 1
+
+    # 4. Populate Horizontal Structural Arrays safely
+    for r in prange(R):
+        h0_idx = h_offsets[r]
+        for c in range(C - 1):
+            u = r * C + c
+            v = u + 1
+            val = max(grid[r, c], grid[r, c + 1])
+
+            f1 = (r - 1) * (C - 1) + c if r > 0 else num_faces
+            f2 = r * (C - 1) + c if r < R - 1 else num_faces
+
+            idx = h0_idx + c
+            stream_h0[idx, 0] = val
+            stream_h0[idx, 1] = float(u)
+            stream_h0[idx, 2] = float(v)
+
+            stream_h1[idx, 0] = -val
+            stream_h1[idx, 1] = float(f1)
+            stream_h1[idx, 2] = float(f2)
+
+    # Calculate starting point for vertical edges within chunk blocks
+    v_offsets = np.zeros(R - 1, dtype=np.int64)
+    curr_v_offsets = np.copy(chunk_h_counts) # vertical elements sit right after horizontal ones
+    curr_st_v_offset = stitch_h_count
+    for r in range(R - 1):
+        if row_chunk_idx[r] != row_chunk_idx[r + 1]:
+            v_offsets[r] = st_ptr + curr_st_v_offset
+            curr_st_v_offset += C
+        else:
+            m = row_chunk_idx[r]
+            v_offsets[r] = chunk_ptrs[m] + curr_v_offsets[m]
+            curr_v_offsets[m] += C
+
+    # 5. Populate Vertical Structural Arrays safely
+    for r in prange(R - 1):
+        v0_idx = v_offsets[r]
+        for c in range(C):
+            u = r * C + c
+            v = u + C
+            val = max(grid[r, c], grid[r + 1, c])
+
+            f1 = r * (C - 1) + (c - 1) if c > 0 else num_faces
+            f2 = r * (C - 1) + c if c < C - 1 else num_faces
+
+            idx = v0_idx + c
+            stream_h0[idx, 0] = val
+            stream_h0[idx, 1] = float(u)
+            stream_h0[idx, 2] = float(v)
+
+            stream_h1[idx, 0] = -val
+            stream_h1[idx, 1] = float(f1)
+            stream_h1[idx, 2] = float(f2)
+
+    return num_pixels, num_faces, pix_vals, face_vals, stream_h0, stream_h1
+
+def prepare_multi_chunk_wrapper(grid_tensor: torch.Tensor, m_chunks: int):
+    grid = grid_tensor.detach().cpu().numpy().astype(np.float32)
+    R, _ = grid.shape
+    
+    # Generate the exact row boundary indices where blocks split
+    split_rows = np.array([i * (R // m_chunks) for i in range(1, m_chunks)], dtype=np.int64)
+
+    num_pixels, num_faces, pix_vals, face_vals, stream_h0, stream_h1 = (
+        _prepare_multi_chunk_streaming_numba(grid, split_rows)
+    )
+
+    return {
+        "metadata": {"num_pixels": num_pixels, "num_faces": num_faces, "exterior": num_faces},
+        "pix_vals": pix_vals,
+        "face_vals": face_vals,
+        "stream_h0": stream_h0,
+        "stream_h1": stream_h1,
+    }
+
