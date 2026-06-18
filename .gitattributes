@@ -1,0 +1,2 @@
+*.ipynb linguist-vendored # ignores notebooks in GitHub language stats
+*.ipynb filter=nbstripout
