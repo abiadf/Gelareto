@@ -1,10 +1,5 @@
 """Sublevel Set Persistence of H0 on GPU + numba. Extrema detectino in torch, persistence in numpy+numba (cause its sequential)"""
 
-import torch
-import numpy as np
-from numba import njit, prange
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 """Optimized for 2D grids by replacing global boundary matrix reduction with a localized
 1D sweep schedule. Eliminates structural redundancy via asymmetric cell tracking:
 1. Extremum Verification: Pixels are verified as Minima/Maxima using a full 4-neighbor 
@@ -21,6 +16,11 @@ Optimized for 2D grids by replacing global boundary matrix reduction with a loca
 1. Extremum Verification: Pixels verified as Minima/Maxima using 4-neighbor stencil.
 2. Asymmetric Edge Harvesting: forward-only (Right and Down) to avoid duplicate edges.
 3. Apparent Pair Clearing: edges where value == min(endpoints) are zero-persistence, removed."""
+
+import torch
+import numpy as np
+from numba import njit, prange
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 REGULAR, MIN, MAX, SADDLE = 0, 1, 2, 3
 
@@ -448,21 +448,21 @@ class StreamingPersistentBasinForest:
 
 def compute_h0_h1_fast(grid: torch.Tensor):
     """Ultra-streamlined global representation removing redundant index-expansion matrices."""
-    grid = grid.to(torch.float32)
-    R, C = grid.shape
-    device = grid.device
+    # grid       = grid.to(torch.float32)
+    grid       = torch.from_numpy(grid).to(torch.float32)
+    R, C       = grid.shape
+    device     = grid.device
     num_pixels = R * C
-    num_faces = (R - 1) * (C - 1)
-
-    pixel_ids = torch.arange(num_pixels, device=device, dtype=torch.int64).reshape(R, C)
+    num_faces  = (R - 1) * (C - 1)
+    pixel_ids  = torch.arange(num_pixels, device=device, dtype=torch.int64).reshape(R, C)
 
     # Horizontal
     h_vals = torch.maximum(grid[:, :-1], grid[:, 1:]).reshape(-1)
     h_idx1 = pixel_ids[:, :-1].reshape(-1)
     h_idx2 = pixel_ids[:, 1:].reshape(-1)
 
-    h_row = torch.arange(R, device=device).view(-1, 1).repeat(1, C - 1).view(-1)
-    h_col = torch.arange(C - 1, device=device).view(1, -1).repeat(R, 1).view(-1)
+    h_row  = torch.arange(R, device=device).view(-1, 1).repeat(1, C - 1).view(-1)
+    h_col  = torch.arange(C - 1, device=device).view(1, -1).repeat(R, 1).view(-1)
     e_h_f1 = torch.where(h_row > 0, (h_row - 1) * (C - 1) + h_col, num_faces)
     e_h_f2 = torch.where(h_row < R - 1, h_row * (C - 1) + h_col, num_faces)
 
@@ -471,38 +471,37 @@ def compute_h0_h1_fast(grid: torch.Tensor):
     v_idx1 = pixel_ids[:-1, :].reshape(-1)
     v_idx2 = pixel_ids[1:, :].reshape(-1)
 
-    v_row = torch.arange(R - 1, device=device).view(-1, 1).repeat(1, C).view(-1)
-    v_col = torch.arange(C, device=device).view(1, -1).repeat(R - 1, 1).view(-1)
+    v_row  = torch.arange(R - 1, device=device).view(-1, 1).repeat(1, C).view(-1)
+    v_col  = torch.arange(C, device=device).view(1, -1).repeat(R - 1, 1).view(-1)
     e_v_f1 = torch.where(v_col > 0, v_row * (C - 1) + (v_col - 1), num_faces)
     e_v_f2 = torch.where(v_col < C - 1, v_row * (C - 1) + v_col, num_faces)
 
     edge_vals = torch.cat([h_vals, v_vals])
-    e_idx1 = torch.cat([h_idx1, v_idx1])
-    e_idx2 = torch.cat([h_idx2, v_idx2])
-    edge_f1 = torch.cat([e_h_f1, e_v_f1])
-    edge_f2 = torch.cat([e_h_f2, e_v_f2])
+    e_idx1    = torch.cat([h_idx1, v_idx1])
+    e_idx2    = torch.cat([h_idx2, v_idx2])
+    edge_f1   = torch.cat([e_h_f1, e_v_f1])
+    edge_f2   = torch.cat([e_h_f2, e_v_f2])
 
     face_vals = torch.max(
         torch.max(grid[:-1, :-1], grid[:-1, 1:]),
-        torch.max(grid[1:, :-1], grid[1:, 1:])
-    ).reshape(-1)
+        torch.max(grid[1:, :-1], grid[1:, 1:])).reshape(-1)
 
     e_order = torch.argsort(edge_vals)
     rev_e_order = e_order.flip(dims=[0])
 
-    pix_vals_np = grid.reshape(-1).cpu().numpy()
+    pix_vals_np  = grid.reshape(-1).cpu().numpy()
     face_vals_np = face_vals.cpu().numpy()
     edge_vals_sorted_np = edge_vals[e_order].cpu().numpy()
     
-    indices_np = torch.stack([e_idx1[e_order], e_idx2[e_order]], dim=0).cpu().numpy()
+    indices_np   = torch.stack([e_idx1[e_order], e_idx2[e_order]], dim=0).cpu().numpy()
     edge_vals_raw_np = edge_vals.cpu().numpy()
-    edge_f1_np = edge_f1.cpu().numpy()
-    edge_f2_np = edge_f2.cpu().numpy()
+    edge_f1_np   = edge_f1.cpu().numpy()
+    edge_f2_np   = edge_f2.cpu().numpy()
     rev_order_np = rev_e_order.cpu().numpy()
 
     num_edges = len(edge_vals_sorted_np)
-    h0_out = np.empty((num_edges, 2), dtype=np.float32)
-    h1_pairs = np.empty((num_edges, 2), dtype=np.float32)
+    h0_out    = np.empty((num_edges, 2), dtype=np.float32)
+    h1_pairs  = np.empty((num_edges, 2), dtype=np.float32)
 
     h0_count = _sweep_h0_forward(edge_vals_sorted_np, indices_np[0], indices_np[1], pix_vals_np, num_pixels, h0_out)
     h1_count = _sweep_h1_backward(edge_vals_raw_np, edge_f1_np, edge_f2_np, face_vals_np, num_faces, rev_order_np, h1_pairs)

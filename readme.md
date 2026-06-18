@@ -58,6 +58,14 @@ To allow the streaming behaviour we maintain 2 arrays:
 
 We benchmark against the libraries [Gudhi](https://gudhi.inria.fr/python/latest/) and [CubicalRipser](https://github.com/shizuo-kaji/CubicalRipser).
 
+<table>
+    <td align="center">
+      <img src="images/results.png" width="300"><br>
+      <em>Fig. 5: Benchmarking our method (non-streaming) for time and peak memory </em>
+    </td>
+</table>
+
+More information is found in the [**paper manuscript**](pechstre_manuscript.pdf), currently under construction.
 
 Fixes and possible extensions:
 - adapt algorithm for other dimensions: 1D (code exists in this repo, need to benchmark), 3D
@@ -66,6 +74,3 @@ Fixes and possible extensions:
 - hardware: better utilize hardware and parallelize threads/cores
 - simplify topological structures, ie via discrete Morse (less accurate, faster)
 - change streaming shape; we currently do row-wise incrementing, but consider column-wise, or replacing specific tiles in the array
-
-
-The manuscript, currently under construction: [**paper manuscript**](pechstre_manuscript.pdf)
