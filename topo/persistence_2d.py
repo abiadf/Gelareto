@@ -65,7 +65,7 @@ def find_2d_extrema(y_arr: torch.Tensor):
 # ====== BASE SCENARIO ========
 # to remove
 @njit(cache=True)
-def OLD_root(parent, node):
+def _root(parent, node):
     """Return union-find root with path compression."""
     current = node
     while parent[current] != current:
@@ -75,7 +75,7 @@ def OLD_root(parent, node):
 
 # to remove
 @njit(cache=True)
-def OLD_sweep_h0_forward(edge_vals, e_idx1, e_idx2, pix_vals, num_pixels, h0_out):
+def _sweep_h0_forward(edge_vals, e_idx1, e_idx2, pix_vals, num_pixels, h0_out):
     """Compute H0 persistence via forward union-find sweep."""
     parent    = np.full(num_pixels, -1, dtype=np.int64)
     birth_val = np.zeros(num_pixels, dtype=np.float32)
@@ -99,30 +99,29 @@ def OLD_sweep_h0_forward(edge_vals, e_idx1, e_idx2, pix_vals, num_pixels, h0_out
 
 # to remove
 @njit(cache=True)
-def OLD_sweep_h1_backward(edge_vals, edge_f1, edge_f2, face_vals, num_faces, pre_sorted_order, h1_pairs):
+def _sweep_h1_backward(edge_vals, edge_f1, edge_f2, face_vals, num_faces, pre_sorted_order, h1_pairs):
     EXTERIOR = num_faces
     h1_count = 0
     
     # Fast native array initialization
-    parent_f = np.arange(num_faces + 1, dtype=np.int64)
-    
+    parent_f    = np.arange(num_faces + 1, dtype=np.int64)
     birth_val_f = np.empty(num_faces + 1, dtype=np.float32)
     birth_val_f[:num_faces] = face_vals
-    birth_val_f[EXTERIOR] = np.inf
+    birth_val_f[EXTERIOR]   = np.inf
 
     for idx in pre_sorted_order:
         edge_val = edge_vals[idx]
-        f1, f2 = edge_f1[idx], edge_f2[idx]
+        f1, f2   = edge_f1[idx], edge_f2[idx]
 
         root_f1 = f1
         while parent_f[root_f1] != root_f1:
             parent_f[root_f1] = parent_f[parent_f[root_f1]]
-            root_f1 = parent_f[root_f1]
+            root_f1           = parent_f[root_f1]
             
         root_f2 = f2
         while parent_f[root_f2] != root_f2:
             parent_f[root_f2] = parent_f[parent_f[root_f2]]
-            root_f2 = parent_f[root_f2]
+            root_f2           = parent_f[root_f2]
 
         if root_f1 != root_f2:
             if birth_val_f[root_f1] >= birth_val_f[root_f2]:
@@ -233,12 +232,11 @@ def _flush_h1_numba(h1_edges, parent_f, birth_val_f, face_vals, exterior, h1_pai
 
 # ========= BASE CASE========
 
-def compute_h0_h1_fast(grid: torch.Tensor):
+def compute_h0_h1_fast(grid: torch.Tensor, device=None):
     """Ultra-streamlined global representation removing redundant index-expansion matrices."""
-    # grid       = grid.to(torch.float32)
-    grid       = torch.from_numpy(grid).to(torch.float32)
+    grid       = grid.to(device=device, dtype=torch.float32) if device else grid.to(torch.float32)
     R, C       = grid.shape
-    device     = grid.device
+    # device     = grid.device
     num_pixels = R * C
     num_faces  = (R - 1) * (C - 1)
     pixel_ids  = torch.arange(num_pixels, device=device, dtype=torch.int64).reshape(R, C)
@@ -349,7 +347,7 @@ class StreamingPersistentBasinForest:
         return h0, h1
 
 
-def run_streaming_persistence(data: dict):
+def _run_streaming_persistence(data: dict):
     """Ingests pre-allocated array segments instantly without loop iterations.
     Pure streaming execution path."""
     meta = data["metadata"]
@@ -366,6 +364,7 @@ def run_streaming_persistence(data: dict):
     stream_engine.flush_accumulated_edges()
     return stream_engine.get_diagrams()
 
+# old, made a new non-numba one
 @njit(parallel=True, cache=True)
 def _prepare_multi_chunk_streaming_numba(grid, split_rows):
     R, C = grid.shape
@@ -496,6 +495,7 @@ def _prepare_multi_chunk_streaming_numba(grid, split_rows):
 
     return num_pixels, num_faces, pix_vals, face_vals, stream_h0, stream_h1
 
+# old consider removing
 def prepare_multi_chunk_wrapper(grid_tensor: torch.Tensor, m_chunks: int):
     grid = grid_tensor.detach().cpu().numpy().astype(np.float32)
     R, _ = grid.shape
@@ -503,15 +503,61 @@ def prepare_multi_chunk_wrapper(grid_tensor: torch.Tensor, m_chunks: int):
     # Generate the exact row boundary indices where blocks split
     split_rows = np.array([i * (R // m_chunks) for i in range(1, m_chunks)], dtype=np.int64)
 
-    num_pixels, num_faces, pix_vals, face_vals, stream_h0, stream_h1 = (
-        _prepare_multi_chunk_streaming_numba(grid, split_rows)
-    )
+    num_pixels, num_faces, pix_vals, face_vals, stream_h0, stream_h1 = _prepare_multi_chunk_streaming_numba(grid, split_rows)
 
     return {
         "metadata": {"num_pixels": num_pixels, "num_faces": num_faces, "exterior": num_faces},
         "pix_vals": pix_vals,
         "face_vals": face_vals,
         "stream_h0": stream_h0,
-        "stream_h1": stream_h1,
-    }
+        "stream_h1": stream_h1,}
 
+
+# def prepare_multi_chunk_torch(grid: torch.Tensor, m_chunks: int, device=None):
+#     grid   = grid.to(device=device, dtype=torch.float32) if device else grid
+#     R, C   = grid.shape
+#     device = grid.device
+#     num_pixels = R * C
+#     num_faces  = (R - 1) * (C - 1)
+#     pix_vals   = grid.reshape(-1)
+
+#     face_vals = torch.max(
+#         torch.max(grid[:-1, :-1], grid[:-1, 1:]),
+#         torch.max(grid[1:, :-1], grid[1:, 1:])).reshape(-1)
+
+#     pixel_ids = torch.arange(num_pixels, device=device).reshape(R, C)
+
+#     h_vals   = torch.maximum(grid[:, :-1], grid[:, 1:]).reshape(-1)
+#     h_u, h_v = pixel_ids[:, :-1].reshape(-1), pixel_ids[:, 1:].reshape(-1)
+#     h_row    = torch.arange(R, device=device).view(-1, 1).expand(-1, C - 1).reshape(-1)
+#     h_col    = torch.arange(C - 1, device=device).view(1, -1).expand(R, -1).reshape(-1)
+#     h_f1     = torch.where(h_row > 0, (h_row - 1) * (C - 1) + h_col, num_faces)
+#     h_f2     = torch.where(h_row < R - 1, h_row * (C - 1) + h_col, num_faces)
+
+#     v_vals   = torch.maximum(grid[:-1, :], grid[1:, :]).reshape(-1)
+#     v_u, v_v = pixel_ids[:-1, :].reshape(-1), pixel_ids[1:, :].reshape(-1)
+#     v_row = torch.arange(R - 1, device=device).view(-1, 1).expand(-1, C).reshape(-1)
+#     v_col = torch.arange(C, device=device).view(1, -1).expand(R - 1, -1).reshape(-1)
+#     v_f1  = torch.where(v_col > 0, v_row * (C - 1) + (v_col - 1), num_faces)
+#     v_f2  = torch.where(v_col < C - 1, v_row * (C - 1) + v_col, num_faces)
+
+#     edge_vals = torch.cat([h_vals, v_vals])
+#     e_u  = torch.cat([h_u, v_u]).float()
+#     e_v  = torch.cat([h_v, v_v]).float()
+#     e_f1 = torch.cat([h_f1, v_f1]).float()
+#     e_f2 = torch.cat([h_f2, v_f2]).float()
+
+#     stream_h0 = torch.stack([edge_vals, e_u, e_v], dim=1)
+#     stream_h1 = torch.stack([-edge_vals, e_f1, e_f2], dim=1)
+
+#     # chunking by row range is metadata-only — used to scope which edges
+#     # belong to which strip for incremental flush, not needed at this stage
+#     return num_pixels, num_faces, pix_vals, face_vals, stream_h0, stream_h1
+
+# def run_streaming_persistence_torch(grid: torch.Tensor, device=None):
+#     num_pixels, num_faces, pix_vals, face_vals, stream_h0, stream_h1 = prepare_multi_chunk_torch(grid, m_chunks=1, device=device)
+#     engine = StreamingPersistentBasinForest(num_pixels, num_faces, pix_vals.cpu().numpy(), face_vals.cpu().numpy())
+#     engine.h0_edges = stream_h0.cpu().numpy().astype(np.float32)
+#     engine.h1_edges = stream_h1.cpu().numpy().astype(np.float32)
+#     engine.flush_accumulated_edges()
+#     return engine.get_diagrams()

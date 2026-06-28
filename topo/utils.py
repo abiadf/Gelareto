@@ -90,9 +90,7 @@ class DataUtils:
         min_val: float = 0.0,
         max_val: float = 1.0,
         smooth_radius: int = 16,) -> torch.Tensor:
-        """
-        Generate a spatially correlated random field.
-
+        """Generate a spatially correlated random field.
         Args:
             n_rows: Height.
             n_cols: Width.
@@ -100,25 +98,18 @@ class DataUtils:
             min_val: Minimum value in the output field.
             max_val: Maximum value in the output field.
             smooth_radius: Larger values produce larger patches.
-
         Returns:
-            Tensor of shape (n_rows, n_cols).
-        """
+            Tensor of shape (n_rows, n_cols)."""
         x = torch.rand(1, 1, n_rows, n_cols, device=device)
-
         k = 2 * smooth_radius + 1
         x = F.avg_pool2d(
             x,
             kernel_size=k,
             stride=1,
-            padding=smooth_radius,
-        )
-
+            padding=smooth_radius,)
         x = x[0, 0]
-
         # Rescale from [0, 1] to [min_val, max_val].
         x = min_val + (max_val - min_val) * x
-
         return x
 
 

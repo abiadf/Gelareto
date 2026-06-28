@@ -1,2 +1,3 @@
-*.ipynb linguist-vendored # ignores notebooks in GitHub language stats
-*.ipynb filter=nbstripout
+
+*.ipynb filter=nbstripout # clean notebook outputs locally
+*.ipynb linguist-documentation # git drops it from stats 
