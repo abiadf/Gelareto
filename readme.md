@@ -4,7 +4,11 @@ This project computes the persistent homology of arrays that expand in a streami
 
 One way to compute an streaming array's persistence is, every time a new chunk is incremented, to re-compute the persistence of the entire array. While this works fine, it does unnecessary work, especially for massive data like maps or videos.
 
-![Figure 0: Left: base array with center loop. Middle: standard methods process entire streaming array at each chunk arrival. Right: proposed method processes each chunk as it comes, then stitches array boundaries.](persistence_chunks.png)
+<p align="center">
+  <img src="images/persistence_chunks.png" alt="Streaming chunk processing" width="600">
+  <br>
+  <em><b>Figure 0.</b> Left: base array with center loop. Middle: standard methods process the entire streaming array at each chunk arrival. Right: the proposed method processes each chunk as it arrives, then stitches array boundaries.</em>
+</p>
 
 The filtration method used to process the birth and death of the data depends on the modality. For instance:
 - 2D arrays, like images, commonly use sublevel/superlevel set filtration based on pixel intensity or a scalar function
