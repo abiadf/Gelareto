@@ -1,9 +1,8 @@
-"""Exact row-streamed cubical persistence plus topology-aware work counters."""
+"""Stream 2D chunks and return exact prefix persistence after each update."""
 
 from __future__ import annotations
-
+import heapq
 from dataclasses import dataclass, field
-
 import numpy as np
 
 
@@ -170,8 +169,85 @@ class _DSU:
 
 
 @dataclass
-class StreamingCubicalPersistence2D:
-    """Append row chunks, then finalize exact H0/H1 pairs."""
+class IncrementalH0DSUState:
+    """Reusable H0 DSU processed below safe watermarks."""
+
+    parent: list[int] = field(default_factory=list)
+    birth: list[float] = field(default_factory=list)
+    h0_birth_death_pairs: list[tuple[float, float]] = field(default_factory=list)
+    pending_edges: list[tuple[float, int, int]] = field(default_factory=list)
+    edges_processed: int = 0
+    last_watermark: float = -np.inf
+
+    def add_vertex_births(self, values: np.ndarray) -> None:
+        """Add new pixels as live H0 components."""
+        values = np.asarray(values, dtype=np.float32).reshape(-1)
+        start = len(self.parent)
+        self.parent.extend(range(start, start + len(values)))
+        self.birth.extend(float(v) for v in values)
+
+    def queue_h0_edges(self, component_edges: np.ndarray, watermark: float | None = None) -> None:
+        """Queue H0 edges and process safe ones."""
+        if len(component_edges) == 0:
+            if watermark is not None:
+                self.process_edges_until(watermark)
+            return
+        for val, u_float, v_float in component_edges:
+            val = float(val)
+            if val < self.last_watermark:
+                raise ValueError("new edge is below the processed H0 watermark")
+            heapq.heappush(self.pending_edges, (val, int(u_float), int(v_float)))
+        if watermark is not None:
+            self.process_edges_until(watermark)
+
+    def process_edges_until(self, watermark: float) -> None:
+        """Process queued H0 edges up to watermark."""
+        if watermark < self.last_watermark:
+            raise ValueError("H0 watermark cannot move backward")
+        while self.pending_edges and self.pending_edges[0][0] <= watermark:
+            val, u, v = heapq.heappop(self.pending_edges)
+            self._merge_components(u, v, val)
+            self.edges_processed += 1
+        self.last_watermark = float(watermark)
+
+    def diagram(self) -> np.ndarray:
+        """Return processed H0 pairs plus survivor."""
+        pairs = list(self.h0_birth_death_pairs)
+        if self.birth:
+            pairs.append((min(self.birth), np.inf))
+        return np.asarray(pairs, dtype=np.float32)
+
+    def summary(self) -> dict[str, int]:
+        """Count online H0 state."""
+        return {
+            "vertices_seen": len(self.parent),
+            "edges_processed_online": self.edges_processed,
+            "edges_waiting_for_watermark": len(self.pending_edges),
+            "h0_pairs_recorded_online": len(self.h0_birth_death_pairs),
+        }
+
+    def _root(self, x: int) -> int:
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]
+            x = self.parent[x]
+        return x
+
+    def _merge_components(self, u: int, v: int, death_value: float) -> None:
+        ru, rv = self._root(u), self._root(v)
+        if ru == rv:
+            return
+        if self.birth[ru] <= self.birth[rv]:
+            survivor, victim = ru, rv
+        else:
+            survivor, victim = rv, ru
+        if death_value > self.birth[victim]:
+            self.h0_birth_death_pairs.append((self.birth[victim], death_value))
+        self.parent[victim] = survivor
+
+
+@dataclass
+class IncrementalStreamingPersistence2D:
+    """Update H0 per chunk; finalize exact H0/H1."""
 
     width: int | None = None
     rows: int = 0
@@ -180,10 +256,13 @@ class StreamingCubicalPersistence2D:
     component_merge_edges: list[np.ndarray] = field(default_factory=list)
     loop_dual_edges: list[np.ndarray] = field(default_factory=list)
     critical_counts: list[dict[str, int]] = field(default_factory=list)
+    incremental_h0_state: IncrementalH0DSUState = field(
+        default_factory=IncrementalH0DSUState
+    )
     _bottom_h1_finalized: bool = False
 
-    def update(self, chunk: np.ndarray) -> None:
-        """Store new chunk cells and boundary events."""
+    def update_chunk(self, chunk: np.ndarray, h0_watermark: float | None = None) -> None:
+        """Add one chunk and update safe H0 merges."""
         chunk = np.asarray(chunk, dtype=np.float32)
         if chunk.ndim != 2:
             raise ValueError("chunk must be a 2D array")
@@ -200,10 +279,14 @@ class StreamingCubicalPersistence2D:
         context = self._chunk_with_boundary_context(chunk)
         self.critical_counts.append(count_adaptive_work(context))
         self.vertex_birth_values.append(chunk.reshape(-1))
+        self.incremental_h0_state.add_vertex_births(chunk)
         full = self.values()
         self.rows += int(chunk.shape[0])
 
-        self._store_h0_component_edges(full, old_rows, self.rows)
+        component_edges = self._make_h0_component_edges(full, old_rows, self.rows)
+        if len(component_edges) > 0:
+            self.component_merge_edges.append(component_edges)
+            self.incremental_h0_state.queue_h0_edges(component_edges, watermark=h0_watermark)
         self._store_face_birth_values(full, old_rows, self.rows)
         self._store_h1_dual_edges_except_bottom(full, old_rows, self.rows)
 
@@ -226,7 +309,7 @@ class StreamingCubicalPersistence2D:
 
     def stored_state_summary(self) -> dict[str, int]:
         """Count stored streamed state."""
-        return {
+        summary = {
             "rows_seen": self.rows,
             "vertex_birth_blocks": len(self.vertex_birth_values),
             "face_birth_blocks": len(self.face_birth_values),
@@ -234,6 +317,8 @@ class StreamingCubicalPersistence2D:
             "h1_loop_edge_blocks": len(self.loop_dual_edges),
             "critical_count_blocks": len(self.critical_counts),
         }
+        summary.update(self.incremental_h0_state.summary())
+        return summary
 
     def values(self) -> np.ndarray:
         """Return streamed values as one grid."""
@@ -241,14 +326,13 @@ class StreamingCubicalPersistence2D:
             return np.empty((0, 0 if self.width is None else self.width), dtype=np.float32)
         return np.concatenate(self.vertex_birth_values).reshape(-1, self.width)
 
-    def finalize(self) -> tuple[np.ndarray, np.ndarray]:
-        """Sort stored events and return exact H0/H1 pairs."""
+    def current_exact_prefix_diagrams(self) -> tuple[np.ndarray, np.ndarray]:
+        """Compute exact H0/H1 for chunks seen so far."""
         if self.width is None or self.rows == 0:
             empty = np.empty((0, 2), dtype=np.float32)
             return empty, empty
 
         full = self.values()
-        self._store_final_bottom_h1_dual_edges(full)
 
         pix_vals = full.reshape(-1).astype(np.float32, copy=False)
         face_vals = (
@@ -266,10 +350,18 @@ class StreamingCubicalPersistence2D:
             if self.loop_dual_edges
             else np.empty((0, 3), dtype=np.float32)
         )
+        bottom_edges = self._make_current_bottom_h1_dual_edges(full)
+        if len(bottom_edges) > 0:
+            loop_edges = np.vstack([loop_edges, bottom_edges]).astype(np.float32, copy=False)
 
         return compute_h0_component_pairs(component_edges, pix_vals), compute_h1_loop_pairs(
             loop_edges, face_vals
         )
+
+    def finalize_exact(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return exact H0/H1 for the final streamed prefix."""
+        self.incremental_h0_state.process_edges_until(np.inf)
+        return self.current_exact_prefix_diagrams()
 
     def _pid(self, row: int, col: int) -> int:
         return row * self.width + col
@@ -283,8 +375,20 @@ class StreamingCubicalPersistence2D:
         previous_last_row = self.values()[-1:, :]
         return np.vstack([previous_last_row, chunk])
 
-    def _store_h0_component_edges(self, full: np.ndarray, old_rows: int, new_rows: int) -> None:
-        """Store H0 edges that can merge components."""
+    def incremental_h0_diagram(self) -> np.ndarray:
+        """Return H0 pairs processed so far."""
+        return self.incremental_h0_state.diagram()
+
+    def update(self, chunk: np.ndarray, h0_watermark: float | None = None) -> None:
+        """Alias for update_chunk."""
+        self.update_chunk(chunk, h0_watermark=h0_watermark)
+
+    def finalize(self) -> tuple[np.ndarray, np.ndarray]:
+        """Alias for finalize_exact."""
+        return self.finalize_exact()
+
+    def _make_h0_component_edges(self, full: np.ndarray, old_rows: int, new_rows: int) -> np.ndarray:
+        """Create H0 edges for new rows plus boundary."""
         C = self.width
         records = []
 
@@ -298,8 +402,9 @@ class StreamingCubicalPersistence2D:
                 u, v = self._pid(r, c), self._pid(r + 1, c)
                 records.append((max(full[r, c], full[r + 1, c]), u, v))
 
-        if records:
-            self.component_merge_edges.append(np.asarray(records, dtype=np.float32))
+        if not records:
+            return np.empty((0, 3), dtype=np.float32)
+        return np.asarray(records, dtype=np.float32)
 
     def _store_face_birth_values(self, full: np.ndarray, old_rows: int, new_rows: int) -> None:
         """Store H1 face birth values."""
@@ -352,6 +457,19 @@ class StreamingCubicalPersistence2D:
             )
         self.loop_dual_edges.append(np.asarray(records, dtype=np.float32))
         self._bottom_h1_finalized = True
+
+    def _make_current_bottom_h1_dual_edges(self, full: np.ndarray) -> np.ndarray:
+        """Create current-prefix bottom exterior H1 edges."""
+        if self.width < 2 or self.rows < 2:
+            return np.empty((0, 3), dtype=np.float32)
+        C = self.width
+        r = self.rows - 1
+        records = []
+        for c in range(C - 1):
+            records.append(
+                (-max(full[r, c], full[r, c + 1]), self._fid(r - 1, c), EXTERIOR_SENTINEL)
+            )
+        return np.asarray(records, dtype=np.float32)
 
 
 def compute_h0_component_pairs(component_edges: np.ndarray, vertex_births: np.ndarray) -> np.ndarray:
@@ -408,8 +526,60 @@ def compute_h1_loop_pairs(loop_dual_edges: np.ndarray, face_births: np.ndarray) 
 
 def compute_streamed_by_rows(grid: np.ndarray, chunk_rows: int) -> tuple[np.ndarray, np.ndarray]:
     """Compute exact pairs from row-streamed chunks."""
-    engine = StreamingCubicalPersistence2D()
+    engine = IncrementalStreamingPersistence2D()
     grid = np.asarray(grid, dtype=np.float32)
     for start in range(0, grid.shape[0], chunk_rows):
-        engine.update(grid[start : start + chunk_rows])
-    return engine.finalize()
+        engine.update_chunk(grid[start : start + chunk_rows])
+    return engine.finalize_exact()
+
+
+def compute_safe_h0_watermarks_for_row_chunks(grid: np.ndarray, chunk_rows: int) -> list[float]:
+    """Return exact H0 watermarks for row-chunk demos."""
+    grid = np.asarray(grid, dtype=np.float32)
+    R, C = grid.shape
+    watermarks = []
+    for end in range(chunk_rows, R + chunk_rows, chunk_rows):
+        end = min(end, R)
+        future = []
+        for r in range(end, R):
+            for c in range(C - 1):
+                future.append(max(grid[r, c], grid[r, c + 1]))
+        for r in range(max(0, end - 1), R - 1):
+            for c in range(C):
+                future.append(max(grid[r, c], grid[r + 1, c]))
+        if future:
+            watermarks.append(float(np.nextafter(np.min(future), -np.inf)))
+        else:
+            watermarks.append(np.inf)
+        if end == R:
+            break
+    return watermarks
+
+
+def compute_incremental_streamed_by_rows(
+    grid: np.ndarray, chunk_rows: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute exact pairs using per-chunk H0 watermarks."""
+    engine = IncrementalStreamingPersistence2D()
+    grid = np.asarray(grid, dtype=np.float32)
+    watermarks = compute_safe_h0_watermarks_for_row_chunks(grid, chunk_rows)
+    for chunk_idx, start in enumerate(range(0, grid.shape[0], chunk_rows)):
+        engine.update_chunk(grid[start : start + chunk_rows], h0_watermark=watermarks[chunk_idx])
+    return engine.finalize_exact()
+
+
+def compute_exact_prefix_diagrams_by_rows(
+    grid: np.ndarray, chunk_rows: int
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Return exact H0/H1 after every streamed row chunk."""
+    engine = IncrementalStreamingPersistence2D()
+    grid = np.asarray(grid, dtype=np.float32)
+    diagrams = []
+    for start in range(0, grid.shape[0], chunk_rows):
+        engine.update_chunk(grid[start : start + chunk_rows])
+        diagrams.append(engine.current_exact_prefix_diagrams())
+    return diagrams
+
+
+# Backwards-compatible names used by older notebook cells.
+StreamingCubicalPersistence2D = IncrementalStreamingPersistence2D
