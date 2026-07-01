@@ -80,3 +80,11 @@ Fixes and possible extensions:
 - hardware: better utilize hardware and parallelize threads/cores
 - simplify topological structures, ie via discrete Morse (less accurate, faster)
 - change streaming shape; we currently do row-wise incrementing, but consider column-wise, or replacing specific tiles in the array
+
+
+Datasets:
+- Nvidia stock: [source](https://www.kaggle.com/datasets/kalilurrahman/nvidia-stock-data-latest-and-updated?select=NVidia_stock_history.csv)
+- Household electricity power consumption [source](https://archive.ics.uci.edu/dataset/235/individual+household+electric+power+consumption)
+- Appliances energy prediction [source](https://archive.ics.uci.edu/dataset/374/appliances+energy+prediction)
+
+

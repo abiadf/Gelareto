@@ -1,4 +1,4 @@
-"""Stream 2D chunks and return exact prefix persistence after each update."""
+"""Stream 2D row chunks and return exact prefix H0/H1 after each update."""
 
 from __future__ import annotations
 import heapq
@@ -578,6 +578,22 @@ def compute_exact_prefix_diagrams_by_rows(
     for start in range(0, grid.shape[0], chunk_rows):
         engine.update_chunk(grid[start : start + chunk_rows])
         diagrams.append(engine.current_exact_prefix_diagrams())
+    return diagrams
+
+
+def compute_2d_prefix_diagrams_by_full_recompute(
+    grid: np.ndarray, chunk_rows: int
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Return prefix H0/H1 by rebuilding each prefix from scratch."""
+    grid = np.asarray(grid, dtype=np.float32)
+    diagrams = []
+    for end in range(chunk_rows, grid.shape[0] + chunk_rows, chunk_rows):
+        end = min(end, grid.shape[0])
+        engine = IncrementalStreamingPersistence2D()
+        engine.update_chunk(grid[:end])
+        diagrams.append(engine.current_exact_prefix_diagrams())
+        if end == grid.shape[0]:
+            break
     return diagrams
 
 
