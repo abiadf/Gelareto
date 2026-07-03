@@ -14,9 +14,7 @@
 uv run python -m topo.runner --case 2d --dataset-2d ring_patch --ring-strength 1.0 --patch-strength 3.0 --rows 300 --cols 300 --chunks 10 \
   --save-plots
 
-# Add --max-plot-chunks N only if you want sensitivity curves beyond the active --chunks value.
-
-# Save plots to images/runner_outputs/run_YYYYMMDD_HHMMSS/.
+# Add --max-plot-chunks N only if you want sensitivity curves beyond the act# Save plots to results/runner_outputs/run_YYYYMMDD_HHMMSS/.run_YYYYMMDD_HHMMSS/.
 # uv run python -m topo.runner --case both --save-plots
 # uv run python -m topo.runner --case both --save-plots --plot-format pdf
 

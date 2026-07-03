@@ -804,7 +804,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--save-plots", action="store_true")
-    parser.add_argument("--output-dir", default="images/runner_outputs")
+    parser.add_argument("--output-dir", default="results/runner_outputs")
     parser.add_argument("--plot-format", choices=["png", "pdf", "svg"], default="png")
     parser.add_argument(
         "--max-plot-chunks",
