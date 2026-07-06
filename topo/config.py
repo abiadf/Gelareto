@@ -1,18 +1,20 @@
-import numpy as np
-
+"""Config file of datasets and their params"""
 DATASET_CONFIGS = {
     "moving_mnist": {
         "kind": "moving_mnist",
         "path": "datasets/2D/mnist_test_seq.npy",
         "train_slice": slice(0, 2000),
-        "test_slice": slice(9500, 9700),
+        "test_slice": slice(9500, 9_800),
         "image_size": (64, 64),
         "learning_rate": 3e-4,
-        "LATENT_DIM": 128,
-        "HIDDEN_DIM": 128,
+        "LATENT_DIM": 64,
+        "HIDDEN_DIM": 64,
         "EPOCHS": 10,
         "BETTI_SCALE": 15,
         "N_STEPS": 25,
+        "PREDICT_STEPS_AHEAD": 5,
+        "RUN_SEEDS": list(range(3)),
+
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
@@ -34,6 +36,8 @@ DATASET_CONFIGS = {
         "EPOCHS": 10,
         "BETTI_SCALE": 1,
         "N_STEPS": 25,
+        "PREDICT_STEPS_AHEAD": 5,
+        "RUN_SEEDS": list(range(3)),
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
@@ -51,23 +55,56 @@ DATASET_CONFIGS = {
         "EPOCHS": 10,
         "BETTI_SCALE": 15,
         "N_STEPS": 25,
+        "PREDICT_STEPS_AHEAD": 1,
+        "RUN_SEEDS": list(range(5)),
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
         "LATENT_TDA_EPOCHS" : 10,
     },
     "glioblastoma": {
-        "kind": "tif_folder",
-        "folder": "datasets/2D/glioblastoma/01",
-        "train_slice": slice(0, 45),
-        "test_slice": slice(45, None),
-        "image_size": (64, 64),
+        "kind": "ctc_tif_clips",
+        "root": "datasets/2D/glioblastoma",
+        "train_sequence_dirs": [
+            "datasets/2D/glioblastoma/glioblastoma_train/01",
+            "datasets/2D/glioblastoma/glioblastoma_train/02",
+        ],
+        "test_sequence_dirs": [
+            "datasets/2D/glioblastoma/glioblastoma_test/02",
+        ],
+        "ignore_dir_suffixes": ["_GT", "_ST", "_ERR_SEG"],
+        "image_size": None,
         "learning_rate": 3e-4,
         "LATENT_DIM": 128,
         "HIDDEN_DIM": 128,
         "EPOCHS": 10,
         "BETTI_SCALE": 15,
         "N_STEPS": 25,
+
+        # CTC time-lapse preprocessing: raw stack -> spatial patch tracks -> temporal clips.
+        "patch_size": 256,
+        "spatial_stride": 128,
+        "win_len": 20,
+        "temporal_stride": 5,
+        "clip_channels": 1,
+        "normalize": "minmax",
+        "normalize_percentiles": (1, 99.8),
+        "empty_patch_filter": True,
+        "min_temporal_std": 0.03, #removes clips with low temporal var (e.g. empty background)
+        "min_mean_intensity": 0.01,
+        "max_train_clips": 128,
+        "max_test_clips": 64,
+        "preprocessed_train_tensor": "datasets/2D/glioblastoma/processed/train_clips.pt",
+        "preprocessed_test_tensor": "datasets/2D/glioblastoma/processed/test_clips.pt",
+
+        # Clip-tensor ablation runner params.
+        "RUN_SEEDS": list(range(3)),
+        "PREDICT_STEPS_AHEAD": 1,
+        "AE_EPOCHS": 2,
+        "AE_MAX_FRAMES_PER_EPOCH": 2048,
+        "MLP_EPOCHS": 4,
+        "MLP_BATCH_SIZE": 512,
+
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
