@@ -99,14 +99,65 @@ DATASET_CONFIGS = {
 
         # Clip-tensor ablation runner params.
         "RUN_SEEDS": list(range(3)),
-        "PREDICT_STEPS_AHEAD": 1,
+        "PREDICT_STEPS_AHEAD": 5,
         "AE_EPOCHS": 2,
         "AE_MAX_FRAMES_PER_EPOCH": 2048,
         "MLP_EPOCHS": 4,
         "MLP_BATCH_SIZE": 512,
+        "RUN_CELLTRACKING_LATENT_TDA": True,
 
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
         "LATENT_TDA_EPOCHS" : 10,
+    },
+    "hela": {
+        "kind": "ctc_tif_clips",
+        "root": "datasets/2D/hela",
+        "train_sequence_dirs": [
+            "datasets/2D/hela/HeLa_DIC-C2DH_train/01",
+            "datasets/2D/hela/HeLa_DIC-C2DH_train/02",
+        ],
+        "test_sequence_dirs": [
+            "datasets/2D/hela/HeLa_DIC-C2DH_test/01",
+            "datasets/2D/hela/HeLa_DIC-C2DH_test/02",
+        ],
+        "ignore_dir_suffixes": ["_GT", "_ST", "_ERR_SEG"],
+        "image_size": None,
+        "learning_rate": 3e-4,
+        "LATENT_DIM": 128,
+        "HIDDEN_DIM": 128,
+        "EPOCHS": 10,
+        "BETTI_SCALE": 15,
+        "N_STEPS": 25,
+
+        # CTC time-lapse preprocessing: raw stack -> spatial patch tracks -> temporal clips.
+        "patch_size": 256,
+        "spatial_stride": 128,
+        "win_len": 20,
+        "temporal_stride": 5,
+        "clip_channels": 1,
+        "normalize": "minmax",
+        "normalize_percentiles": (1, 99.8),
+        "empty_patch_filter": True,
+        "min_temporal_std": 0.03,
+        "min_mean_intensity": 0.01,
+        "max_train_clips": 96,
+        "max_test_clips": 48,
+        "preprocessed_train_tensor": "datasets/2D/hela/processed/train_clips.pt",
+        "preprocessed_test_tensor": "datasets/2D/hela/processed/test_clips.pt",
+
+        # Clip-tensor ablation runner params.
+        "RUN_SEEDS": list(range(3)),
+        "PREDICT_STEPS_AHEAD": 1,
+        "AE_EPOCHS": 2,
+        "AE_MAX_FRAMES_PER_EPOCH": 2048,
+        "MLP_EPOCHS": 4,
+        "MLP_BATCH_SIZE": 512,
+        "RUN_CELLTRACKING_LATENT_TDA": True,
+
+        # params for TDA-on-latents:
+        "LATENT_TDA_WINDOW": 20,
+        "LATENT_TDA_BINS": 16,
+        "LATENT_TDA_EPOCHS": 10,
     },}
