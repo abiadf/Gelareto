@@ -72,12 +72,8 @@ DATASET_CONFIGS = {
         "test_sequence_dirs": [
             "datasets/2D/glioblastoma/glioblastoma_test/02",
         ],
-        "ignore_dir_suffixes": ["_GT", "_ST", "_ERR_SEG"],
-        "image_size": None,
         "learning_rate": 3e-4,
         "LATENT_DIM": 128,
-        "HIDDEN_DIM": 128,
-        "EPOCHS": 10,
         "BETTI_SCALE": 15,
         "N_STEPS": 25,
 
@@ -86,9 +82,7 @@ DATASET_CONFIGS = {
         "spatial_stride": 128,
         "win_len": 20,
         "temporal_stride": 5,
-        "clip_channels": 1,
         "normalize": "minmax",
-        "normalize_percentiles": (1, 99.8),
         "empty_patch_filter": True,
         "min_temporal_std": 0.03, #removes clips with low temporal var (e.g. empty background)
         "min_mean_intensity": 0.01,
@@ -109,7 +103,6 @@ DATASET_CONFIGS = {
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
-        "LATENT_TDA_EPOCHS" : 10,
     },
     "hela": {
         "kind": "ctc_tif_clips",
@@ -122,12 +115,8 @@ DATASET_CONFIGS = {
             "datasets/2D/hela/HeLa_DIC-C2DH_test/01",
             "datasets/2D/hela/HeLa_DIC-C2DH_test/02",
         ],
-        "ignore_dir_suffixes": ["_GT", "_ST", "_ERR_SEG"],
-        "image_size": None,
         "learning_rate": 3e-4,
         "LATENT_DIM": 128,
-        "HIDDEN_DIM": 128,
-        "EPOCHS": 10,
         "BETTI_SCALE": 15,
         "N_STEPS": 25,
 
@@ -136,9 +125,7 @@ DATASET_CONFIGS = {
         "spatial_stride": 128,
         "win_len": 20,
         "temporal_stride": 5,
-        "clip_channels": 1,
         "normalize": "minmax",
-        "normalize_percentiles": (1, 99.8),
         "empty_patch_filter": True,
         "min_temporal_std": 0.03,
         "min_mean_intensity": 0.01,
@@ -159,5 +146,4 @@ DATASET_CONFIGS = {
         # params for TDA-on-latents:
         "LATENT_TDA_WINDOW": 20,
         "LATENT_TDA_BINS": 16,
-        "LATENT_TDA_EPOCHS": 10,
     },}
