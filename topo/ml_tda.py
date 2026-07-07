@@ -5,7 +5,6 @@ import random
 
 import cv2
 import cripser
-import matplotlib.pyplot as plt
 import numpy as np
 import tifffile as tiff
 import torch
@@ -116,7 +115,7 @@ def run_cripser_tda_on_current_frames(video_prefix):
 def pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3):
     print("\n--- Phase 1: Pre-training Spatial Encoder ---")
     ae_optimizer = optim.AdamW(list(encoder.parameters()) + list(decoder.parameters()), lr=1e-3)
-    all_frames   = X_train.reshape(-1, 1, 64, 64)
+    all_frames   = X_train.reshape(-1, *X_train.shape[2:])
     for ae_epoch in range(epochs):
         encoder.train()
         decoder.train()
@@ -203,6 +202,8 @@ def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retra
         print(f"Saved predictor weights to {model_path}")
 
 def test_predictor(model, encoder, X_test, use_tda):
+    import matplotlib.pyplot as plt
+
     print(f"\nTesting on Test Set (USE_TDA = {use_tda})...")
     model.eval()
     total_test_features, test_z_features = build_sequence_features(X_test, encoder, use_tda, split_name="Test")
@@ -372,6 +373,227 @@ class DavisWindowLoader:
 def load_davis_images(config):
     return DavisWindowLoader(config).load()
 
+def summarize_metric_runs(results_df, group_cols, metric_cols, sort_metric=None):
+    """Mean/std/n summary with std=0 for a single seed instead of NaN."""
+    summary = results_df.groupby(group_cols)[metric_cols].agg(["mean", lambda x: x.std(ddof=0), "count"])
+    summary = summary.rename(columns={"<lambda_0>": "std", "count": "n"}, level=1)
+    if sort_metric is None:
+        sort_metric = metric_cols[0]
+    return summary.sort_values((sort_metric, "mean"))
+
+class BouncingBallsDataset(torch.utils.data.Dataset):
+    """Synthetic Lorenz-driven hollow-ball video clips.
+
+    Each item is a tensor with shape (T, 1, H, W), values in [0, 1].
+    Seeds are index-derived, so train/test splits stay reproducible and separate.
+    """
+
+    def __init__(
+        self,
+        num_clips=2000,
+        clip_len=20,
+        image_size=(96, 96),
+        base_radius=6,
+        min_balls=2,
+        max_balls=6,
+        seed_offset=0,
+        lorenz_dt=0.015,
+        radius_pulse_amp=0.25,
+        radius_pulse_freq=0.15,
+        thickness_min=2,
+        thickness_max=2,
+        overlap_strength=0.0,
+    ):
+        if min_balls < 1 or max_balls < min_balls:
+            raise ValueError("Require 1 <= min_balls <= max_balls")
+        if not 0.0 <= overlap_strength <= 1.0:
+            raise ValueError("Require 0 <= overlap_strength <= 1")
+        if min(image_size) <= 2 * (base_radius + 4):
+            raise ValueError("image_size is too small for the requested ball radius")
+
+        self.num_clips = int(num_clips)
+        self.clip_len = int(clip_len)
+        self.image_size = tuple(image_size)
+        self.base_radius = int(base_radius)
+        self.min_balls = int(min_balls)
+        self.max_balls = int(max_balls)
+        self.seed_offset = int(seed_offset)
+        self.lorenz_dt = float(lorenz_dt)
+        self.radius_pulse_amp = float(radius_pulse_amp)
+        self.radius_pulse_freq = float(radius_pulse_freq)
+        self.thickness_min = int(thickness_min)
+        self.thickness_max = int(thickness_max)
+        self.overlap_strength = float(overlap_strength)
+
+    def __len__(self):
+        return self.num_clips
+
+    def __getitem__(self, index):
+        rng = np.random.RandomState(self.seed_offset + int(index) * 1009)
+        num_balls = rng.randint(self.min_balls, self.max_balls + 1)
+        clip = self._render_clip(
+            num_balls=num_balls,
+            num_frames=self.clip_len,
+            image_size=self.image_size,
+            base_radius=self.base_radius,
+            lorenz_dt=self.lorenz_dt,
+            radius_pulse_amp=self.radius_pulse_amp,
+            radius_pulse_freq=self.radius_pulse_freq,
+            thickness_min=self.thickness_min,
+            thickness_max=self.thickness_max,
+            overlap_strength=self.overlap_strength,
+            rng=rng,
+        )
+        return torch.from_numpy(clip)
+
+    @staticmethod
+    def _lorenz_xy(num_frames, rng, dt):
+        sigma, beta, rho = 10.0, 8.0 / 3.0, 28.0
+        x = rng.uniform(-10.0, 10.0)
+        y = rng.uniform(-10.0, 10.0)
+        z = rng.uniform(10.0, 30.0)
+        traj = np.empty((num_frames, 2), dtype=np.float32)
+
+        for t in range(num_frames):
+            dx = sigma * (y - x) * dt
+            dy = (x * (rho - z) - y) * dt
+            dz = (x * y - beta * z) * dt
+            x, y, z = x + dx, y + dy, z + dz
+            traj[t] = (x, y)
+        return traj
+
+    @staticmethod
+    def _scale_to_canvas(values, low, high):
+        span = float(values.max() - values.min())
+        if span <= 1e-6:
+            return np.full_like(values, (low + high) / 2.0, dtype=np.float32)
+        return low + (values - values.min()) * ((high - low) / span)
+
+    @classmethod
+    def _ball_track(cls, num_frames, image_size, base_radius, lorenz_dt, overlap_strength, rng):
+        H, W = image_size
+        rx = max(2, int(round(base_radius * rng.uniform(0.65, 1.35))))
+        ry = max(2, int(round(base_radius * rng.uniform(0.65, 1.35))))
+        pad = max(rx, ry) + 3
+
+        traj = cls._lorenz_xy(num_frames, rng=rng, dt=lorenz_dt)
+        cx = cls._scale_to_canvas(traj[:, 0], pad, W - pad - 1).astype(np.int32)
+        cy = cls._scale_to_canvas(traj[:, 1], pad, H - pad - 1).astype(np.int32)
+        if overlap_strength > 0:
+            center_x = (W - 1) / 2.0 + rng.uniform(-0.08, 0.08) * W
+            center_y = (H - 1) / 2.0 + rng.uniform(-0.08, 0.08) * H
+            cx = ((1.0 - overlap_strength) * cx + overlap_strength * center_x).astype(np.int32)
+            cy = ((1.0 - overlap_strength) * cy + overlap_strength * center_y).astype(np.int32)
+            cx = np.clip(cx, pad, W - pad - 1)
+            cy = np.clip(cy, pad, H - pad - 1)
+        phase = rng.uniform(0.0, 2.0 * np.pi)
+        return cx, cy, rx, ry, phase
+
+    @classmethod
+    def _render_clip(
+        cls,
+        num_balls,
+        num_frames,
+        image_size,
+        base_radius,
+        lorenz_dt,
+        radius_pulse_amp,
+        radius_pulse_freq,
+        thickness_min,
+        thickness_max,
+        overlap_strength,
+        rng,
+    ):
+        H, W = image_size
+        video = np.zeros((num_frames, H, W), dtype=np.uint8)
+        tracks = [
+            cls._ball_track(num_frames, image_size, base_radius, lorenz_dt, overlap_strength, rng)
+            for _ in range(num_balls)
+        ]
+
+        for t in range(num_frames):
+            frame = np.zeros((H, W), dtype=np.uint8)
+            for ball_idx, (cx, cy, rx, ry, phase) in enumerate(tracks):
+                pulse = 1.0 + radius_pulse_amp * np.sin(radius_pulse_freq * t + phase)
+                pulse_x = max(2, int(round(rx * pulse)))
+                pulse_y = max(2, int(round(ry * (1.0 + radius_pulse_amp * np.cos(radius_pulse_freq * t + phase)))))
+                if thickness_max > thickness_min:
+                    thickness_phase = 0.5 + 0.5 * np.sin(radius_pulse_freq * t + phase + np.pi / 3.0)
+                    thickness = int(round(thickness_min + thickness_phase * (thickness_max - thickness_min)))
+                else:
+                    thickness = thickness_min
+                thickness = max(1, min(thickness, pulse_x, pulse_y))
+                angle = np.deg2rad(t * (1.0 + 0.5 * ball_idx))
+                cls._draw_hollow_ellipse(frame, int(cx[t]), int(cy[t]), pulse_x, pulse_y, angle, thickness=thickness)
+            video[t] = frame
+
+        return video[:, None].astype(np.float32) / 255.0
+
+    @staticmethod
+    def _draw_hollow_ellipse(frame, cx, cy, rx, ry, angle, thickness=2):
+        H, W = frame.shape
+        pad = max(rx, ry) + thickness + 1
+        y0, y1 = max(0, cy - pad), min(H, cy + pad + 1)
+        x0, x1 = max(0, cx - pad), min(W, cx + pad + 1)
+        yy, xx = np.ogrid[y0:y1, x0:x1]
+
+        x = xx - cx
+        y = yy - cy
+        ca, sa = np.cos(angle), np.sin(angle)
+        xr = ca * x + sa * y
+        yr = -sa * x + ca * y
+
+        outer = (xr / max(rx, 1)) ** 2 + (yr / max(ry, 1)) ** 2 <= 1.0
+        inner_rx = max(rx - thickness, 1)
+        inner_ry = max(ry - thickness, 1)
+        inner = (xr / inner_rx) ** 2 + (yr / inner_ry) ** 2 <= 1.0
+        frame[y0:y1, x0:x1][outer & ~inner] = 255
+
+    def make_tensor(self):
+        print(f"Generating {self.num_clips} synthetic Lorenz-ball clips...")
+        data = torch.stack([self[i] for i in range(len(self))])
+        print(f"Dataset generated. Final shape: {tuple(data.shape)}")
+        return data
+
+def generate_bouncing_balls_synthetic_dataset(**kwargs):
+    return BouncingBallsDataset(**kwargs).make_tensor()
+
+def load_bouncing_lorenz(config):
+    common = {
+        "clip_len": config.get("clip_len", 30),
+        "image_size": config.get("image_size", (96, 96)),
+        "base_radius": config.get("base_radius", 6),
+        "min_balls": config.get("min_balls", 2),
+        "max_balls": config.get("max_balls", 5),
+        "lorenz_dt": config.get("lorenz_dt", 0.015),
+        "radius_pulse_amp": config.get("radius_pulse_amp", 0.25),
+        "radius_pulse_freq": config.get("radius_pulse_freq", 0.15),
+        "thickness_min": config.get("thickness_min", 2),
+        "thickness_max": config.get("thickness_max", 2),
+        "overlap_strength": config.get("overlap_strength", 0.0),
+    }
+    train = generate_bouncing_balls_synthetic_dataset(
+        num_clips=config.get("num_train_clips", 160),
+        seed_offset=config.get("train_seed_offset", 0),
+        **common,
+    )
+    test = generate_bouncing_balls_synthetic_dataset(
+        num_clips=config.get("num_test_clips", 48),
+        seed_offset=config.get("test_seed_offset", 50000),
+        **common,
+    )
+    train = train.squeeze(2).permute(1, 0, 2, 3).numpy().astype(np.float32)
+    test = test.squeeze(2).permute(1, 0, 2, 3).numpy().astype(np.float32)
+    normalize = config.get("normalize", "minmax")
+    if normalize == "minmax":
+        train = normalize_video_array(train)
+        test = normalize_video_array(test)
+    elif normalize in {None, "none"}:
+        pass
+    else:
+        raise ValueError(f"Unknown bouncing_balls normalize mode: {normalize}")
+    return train, test
+
 def load_video_dataset(config):
     if config["kind"] == "moving_mnist":
         arr = normalize_video_array(np.load(config["path"]))
@@ -384,6 +606,8 @@ def load_video_dataset(config):
         test = arr[config["test_slice"], :, :, :]
     elif config["kind"] == "davis_images":
         train, test = load_davis_images(config)
+    elif config["kind"] == "bouncing_balls":
+        train, test = load_bouncing_lorenz(config)
     else:
         raise ValueError(f"Unknown dataset kind: {config['kind']}")
 

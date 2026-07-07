@@ -11,13 +11,20 @@ import torch.nn as nn
 import torch.optim as optim
 
 import topo.ml_tda as ml_tda
-from topo.ml_tda import SpatialEncoder, SpatialDecoder, TopologicalPredictor, pretrain_spatial_encoder
+from topo.ml_tda import (
+    SpatialEncoder,
+    SpatialDecoder,
+    TopologicalPredictor,
+    pretrain_spatial_encoder,
+    summarize_metric_runs,
+)
 
 
 DATASET = "default"
 LATENT_DIM = 128
 HIDDEN_DIM = 128
 RETRAIN_ENCODER = False
+PREDICT_STEPS_AHEAD = 1
 LATENT_TDA_WINDOW = 20
 LATENT_TDA_BINS = 16
 LATENT_TDA_EPOCHS = 10
@@ -32,6 +39,7 @@ def configure_runtime(**kwargs):
     ml_tda.configure_runtime(
         DATASET=globals().get("DATASET", DATASET),
         LATENT_DIM=globals().get("LATENT_DIM", LATENT_DIM),
+        PREDICT_STEPS_AHEAD=globals().get("PREDICT_STEPS_AHEAD", PREDICT_STEPS_AHEAD),
     )
 
 
@@ -163,9 +171,17 @@ def features_for_latent_tda_mode(payload, mode):
 
 
 def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
+    if PREDICT_STEPS_AHEAD >= train_features.shape[0]:
+        raise ValueError(
+            f"PREDICT_STEPS_AHEAD={PREDICT_STEPS_AHEAD} must be smaller than sequence length "
+            f"{train_features.shape[0]}"
+        )
     model_dir = Path("models") / DATASET / "latent_tda_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
-    model_path = model_dir / f"model_seed{seed}_{mode}_win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}.pt"
+    model_path = model_dir / (
+        f"model_seed{seed}_pred{PREDICT_STEPS_AHEAD}_{mode}_"
+        f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}.pt"
+    )
     model = TopologicalPredictor(input_dim=train_features.shape[-1], hidden_dim=HIDDEN_DIM)
 
     if model_path.exists() and not RETRAIN_LATENT_TDA_PREDICTOR:
@@ -180,8 +196,8 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
     for epoch in range(1, LATENT_TDA_EPOCHS + 1):
         model.train()
         optimizer.zero_grad()
-        pred = model(train_features[:-1])
-        target = train_z[1:]
+        pred = model(train_features[:-PREDICT_STEPS_AHEAD])
+        target = train_z[PREDICT_STEPS_AHEAD:]
         loss = criterion(pred, target)
         loss.backward()
         optimizer.step()
@@ -191,11 +207,16 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
 
 
 def eval_latent_tda_predictor(model, test_features, test_z):
+    if PREDICT_STEPS_AHEAD >= test_features.shape[0]:
+        raise ValueError(
+            f"PREDICT_STEPS_AHEAD={PREDICT_STEPS_AHEAD} must be smaller than sequence length "
+            f"{test_features.shape[0]}"
+        )
     model.eval()
     criterion = nn.MSELoss()
     with torch.no_grad():
-        pred = model(test_features[:-1])
-        target = test_z[1:]
+        pred = model(test_features[:-PREDICT_STEPS_AHEAD])
+        target = test_z[PREDICT_STEPS_AHEAD:]
         mse = criterion(pred, target).item()
         per_frame = ((pred - target) ** 2).mean(dim=(1, 2)).cpu()
     return mse, per_frame
@@ -242,6 +263,7 @@ def run_latent_tda_trajectory_experiment(
                 "dataset": DATASET,
                 "seed": seed,
                 "mode": mode,
+                "predict_steps_ahead": PREDICT_STEPS_AHEAD,
                 "test_mse": float(test_mse),
                 "warmup_excluded_mse": float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse),
             }
@@ -249,12 +271,11 @@ def run_latent_tda_trajectory_experiment(
             print("latent TDA run summary:", row)
 
     results_df = pd.DataFrame(rows)
-    summary_df = (
-        results_df
-        .groupby("mode")[["test_mse", "warmup_excluded_mse"]]
-        .agg(["mean", "std"])
-        .fillna(0.0)
-        .sort_values(("test_mse", "mean"))
+    summary_df = summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=["test_mse", "warmup_excluded_mse"],
+        sort_metric="test_mse",
     )
     paired_df = results_df.pivot(index="seed", columns="mode", values="test_mse")
     if {"z", "z_latent_h1"}.issubset(paired_df.columns):
