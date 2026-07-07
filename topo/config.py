@@ -107,6 +107,11 @@ DATASET_CONFIGS = {
         "LATENT_TDA_BINS": 16,
         "LATENT_TDA_EPOCHS": 8,
 
+        # params for auxiliary topology prediction:
+        "AUX_TDA_MODES": ["none", "aux_h0", "aux_h1", "aux_both"],
+        "AUX_TDA_LAMBDA": 0.1,
+        "AUX_TDA_EPOCHS": 4,
+
         # params for xLSTM ablation:
         "XLSTM_MODES": ["none", "h0", "h0_zero", "h0_shuffle", "h0_noise", "h0_shift"],
         "XLSTM_BATCH_SIZE": 128,
