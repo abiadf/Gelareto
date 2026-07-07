@@ -86,8 +86,8 @@ DATASET_CONFIGS = {
         "EPOCHS": 4,
         "BETTI_SCALE": 15,
         "N_STEPS": 25,
-        "PREDICT_STEPS_AHEAD": 10,
-        "RUN_SEEDS": list(range(3)),
+        "PREDICT_STEPS_AHEAD": 15,
+        "RUN_SEEDS": list(range(5)),
 
         # params for TDA-on-latents:
         "LATENT_TDA_WINDOW": 20,
