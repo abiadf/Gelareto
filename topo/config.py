@@ -99,8 +99,8 @@ DATASET_CONFIGS = {
         "AE_MAX_FRAMES_PER_EPOCH": 8192,
         "BETTI_SCALE": 5,
         "N_STEPS": 25,
-        "PREDICT_STEPS_AHEAD": 1,
-        "RUN_SEEDS": list(range(8)),
+        "PREDICT_STEPS_AHEAD": 10,
+        "RUN_SEEDS": list(range(5)),
 
         # params for TDA-on-latents:
         "LATENT_TDA_WINDOW": 20,
