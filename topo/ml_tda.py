@@ -24,6 +24,7 @@ BETTI_SCALE = 15
 N_STEPS = 25
 PREDICT_STEPS_AHEAD = 1
 EPOCHS = 10
+DEVICE = "auto"
 criterion = nn.MSELoss()
 
 
@@ -37,6 +38,27 @@ def tensor_to_model_float(x):
     if x.dtype == torch.uint8:
         return x.float() / 255.0
     return x.float()
+
+
+def get_runtime_device():
+    """Resolve configured compute device with CPU fallback."""
+    requested = globals().get("DEVICE", "auto")
+    if isinstance(requested, torch.device):
+        return requested
+    requested = str(requested).lower()
+    if requested == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    if requested == "cuda" and not torch.cuda.is_available():
+        print("Requested CUDA but it is unavailable; falling back to CPU.")
+        return torch.device("cpu")
+    if requested == "mps" and (not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available()):
+        print("Requested MPS but it is unavailable; falling back to CPU.")
+        return torch.device("cpu")
+    return torch.device(requested)
 
 class SpatialEncoder(nn.Module):
     def __init__(self, latent_dim=128):
@@ -191,6 +213,10 @@ def run_cripser_tda_on_current_frames(video_prefix):
 
 def pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3):
     print("\n--- Phase 1: Pre-training Spatial Encoder ---")
+    device = get_runtime_device()
+    encoder.to(device)
+    decoder.to(device)
+    print(f"AE device: {device}")
     ae_optimizer = optim.AdamW(list(encoder.parameters()) + list(decoder.parameters()), lr=1e-3)
     all_frames = X_train.reshape(-1, *X_train.shape[2:])
     frame_batch_size = globals().get("AE_FRAME_BATCH_SIZE", 256)
@@ -206,7 +232,7 @@ def pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3):
         total_loss, total_seen = 0.0, 0
         for start in range(0, len(frame_idx), frame_batch_size):
             idx = frame_idx[start:start + frame_batch_size]
-            frames = tensor_to_model_float(all_frames[idx])
+            frames = tensor_to_model_float(all_frames[idx]).to(device, non_blocking=True)
             ae_optimizer.zero_grad()
             latents = encoder(frames)
             reconstructions = decoder(latents)
@@ -218,18 +244,20 @@ def pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3):
         print(f"AE Pretrain Epoch {ae_epoch+1}/{epochs} | Reconstr MSE: {total_loss / total_seen:.4f}")
 
 def build_sequence_features(video_tensor, encoder, use_tda, split_name="Train"):
+    device = get_runtime_device()
+    encoder.to(device)
     encoder.eval()
     z_history = []
     tda_history = []
     with torch.no_grad():
         for t in range(video_tensor.shape[0]):
-            frame_t = tensor_to_model_float(video_tensor[t])
+            frame_t = tensor_to_model_float(video_tensor[t]).to(device, non_blocking=True)
             z_t     = encoder(frame_t)
             if use_tda:
                 if (t + 1) % 20 == 0 or t == 0 or t == video_tensor.shape[0] - 1:
                     print(f"  [{split_name} Frame {t+1:02d}/{video_tensor.shape[0]}] Computing TDA")
                 h0_diags, h1_diags = run_cripser_tda_on_current_frames(video_tensor[0:t+1])
-                B_t = select_tda_features(h0_diags, h1_diags)
+                B_t = select_tda_features(h0_diags, h1_diags).to(device)
                 tda_history.append(B_t)
             z_history.append(z_t)
     z_seq = torch.stack(z_history, dim=0)
@@ -246,6 +274,10 @@ def build_sequence_features(video_tensor, encoder, use_tda, split_name="Train"):
 
 def train_predictor(model, encoder, X_train, epochs, use_tda, learning_rate):
     print(f"\n--- Phase 2: Training LSTM Predictor (USE_TDA={use_tda}) ---")
+    device = get_runtime_device()
+    encoder.to(device)
+    model.to(device)
+    print(f"Predictor device: {device}")
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
     for epoch in range(epochs):
         model.train()
@@ -261,6 +293,7 @@ def train_predictor(model, encoder, X_train, epochs, use_tda, learning_rate):
         print(f"Epoch {epoch+1:02d}/{epochs:02d} | Training MSE Loss: {loss.item():.4f}")
 
 def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retrain_predictor, use_tda, learning_rate):
+    device = get_runtime_device()
     model_dir   = Path("models") / DATASET
     model_dir.mkdir(parents=True, exist_ok=True)
     encoder_dir = model_dir / "encoders"
@@ -284,6 +317,7 @@ def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retra
         pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3)
         torch.save(encoder.state_dict(), encoder_path)
         print(f"Saved shared encoder: {encoder_path}")
+    encoder.to(device)
 
     for param in encoder.parameters():
         param.requires_grad = False
@@ -291,9 +325,11 @@ def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retra
     if model_path.exists() and not retrain_predictor:
         print(f"Loading predictor: {model_path}")
         model.load_state_dict(torch.load(model_path, map_location="cpu"))
+        model.to(device)
     else:
         reason = "retraining" if model_path.exists() else "missing; training once"
         print(f"Predictor {reason}: {model_path}")
+        model.to(device)
         train_predictor(model, encoder, X_train, epochs=EPOCHS, use_tda=use_tda, learning_rate=learning_rate)
         torch.save(model.state_dict(), model_path)
         print(f"Saved predictor weights to {model_path}")
@@ -302,6 +338,9 @@ def test_predictor(model, encoder, X_test, use_tda):
     import matplotlib.pyplot as plt
 
     print(f"\nTesting on Test Set (USE_TDA = {use_tda})...")
+    device = get_runtime_device()
+    encoder.to(device)
+    model.to(device)
     model.eval()
     total_test_features, test_z_features = build_sequence_features(X_test, encoder, use_tda, split_name="Test")
     with torch.no_grad():
