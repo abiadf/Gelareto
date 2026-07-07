@@ -142,6 +142,8 @@ def apply_tda_control(tda_features, control="real", seed=0, shift=1):
     """Apply a named control perturbation to TDA features."""
     if control == "real":
         return tda_features
+    if control == "zero":
+        return torch.zeros_like(tda_features)
     if control == "noise":
         return perturb_tda_noise(tda_features, seed=seed)
     if control == "shuffle":

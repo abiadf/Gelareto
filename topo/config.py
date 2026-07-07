@@ -108,15 +108,18 @@ DATASET_CONFIGS = {
         "LATENT_TDA_EPOCHS": 8,
 
         # params for xLSTM ablation:
-        "XLSTM_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
-        "XLSTM_MAX_TRAIN_WINDOWS": 512,
-        "XLSTM_MAX_TEST_WINDOWS": 344,
+        "XLSTM_MODES": ["none", "h0", "h0_zero", "h0_shuffle", "h0_noise", "h0_shift"],
+        "XLSTM_BATCH_SIZE": 128,
+        "XLSTM_MAX_TRAIN_WINDOWS": 4096,
+        "XLSTM_MAX_TEST_WINDOWS": None,
+        "XLSTM_STANDARDIZE_INPUTS": True,
+        "XLSTM_STANDARDIZE_TARGETS": True,
         "XLSTM_RUN_LATENT_TDA": False,
         "XLSTM_RECOMPUTE_LATENT_TDA_FEATURES": False,
         "XLSTM_LATENT_TDA_MODES": ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
 
         # params for regular sequence ablation:
-        "LEGACY_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
+        "LEGACY_TDA_MODES": ["none", "h0", "h0_zero", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "glioblastoma": {
         "kind": "ctc_tif_clips",
