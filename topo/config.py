@@ -84,10 +84,10 @@ DATASET_CONFIGS = {
         "LATENT_DIM": 64,
         "HIDDEN_DIM": 96,
         "EPOCHS": 4,
-        "BETTI_SCALE": 15,
+        "BETTI_SCALE": 5,
         "N_STEPS": 25,
-        "PREDICT_STEPS_AHEAD": 15,
-        "RUN_SEEDS": list(range(5)),
+        "PREDICT_STEPS_AHEAD": 1,
+        "RUN_SEEDS": list(range(8)),
 
         # params for TDA-on-latents:
         "LATENT_TDA_WINDOW": 20,
@@ -97,9 +97,9 @@ DATASET_CONFIGS = {
         # params for xLSTM ablation:
         "XLSTM_MAX_TRAIN_WINDOWS": 512,
         "XLSTM_MAX_TEST_WINDOWS": 344,
-        "XLSTM_RUN_LATENT_TDA": True,
-        "XLSTM_LATENT_TDA_MODES": ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+        "XLSTM_RUN_LATENT_TDA": False,
         "XLSTM_RECOMPUTE_LATENT_TDA_FEATURES": False,
+        "XLSTM_LATENT_TDA_MODES": ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
     },
     "glioblastoma": {
         "kind": "ctc_tif_clips",
