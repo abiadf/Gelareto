@@ -77,7 +77,7 @@ DATASET_CONFIGS = {
         "num_test_clips": 128,
         "cache_dir": "datasets/2D/bouncing_balls/processed",
         "cache_dtype": "uint8",
-        "clip_len": 30,
+        "clip_len": 20,
         "image_size": (96, 96),
         "base_radius": 6,
         "min_balls": 5,
@@ -96,11 +96,11 @@ DATASET_CONFIGS = {
         "HIDDEN_DIM": 96,
         "EPOCHS": 4,
         "AE_FRAME_BATCH_SIZE": 256,
-        "AE_MAX_FRAMES_PER_EPOCH": 4096,
+        "AE_MAX_FRAMES_PER_EPOCH": 8192,
         "BETTI_SCALE": 5,
         "N_STEPS": 25,
-        "PREDICT_STEPS_AHEAD": 10,
-        "RUN_SEEDS": list(range(3)),
+        "PREDICT_STEPS_AHEAD": 5,
+        "RUN_SEEDS": list(range(5)),
 
         # params for TDA-on-latents:
         "LATENT_TDA_WINDOW": 20,
