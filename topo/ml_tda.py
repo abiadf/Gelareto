@@ -31,6 +31,13 @@ def configure_runtime(**kwargs):
     """Update notebook-controlled globals used by legacy helper functions."""
     globals().update(kwargs)
 
+
+def tensor_to_model_float(x):
+    """Convert image tensors to float [0, 1] only when needed."""
+    if x.dtype == torch.uint8:
+        return x.float() / 255.0
+    return x.float()
+
 class SpatialEncoder(nn.Module):
     def __init__(self, latent_dim=128):
         super().__init__()
@@ -162,7 +169,11 @@ def build_controlled_tda_features(z_seq, h0, h1, mode, seed=0, shift=1):
 
 def run_cripser_tda_on_current_frames(video_prefix):
     """Compute H0/H1 with cripser for the current frame of each clip."""
-    current_frames = video_prefix[-1, :, 0].detach().cpu().numpy()
+    current = video_prefix[-1, :, 0].detach().cpu()
+    if current.dtype == torch.uint8:
+        current_frames = current.numpy().astype(np.float32) / 255.0
+    else:
+        current_frames = current.numpy().astype(np.float32)
     h0_diagrams, h1_diagrams = [], []
     for frame in current_frames:
         ph = cripser.compute_ph(frame.astype(np.float32), maxdim=1)
@@ -179,17 +190,30 @@ def run_cripser_tda_on_current_frames(video_prefix):
 def pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3):
     print("\n--- Phase 1: Pre-training Spatial Encoder ---")
     ae_optimizer = optim.AdamW(list(encoder.parameters()) + list(decoder.parameters()), lr=1e-3)
-    all_frames   = X_train.reshape(-1, *X_train.shape[2:])
+    all_frames = X_train.reshape(-1, *X_train.shape[2:])
+    frame_batch_size = globals().get("AE_FRAME_BATCH_SIZE", 256)
+    max_frames_per_epoch = globals().get("AE_MAX_FRAMES_PER_EPOCH", min(len(all_frames), 8192))
     for ae_epoch in range(epochs):
         encoder.train()
         decoder.train()
-        ae_optimizer.zero_grad()
-        latents = encoder(all_frames)
-        reconstructions = decoder(latents)
-        ae_loss = criterion(reconstructions, all_frames)
-        ae_loss.backward()
-        ae_optimizer.step()
-        print(f"AE Pretrain Epoch {ae_epoch+1}/{epochs} | Reconstr MSE: {ae_loss.item():.4f}")
+        generator = torch.Generator().manual_seed(1000 + ae_epoch)
+        if max_frames_per_epoch is None or max_frames_per_epoch >= len(all_frames):
+            frame_idx = torch.randperm(len(all_frames), generator=generator)
+        else:
+            frame_idx = torch.randperm(len(all_frames), generator=generator)[:max_frames_per_epoch]
+        total_loss, total_seen = 0.0, 0
+        for start in range(0, len(frame_idx), frame_batch_size):
+            idx = frame_idx[start:start + frame_batch_size]
+            frames = tensor_to_model_float(all_frames[idx])
+            ae_optimizer.zero_grad()
+            latents = encoder(frames)
+            reconstructions = decoder(latents)
+            ae_loss = criterion(reconstructions, frames)
+            ae_loss.backward()
+            ae_optimizer.step()
+            total_loss += ae_loss.item() * len(frames)
+            total_seen += len(frames)
+        print(f"AE Pretrain Epoch {ae_epoch+1}/{epochs} | Reconstr MSE: {total_loss / total_seen:.4f}")
 
 def build_sequence_features(video_tensor, encoder, use_tda, split_name="Train"):
     encoder.eval()
@@ -197,7 +221,7 @@ def build_sequence_features(video_tensor, encoder, use_tda, split_name="Train"):
     tda_history = []
     with torch.no_grad():
         for t in range(video_tensor.shape[0]):
-            frame_t = video_tensor[t]
+            frame_t = tensor_to_model_float(video_tensor[t])
             z_t     = encoder(frame_t)
             if use_tda:
                 if (t + 1) % 20 == 0 or t == 0 or t == video_tensor.shape[0] - 1:
@@ -474,6 +498,7 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
         thickness_min=2,
         thickness_max=2,
         overlap_strength=0.0,
+        output_dtype="float32",
     ):
         if min_balls < 1 or max_balls < min_balls:
             raise ValueError("Require 1 <= min_balls <= max_balls")
@@ -495,6 +520,7 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
         self.thickness_min = int(thickness_min)
         self.thickness_max = int(thickness_max)
         self.overlap_strength = float(overlap_strength)
+        self.output_dtype = output_dtype
 
     def __len__(self):
         return self.num_clips
@@ -515,6 +541,8 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
             overlap_strength=self.overlap_strength,
             rng=rng,
         )
+        if self.output_dtype == "uint8":
+            clip = np.clip(np.rint(clip * 255.0), 0, 255).astype(np.uint8)
         return torch.from_numpy(clip)
 
     @staticmethod
@@ -641,7 +669,8 @@ def bouncing_balls_cache_path(config, split_name, num_clips, seed_offset):
         f"r{config.get('base_radius', 6)}_dt{config.get('lorenz_dt', 0.015)}_"
         f"pulse{config.get('radius_pulse_amp', 0.25)}-{config.get('radius_pulse_freq', 0.15)}_"
         f"thick{config.get('thickness_min', 2)}-{config.get('thickness_max', 2)}_"
-        f"overlap{config.get('overlap_strength', 0.0)}_seed{seed_offset}.pt"
+        f"overlap{config.get('overlap_strength', 0.0)}_"
+        f"dtype{config.get('cache_dtype', 'uint8')}_seed{seed_offset}.pt"
     )
     return cache_dir / tag.replace("/", "-")
 
@@ -676,6 +705,7 @@ def load_bouncing_lorenz(config):
         "thickness_min": config.get("thickness_min", 2),
         "thickness_max": config.get("thickness_max", 2),
         "overlap_strength": config.get("overlap_strength", 0.0),
+        "output_dtype": config.get("cache_dtype", "uint8"),
     }
     train_n = config.get("num_train_clips", 160)
     test_n = config.get("num_test_clips", 48)
@@ -683,12 +713,13 @@ def load_bouncing_lorenz(config):
     test_seed = config.get("test_seed_offset", 50000)
     train = load_or_generate_bouncing_split(config, "train", train_n, train_seed, common)
     test = load_or_generate_bouncing_split(config, "test", test_n, test_seed, common)
-    train = train.squeeze(2).permute(1, 0, 2, 3).numpy().astype(np.float32)
-    test = test.squeeze(2).permute(1, 0, 2, 3).numpy().astype(np.float32)
+    train = train.squeeze(2).permute(1, 0, 2, 3).numpy()
+    test = test.squeeze(2).permute(1, 0, 2, 3).numpy()
     normalize = config.get("normalize", "minmax")
     if normalize == "minmax":
-        train = normalize_video_array(train)
-        test = normalize_video_array(test)
+        if train.dtype != np.uint8:
+            train = normalize_video_array(train)
+            test = normalize_video_array(test)
     elif normalize in {None, "none"}:
         pass
     else:
@@ -709,6 +740,7 @@ def load_video_dataset(config):
         train, test = load_davis_images(config)
     elif config["kind"] == "bouncing_balls":
         train, test = load_bouncing_lorenz(config)
+        return train, test
     else:
         raise ValueError(f"Unknown dataset kind: {config['kind']}")
 
