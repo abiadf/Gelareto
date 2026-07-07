@@ -97,6 +97,9 @@ DATASET_CONFIGS = {
         # params for xLSTM ablation:
         "XLSTM_MAX_TRAIN_WINDOWS": 512,
         "XLSTM_MAX_TEST_WINDOWS": 344,
+        "XLSTM_RUN_LATENT_TDA": True,
+        "XLSTM_LATENT_TDA_MODES": ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+        "XLSTM_RECOMPUTE_LATENT_TDA_FEATURES": False,
     },
     "glioblastoma": {
         "kind": "ctc_tif_clips",
