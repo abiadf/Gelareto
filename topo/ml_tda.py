@@ -629,6 +629,40 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
 def generate_bouncing_balls_synthetic_dataset(**kwargs):
     return BouncingBallsDataset(**kwargs).make_tensor()
 
+
+def bouncing_balls_cache_path(config, split_name, num_clips, seed_offset):
+    cache_dir = Path(config.get("cache_dir", "datasets/2D/bouncing_balls/processed"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    image_size = tuple(config.get("image_size", (96, 96)))
+    tag = (
+        f"{split_name}_N{num_clips}_T{config.get('clip_len', 30)}_"
+        f"H{image_size[0]}_W{image_size[1]}_"
+        f"balls{config.get('min_balls', 2)}-{config.get('max_balls', 5)}_"
+        f"r{config.get('base_radius', 6)}_dt{config.get('lorenz_dt', 0.015)}_"
+        f"pulse{config.get('radius_pulse_amp', 0.25)}-{config.get('radius_pulse_freq', 0.15)}_"
+        f"thick{config.get('thickness_min', 2)}-{config.get('thickness_max', 2)}_"
+        f"overlap{config.get('overlap_strength', 0.0)}_seed{seed_offset}.pt"
+    )
+    return cache_dir / tag.replace("/", "-")
+
+
+def load_or_generate_bouncing_split(config, split_name, num_clips, seed_offset, common):
+    cache_path = bouncing_balls_cache_path(config, split_name, num_clips, seed_offset)
+    force_rebuild = config.get("force_rebuild_cache", False)
+    if cache_path.exists() and not force_rebuild:
+        print(f"Loading cached bouncing-balls {split_name}: {cache_path}")
+        return torch.load(cache_path, map_location="cpu")
+
+    data = generate_bouncing_balls_synthetic_dataset(
+        num_clips=num_clips,
+        seed_offset=seed_offset,
+        **common,
+    )
+    torch.save(data, cache_path)
+    print(f"Saved bouncing-balls {split_name} cache: {cache_path}")
+    return data
+
+
 def load_bouncing_lorenz(config):
     common = {
         "clip_len": config.get("clip_len", 30),
@@ -643,16 +677,12 @@ def load_bouncing_lorenz(config):
         "thickness_max": config.get("thickness_max", 2),
         "overlap_strength": config.get("overlap_strength", 0.0),
     }
-    train = generate_bouncing_balls_synthetic_dataset(
-        num_clips=config.get("num_train_clips", 160),
-        seed_offset=config.get("train_seed_offset", 0),
-        **common,
-    )
-    test = generate_bouncing_balls_synthetic_dataset(
-        num_clips=config.get("num_test_clips", 48),
-        seed_offset=config.get("test_seed_offset", 50000),
-        **common,
-    )
+    train_n = config.get("num_train_clips", 160)
+    test_n = config.get("num_test_clips", 48)
+    train_seed = config.get("train_seed_offset", 0)
+    test_seed = config.get("test_seed_offset", 50000)
+    train = load_or_generate_bouncing_split(config, "train", train_n, train_seed, common)
+    test = load_or_generate_bouncing_split(config, "test", test_n, test_seed, common)
     train = train.squeeze(2).permute(1, 0, 2, 3).numpy().astype(np.float32)
     test = test.squeeze(2).permute(1, 0, 2, 3).numpy().astype(np.float32)
     normalize = config.get("normalize", "minmax")
