@@ -312,17 +312,22 @@ def make_features(z, b_h1=None, b_h0=None, input_variant="z", predict_steps_ahea
     z_now = z[:, :-predict_steps_ahead]
     z_future = z[:, predict_steps_ahead:]
     z_delta = z_future - z_now
+    seed = int(globals().get("CONTROL_SEED", 0))
 
     if input_variant == "z":
         x = z_now
-    elif input_variant == "z_h1":
-        x = torch.cat([z_now, b_h1[:, :-predict_steps_ahead]], dim=-1)
-    elif input_variant == "z_h0":
-        x = torch.cat([z_now, b_h0[:, :-predict_steps_ahead]], dim=-1)
-    elif input_variant == "z_h0_h1":
-        x = torch.cat([z_now, b_h0[:, :-predict_steps_ahead], b_h1[:, :-predict_steps_ahead]], dim=-1)
     else:
-        raise ValueError(f"Unknown input_variant: {input_variant}")
+        base, control = parse_celltracking_input_variant(input_variant)
+        if base == "z_h1":
+            tda = b_h1
+        elif base == "z_h0":
+            tda = b_h0
+        elif base == "z_h0_h1":
+            tda = torch.cat([b_h0, b_h1], dim=-1)
+        else:
+            raise ValueError(f"Unknown input_variant: {input_variant}")
+        tda = apply_celltracking_tda_control(tda, control=control, seed=seed, shift=1)
+        x = torch.cat([z_now, tda[:, :-predict_steps_ahead]], dim=-1)
 
     return {
         "x": x.reshape(-1, x.shape[-1]),
@@ -330,6 +335,55 @@ def make_features(z, b_h1=None, b_h0=None, input_variant="z", predict_steps_ahea
         "z_future": z_future.reshape(-1, z_future.shape[-1]),
         "z_delta": z_delta.reshape(-1, z_delta.shape[-1]),
     }
+
+
+def parse_celltracking_input_variant(input_variant):
+    """Split variants like z_h0_shuffle into base and control names."""
+    if input_variant == "z":
+        return "z", "real"
+    for base in ("z_h0_h1", "z_h0", "z_h1"):
+        if input_variant == base:
+            return base, "real"
+        prefix = f"{base}_"
+        if input_variant.startswith(prefix):
+            return base, input_variant[len(prefix):]
+    raise ValueError(f"Unknown input_variant: {input_variant}")
+
+
+def perturb_celltracking_tda_noise(tda_features, seed=0):
+    """Replace TDA with random features of matching shape and scale."""
+    generator = torch.Generator(device=tda_features.device).manual_seed(seed)
+    noise = torch.randn(tda_features.shape, generator=generator, device=tda_features.device)
+    return noise * tda_features.std().clamp_min(1e-6) + tda_features.mean()
+
+
+def perturb_celltracking_tda_shuffle(tda_features, seed=0):
+    """Attach real TDA vectors to the wrong clip/time positions."""
+    N, T, D = tda_features.shape
+    flat = tda_features.reshape(N * T, D)
+    generator = torch.Generator(device=tda_features.device).manual_seed(seed)
+    perm = torch.randperm(N * T, generator=generator, device=tda_features.device)
+    return flat[perm].reshape(N, T, D)
+
+
+def perturb_celltracking_tda_shift(tda_features, shift=1):
+    """Shift TDA in time while keeping each clip intact."""
+    if tda_features.shape[1] <= 1:
+        return tda_features.clone()
+    return torch.roll(tda_features, shifts=shift, dims=1)
+
+
+def apply_celltracking_tda_control(tda_features, control="real", seed=0, shift=1):
+    """Apply a named control perturbation to clip-level TDA features."""
+    if control == "real":
+        return tda_features
+    if control == "noise":
+        return perturb_celltracking_tda_noise(tda_features, seed=seed)
+    if control == "shuffle":
+        return perturb_celltracking_tda_shuffle(tda_features, seed=seed)
+    if control == "shift":
+        return perturb_celltracking_tda_shift(tda_features, shift=shift)
+    raise ValueError(f"Unknown TDA control mode: {control}")
 
 
 def make_supervised(z, b_h1=None, b_h0=None, input_variant="z", task="next", predict_steps_ahead=None):

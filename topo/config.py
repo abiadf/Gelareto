@@ -19,6 +19,9 @@ DATASET_CONFIGS = {
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
         "LATENT_TDA_EPOCHS" : 10,
+
+        # params for regular sequence ablation:
+        "LEGACY_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "davis_images": {
         "kind": "davis_images",
@@ -42,6 +45,9 @@ DATASET_CONFIGS = {
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
         "LATENT_TDA_EPOCHS" : 10,
+
+        # params for regular sequence ablation:
+        "LEGACY_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "celltracking_fluo": {
         "kind": "tif_folder",
@@ -61,6 +67,9 @@ DATASET_CONFIGS = {
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
         "LATENT_TDA_EPOCHS" : 10,
+
+        # params for regular sequence ablation:
+        "LEGACY_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "bouncing_balls": {
         "kind": "bouncing_balls",
@@ -95,11 +104,15 @@ DATASET_CONFIGS = {
         "LATENT_TDA_EPOCHS": 8,
 
         # params for xLSTM ablation:
+        "XLSTM_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
         "XLSTM_MAX_TRAIN_WINDOWS": 512,
         "XLSTM_MAX_TEST_WINDOWS": 344,
         "XLSTM_RUN_LATENT_TDA": False,
         "XLSTM_RECOMPUTE_LATENT_TDA_FEATURES": False,
         "XLSTM_LATENT_TDA_MODES": ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+
+        # params for regular sequence ablation:
+        "LEGACY_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "glioblastoma": {
         "kind": "ctc_tif_clips",
@@ -138,6 +151,13 @@ DATASET_CONFIGS = {
         "MLP_EPOCHS": 4,
         "MLP_BATCH_SIZE": 512,
         "RUN_CELLTRACKING_LATENT_TDA": True,
+        "INPUT_VARIANTS": {
+            "no_tda": "z",
+            "h0": "z_h0",
+            "h0_shuffle": "z_h0_shuffle",
+            "h0_noise": "z_h0_noise",
+            "h0_shift": "z_h0_shift",
+        },
 
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
@@ -181,6 +201,13 @@ DATASET_CONFIGS = {
         "MLP_EPOCHS": 4,
         "MLP_BATCH_SIZE": 512,
         "RUN_CELLTRACKING_LATENT_TDA": True,
+        "INPUT_VARIANTS": {
+            "no_tda": "z",
+            "h0": "z_h0",
+            "h0_shuffle": "z_h0_shuffle",
+            "h0_noise": "z_h0_noise",
+            "h0_shift": "z_h0_shift",
+        },
 
         # params for TDA-on-latents:
         "LATENT_TDA_WINDOW": 20,

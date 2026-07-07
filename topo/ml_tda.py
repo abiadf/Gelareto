@@ -90,11 +90,75 @@ def diagrams_to_betti_curves(batch_diagrams, num_steps=25, min_v=0.0, max_v=1.0)
 def select_tda_features(h0_diags, h1_diags):
     betti_h0 = diagrams_to_betti_curves(h0_diags, num_steps=N_STEPS)
     betti_h1 = diagrams_to_betti_curves(h1_diags, num_steps=N_STEPS)
-    if TDA_MODE == "h0":
+    base_mode, _ = parse_tda_control_mode(TDA_MODE)
+    if base_mode == "h0":
         return betti_h0
-    if TDA_MODE == "h1":
+    if base_mode == "h1":
         return betti_h1
     return torch.cat([betti_h0, betti_h1], dim=1)
+
+
+def parse_tda_control_mode(mode):
+    """Split modes like h0_shuffle into base TDA and control names."""
+    parts = mode.split("_", 1)
+    base = parts[0]
+    control = parts[1] if len(parts) == 2 else "real"
+    return base, control
+
+
+def perturb_tda_noise(tda_features, seed=0):
+    """Replace TDA with random features of matching shape and scale."""
+    generator = torch.Generator(device=tda_features.device).manual_seed(seed)
+    noise = torch.randn(tda_features.shape, generator=generator, device=tda_features.device)
+    mean = tda_features.mean()
+    std = tda_features.std().clamp_min(1e-6)
+    return noise * std + mean
+
+
+def perturb_tda_shuffle(tda_features, seed=0):
+    """Attach real TDA vectors to the wrong time/sample positions."""
+    T, B, D = tda_features.shape
+    flat = tda_features.reshape(T * B, D)
+    generator = torch.Generator(device=tda_features.device).manual_seed(seed)
+    perm = torch.randperm(T * B, generator=generator, device=tda_features.device)
+    return flat[perm].reshape(T, B, D)
+
+
+def perturb_tda_shift(tda_features, shift=1):
+    """Shift TDA in time while keeping each sequence/sample intact."""
+    if tda_features.shape[0] <= 1:
+        return tda_features.clone()
+    return torch.roll(tda_features, shifts=shift, dims=0)
+
+
+def apply_tda_control(tda_features, control="real", seed=0, shift=1):
+    """Apply a named control perturbation to TDA features."""
+    if control == "real":
+        return tda_features
+    if control == "noise":
+        return perturb_tda_noise(tda_features, seed=seed)
+    if control == "shuffle":
+        return perturb_tda_shuffle(tda_features, seed=seed)
+    if control == "shift":
+        return perturb_tda_shift(tda_features, shift=shift)
+    raise ValueError(f"Unknown TDA control mode: {control}")
+
+
+def build_controlled_tda_features(z_seq, h0, h1, mode, seed=0, shift=1):
+    """Concatenate z with real or perturbed H0/H1 features."""
+    base, control = parse_tda_control_mode(mode)
+    if base == "none":
+        return z_seq
+    if base == "h0":
+        tda = h0
+    elif base == "h1":
+        tda = h1
+    elif base == "both":
+        tda = torch.cat([h0, h1], dim=-1)
+    else:
+        raise ValueError(f"Unknown TDA base mode: {base}")
+    return torch.cat([z_seq, apply_tda_control(tda, control=control, seed=seed, shift=shift)], dim=-1)
+
 
 def run_cripser_tda_on_current_frames(video_prefix):
     """Compute H0/H1 with cripser for the current frame of each clip."""
@@ -129,8 +193,8 @@ def pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3):
 
 def build_sequence_features(video_tensor, encoder, use_tda, split_name="Train"):
     encoder.eval()
-    fused_history = []
-    z_history     = []
+    z_history = []
+    tda_history = []
     with torch.no_grad():
         for t in range(video_tensor.shape[0]):
             frame_t = video_tensor[t]
@@ -140,12 +204,19 @@ def build_sequence_features(video_tensor, encoder, use_tda, split_name="Train"):
                     print(f"  [{split_name} Frame {t+1:02d}/{video_tensor.shape[0]}] Computing TDA")
                 h0_diags, h1_diags = run_cripser_tda_on_current_frames(video_tensor[0:t+1])
                 B_t = select_tda_features(h0_diags, h1_diags)
-                f_t = torch.cat([z_t, B_t], dim=1)
-            else:
-                f_t = z_t
-            fused_history.append(f_t)
+                tda_history.append(B_t)
             z_history.append(z_t)
-    return torch.stack(fused_history, dim=0), torch.stack(z_history, dim=0)
+    z_seq = torch.stack(z_history, dim=0)
+    if not use_tda:
+        return z_seq, z_seq
+
+    tda_seq = torch.stack(tda_history, dim=0)
+    _, control = parse_tda_control_mode(TDA_MODE)
+    control_seed = globals().get("EXPERIMENT_SEED", 0)
+    if isinstance(control_seed, str):
+        control_seed = abs(hash(control_seed)) % (2**31)
+    tda_seq = apply_tda_control(tda_seq, control=control, seed=int(control_seed), shift=1)
+    return torch.cat([z_seq, tda_seq], dim=2), z_seq
 
 def train_predictor(model, encoder, X_train, epochs, use_tda, learning_rate):
     print(f"\n--- Phase 2: Training LSTM Predictor (USE_TDA={use_tda}) ---")
