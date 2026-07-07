@@ -112,6 +112,13 @@ DATASET_CONFIGS = {
         "AUX_TDA_LAMBDA": 0.1,
         "AUX_TDA_EPOCHS": 4,
 
+        # params for z+TDA -> future-frame prediction:
+        "PIXEL_TDA_MODES": ["none", "h0", "h1", "both"],
+        "PIXEL_TDA_EPOCHS": 4,
+        "PIXEL_TDA_BATCH_SIZE": 32,
+        "PIXEL_TDA_FG_WEIGHT": 10.0,
+        "PIXEL_TDA_FG_THRESHOLD": 0.05,
+
         # params for xLSTM ablation:
         "XLSTM_MODES": ["none", "h0", "h0_zero", "h0_shuffle", "h0_noise", "h0_shift"],
         "XLSTM_BATCH_SIZE": 128,
