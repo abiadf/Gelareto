@@ -42,12 +42,14 @@ from topo.ml_tda import (
 
 SEQUENCE_SCENARIOS = {
     "sequence",
+    "decode_z",
     "topo_sequence",
     "latent_tda",
     "topo_latent_tda",
     "aux_tda",
     "pixel_tda",
     "topo_pixel_z",
+    "topo_decode_z",
 }
 
 
@@ -360,6 +362,56 @@ def _topo_model_namespace(dataset: str, topo_lambda: float) -> str:
     return f"{dataset}_topoae_lam{topo_lambda:g}"
 
 
+def _autoencoder_tag(seed: int, x_train: torch.Tensor, latent_dim: int) -> str:
+    return (
+        f"seed{seed}_T{x_train.shape[0]}_B{x_train.shape[1]}_"
+        f"H{x_train.shape[-2]}_W{x_train.shape[-1]}_latent{latent_dim}"
+    )
+
+
+def _baseline_autoencoder_paths(dataset: str, seed: int, context: SequenceContext) -> tuple[Path, Path]:
+    tag = _autoencoder_tag(seed, context.x_train, context.latent_dim)
+    model_dir = Path("models") / dataset
+    encoder_dir = model_dir / "encoders"
+    decoder_dir = model_dir / "decoders"
+    encoder_dir.mkdir(parents=True, exist_ok=True)
+    decoder_dir.mkdir(parents=True, exist_ok=True)
+    return encoder_dir / f"encoder_{tag}.pt", decoder_dir / f"decoder_{tag}.pt"
+
+
+def _load_or_train_baseline_autoencoder(
+    cfg: RunConfig,
+    context: SequenceContext,
+    seed: int,
+) -> tuple[SpatialEncoder, SpatialDecoder, Path, Path]:
+    encoder = SpatialEncoder(latent_dim=context.latent_dim)
+    decoder = SpatialDecoder(latent_dim=context.latent_dim, output_size=context.x_train.shape[-2:])
+    encoder_path, decoder_path = _baseline_autoencoder_paths(cfg.dataset, seed, context)
+    device = ml_tda.get_runtime_device()
+
+    if encoder_path.exists() and decoder_path.exists() and not cfg.retrain_encoder:
+        print(f"Loading baseline AE encoder: {encoder_path}")
+        print(f"Loading baseline AE decoder: {decoder_path}")
+        encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
+        decoder.load_state_dict(torch.load(decoder_path, map_location="cpu"))
+    else:
+        reason = "retraining" if encoder_path.exists() or decoder_path.exists() else "missing; training once"
+        print(f"Baseline AE {reason}: {encoder_path} | {decoder_path}")
+        ml_tda.pretrain_spatial_encoder(encoder, decoder, context.x_train, epochs=3)
+        torch.save(encoder.state_dict(), encoder_path)
+        torch.save(decoder.state_dict(), decoder_path)
+        print(f"Saved baseline AE encoder: {encoder_path}")
+        print(f"Saved baseline AE decoder: {decoder_path}")
+
+    encoder.to(device).eval()
+    decoder.to(device).eval()
+    for param in encoder.parameters():
+        param.requires_grad = False
+    for param in decoder.parameters():
+        param.requires_grad = False
+    return encoder, decoder, encoder_path, decoder_path
+
+
 def _set_all_seeds(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -383,6 +435,105 @@ def _topo_predictor_path(
         f"latent{context.latent_dim}_input{input_dim}"
     )
     return model_dir / f"{tag}.pt"
+
+
+def _decode_z_predictor_path(
+    model_namespace: str,
+    seed: int,
+    context: SequenceContext,
+) -> Path:
+    model_dir = Path("models") / model_namespace / "decode_z_predictors"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    tag = (
+        f"seed{seed}_pred{context.predict_steps_ahead}_"
+        f"T{context.x_train.shape[0]}_B{context.x_train.shape[1]}_"
+        f"latent{context.latent_dim}"
+    )
+    return model_dir / f"model_{tag}.pt"
+
+
+def _train_or_load_decode_z_predictor(
+    cfg: RunConfig,
+    context: SequenceContext,
+    model_namespace: str,
+    seed: int,
+    train_z: torch.Tensor,
+) -> tuple[TopologicalPredictor, Path]:
+    device = ml_tda.get_runtime_device()
+    model = TopologicalPredictor(input_dim=context.latent_dim, hidden_dim=context.hidden_dim).to(device)
+    model_path = _decode_z_predictor_path(model_namespace, seed, context)
+
+    if model_path.exists() and not cfg.retrain_predictor:
+        print(f"Loading decode-z predictor: {model_path}")
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        return model, model_path
+
+    if context.predict_steps_ahead >= train_z.shape[0]:
+        raise ValueError(
+            f"predict_steps_ahead={context.predict_steps_ahead} must be smaller than sequence length "
+            f"{train_z.shape[0]}"
+        )
+
+    reason = "retraining" if model_path.exists() else "missing; training once"
+    print(f"Decode-z predictor {reason}: {model_path}")
+    optimizer = torch.optim.AdamW(model.parameters(), lr=context.learning_rate)
+    criterion = torch.nn.MSELoss()
+    x_train = train_z[:-context.predict_steps_ahead].to(device)
+    y_train = train_z[context.predict_steps_ahead:].to(device)
+
+    for epoch in range(1, context.epochs + 1):
+        model.train()
+        optimizer.zero_grad()
+        pred_z = model(x_train)
+        loss = criterion(pred_z, y_train)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        if epoch == 1 or epoch == context.epochs:
+            print(f"decode-z seed={seed} epoch {epoch}/{context.epochs} latent_mse={loss.item():.6f}")
+
+    torch.save(model.state_dict(), model_path)
+    print(f"Saved decode-z predictor: {model_path}")
+    return model, model_path
+
+
+def _decode_sequence(decoder: SpatialDecoder, z_seq: torch.Tensor, batch_size: int = 512) -> torch.Tensor:
+    device = ml_tda.get_runtime_device()
+    decoder.to(device).eval()
+    flat_z = z_seq.reshape(-1, z_seq.shape[-1])
+    decoded = []
+    with torch.no_grad():
+        for start in range(0, len(flat_z), batch_size):
+            decoded.append(decoder(flat_z[start:start + batch_size].to(device)).cpu())
+    return torch.cat(decoded, dim=0).reshape(z_seq.shape[0], z_seq.shape[1], 1, *decoder.output_size)
+
+
+def _evaluate_decode_z_to_future_x(
+    model: TopologicalPredictor,
+    decoder: SpatialDecoder,
+    test_z: torch.Tensor,
+    x_test: torch.Tensor,
+    context: SequenceContext,
+) -> dict[str, float | torch.Tensor]:
+    device = ml_tda.get_runtime_device()
+    model.to(device).eval()
+    with torch.no_grad():
+        pred_z = model(test_z[:-context.predict_steps_ahead].to(device)).cpu()
+
+    pred_x = _decode_sequence(decoder, pred_z)
+    target_x = ml_tda_pixel.target_frames(x_test[context.predict_steps_ahead:]).cpu()
+    weighted_mse, pixel_mse, fg_mse, bg_mse = ml_tda_pixel.pixel_losses(pred_x, target_x)
+    per_time_pixel_mse = ((pred_x - target_x) ** 2).mean(dim=(1, 2, 3, 4))
+    return {
+        "weighted_mse": float(weighted_mse),
+        "pixel_mse": float(pixel_mse),
+        "foreground_mse": float(fg_mse),
+        "background_mse": float(bg_mse),
+        "warmup_excluded_pixel_mse": (
+            float(per_time_pixel_mse[1:].mean()) if len(per_time_pixel_mse) > 1 else float(per_time_pixel_mse.mean())
+        ),
+        "per_time_pixel_mse": per_time_pixel_mse,
+    }
 
 
 def _topo_feature_dim(mode: str, context: SequenceContext) -> tuple[bool, int]:
@@ -745,6 +896,151 @@ def run_topo_latent_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.Da
     return results_df, summary_df
 
 
+def _load_topo_autoencoder_for_seed(
+    cfg: RunConfig,
+    context: SequenceContext,
+    seed: int,
+) -> tuple[SpatialEncoder, SpatialDecoder, Path, Path, str]:
+    topo_epochs = int(_override(cfg.topo_ae_epochs, context.dataset_config.get("TOPO_AE_EPOCHS", 3)))
+    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda)
+    encoder, decoder, encoder_path, decoder_path = ml_tda_topoae.load_or_train_topo_autoencoder(
+        context.x_train,
+        dataset_name=cfg.dataset,
+        model_namespace=model_namespace,
+        seed=seed,
+        latent_dim=context.latent_dim,
+        topo_lambda=cfg.topo_ae_lambda,
+        epochs=topo_epochs,
+        frame_batch_size=context.ae_frame_batch_size or 256,
+        max_frames_per_epoch=context.ae_max_frames_per_epoch,
+        pair_batch_size=cfg.topo_ae_pair_batch_size,
+        retrain=cfg.retrain_encoder,
+    )
+    return encoder, decoder, encoder_path, decoder_path, model_namespace
+
+
+def _run_decode_z(
+    cfg: RunConfig,
+    context: SequenceContext,
+    *,
+    use_topo_ae: bool,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    fg_weight = float(
+        _override(cfg.pixel_tda_fg_weight, context.dataset_config.get("PIXEL_TDA_FG_WEIGHT", 10.0))
+    )
+    fg_threshold = float(
+        _override(cfg.pixel_tda_fg_threshold, context.dataset_config.get("PIXEL_TDA_FG_THRESHOLD", 0.05))
+    )
+    scenario_name = "topo_decode_z" if use_topo_ae else "decode_z"
+    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda) if use_topo_ae else cfg.dataset
+
+    ml_tda.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
+        DEVICE=_select_device(cfg.device),
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_pixel.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
+        PIXEL_TDA_FG_WEIGHT=fg_weight,
+        PIXEL_TDA_FG_THRESHOLD=fg_threshold,
+    )
+    print(
+        f"{scenario_name} config: dataset={cfg.dataset}, namespace={model_namespace}, "
+        f"seeds={seeds}, predict_steps_ahead={context.predict_steps_ahead}, "
+        f"epochs={context.epochs}, topo_ae_lambda={cfg.topo_ae_lambda if use_topo_ae else 'n/a'}"
+    )
+
+    rows = []
+    for seed in seeds:
+        print(f"\n================ {scenario_name} seed={seed} ================")
+        _set_all_seeds(seed)
+        if use_topo_ae:
+            encoder, decoder, encoder_path, decoder_path, model_namespace = _load_topo_autoencoder_for_seed(
+                cfg,
+                context,
+                seed,
+            )
+        else:
+            encoder, decoder, encoder_path, decoder_path = _load_or_train_baseline_autoencoder(cfg, context, seed)
+            model_namespace = cfg.dataset
+
+        train_z, _ = ml_tda.build_sequence_features(
+            context.x_train,
+            encoder,
+            use_tda=False,
+            split_name=f"{scenario_name} train z",
+        )
+        test_z, _ = ml_tda.build_sequence_features(
+            context.x_test,
+            encoder,
+            use_tda=False,
+            split_name=f"{scenario_name} test z",
+        )
+        model, model_path = _train_or_load_decode_z_predictor(
+            cfg,
+            context,
+            model_namespace,
+            seed,
+            train_z,
+        )
+        metrics = _evaluate_decode_z_to_future_x(model, decoder, test_z, context.x_test, context)
+        row = {
+            "dataset": cfg.dataset,
+            "encoder": "topo_ae" if use_topo_ae else "baseline_ae",
+            "topo_ae_lambda": cfg.topo_ae_lambda if use_topo_ae else np.nan,
+            "seed": seed,
+            "mode": "z_decode",
+            "predict_steps_ahead": context.predict_steps_ahead,
+            "pixel_mse": float(metrics["pixel_mse"]),
+            "weighted_mse": float(metrics["weighted_mse"]),
+            "foreground_mse": float(metrics["foreground_mse"]),
+            "background_mse": float(metrics["background_mse"]),
+            "warmup_excluded_pixel_mse": float(metrics["warmup_excluded_pixel_mse"]),
+            "fg_weight": fg_weight,
+            "fg_threshold": fg_threshold,
+            "encoder_path": str(encoder_path),
+            "decoder_path": str(decoder_path),
+            "model_path": str(model_path),
+        }
+        rows.append(row)
+        print(f"{scenario_name} summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=[
+            "pixel_mse",
+            "weighted_mse",
+            "foreground_mse",
+            "background_mse",
+            "warmup_excluded_pixel_mse",
+        ],
+        sort_metric="weighted_mse",
+    )
+    print(f"\n{scenario_name} per-run results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print(f"\n{scenario_name} mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
+def run_decode_z(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return _run_decode_z(cfg, context, use_topo_ae=False)
+
+
+def run_topo_decode_z(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return _run_decode_z(cfg, context, use_topo_ae=True)
+
+
 def run_topo_pixel_z(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
     pixel_epochs = int(_override(cfg.epochs, context.dataset_config.get("PIXEL_TDA_EPOCHS", context.epochs)))
@@ -1010,6 +1306,8 @@ def main(argv: list[str] | None = None) -> None:
     context = load_sequence_context(cfg)
     if cfg.scenario == "sequence":
         results_df, summary_df = run_sequence(cfg, context)
+    elif cfg.scenario == "decode_z":
+        results_df, summary_df = run_decode_z(cfg, context)
     elif cfg.scenario == "topo_sequence":
         results_df, summary_df = run_topo_sequence(cfg, context)
     elif cfg.scenario == "latent_tda":
@@ -1020,6 +1318,8 @@ def main(argv: list[str] | None = None) -> None:
         results_df, summary_df = run_aux_tda(cfg, context)
     elif cfg.scenario == "topo_pixel_z":
         results_df, summary_df = run_topo_pixel_z(cfg, context)
+    elif cfg.scenario == "topo_decode_z":
+        results_df, summary_df = run_topo_decode_z(cfg, context)
     elif cfg.scenario == "pixel_tda":
         results_df, summary_df = run_pixel_tda(cfg, context)
     else:  # pragma: no cover - argparse choices prevent this.

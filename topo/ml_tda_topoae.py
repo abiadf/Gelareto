@@ -35,6 +35,23 @@ def topo_encoder_path(
     return encoder_dir / f"encoder_{tag}.pt"
 
 
+def topo_decoder_path(
+    model_namespace: str,
+    seed: int,
+    x_train,
+    latent_dim: int,
+    topo_lambda: float,
+) -> Path:
+    decoder_dir = Path("models") / model_namespace / "topoae_decoders"
+    decoder_dir.mkdir(parents=True, exist_ok=True)
+    tag = (
+        f"seed{seed}_T{x_train.shape[0]}_B{x_train.shape[1]}_"
+        f"H{x_train.shape[-2]}_W{x_train.shape[-1]}_latent{latent_dim}_"
+        f"lambda{topo_lambda:g}"
+    )
+    return decoder_dir / f"decoder_{tag}.pt"
+
+
 def _normalized_pairwise_distances(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     distances = torch.cdist(x, x, p=2)
     scale = distances.detach().mean().clamp_min(eps)
@@ -65,20 +82,60 @@ def load_or_train_topo_encoder(
     learning_rate: float = 1e-3,
 ):
     """Load or train a topology-regularized spatial encoder."""
+    encoder, _, encoder_path, _ = load_or_train_topo_autoencoder(
+        x_train,
+        dataset_name=dataset_name,
+        model_namespace=model_namespace,
+        seed=seed,
+        latent_dim=latent_dim,
+        topo_lambda=topo_lambda,
+        epochs=epochs,
+        frame_batch_size=frame_batch_size,
+        max_frames_per_epoch=max_frames_per_epoch,
+        pair_batch_size=pair_batch_size,
+        retrain=retrain,
+        learning_rate=learning_rate,
+    )
+    return encoder, encoder_path
+
+
+def load_or_train_topo_autoencoder(
+    x_train,
+    *,
+    dataset_name: str,
+    model_namespace: str,
+    seed: int,
+    latent_dim: int,
+    topo_lambda: float = 0.1,
+    epochs: int = 3,
+    frame_batch_size: int = 256,
+    max_frames_per_epoch: int | None = 8192,
+    pair_batch_size: int = 64,
+    retrain: bool = False,
+    learning_rate: float = 1e-3,
+):
+    """Load or train a topology-regularized spatial autoencoder."""
     encoder = SpatialEncoder(latent_dim=latent_dim)
     decoder = SpatialDecoder(latent_dim=latent_dim, output_size=x_train.shape[-2:])
-    path = topo_encoder_path(model_namespace, seed, x_train, latent_dim, topo_lambda)
+    encoder_path = topo_encoder_path(model_namespace, seed, x_train, latent_dim, topo_lambda)
+    decoder_path = topo_decoder_path(model_namespace, seed, x_train, latent_dim, topo_lambda)
 
-    if path.exists() and not retrain:
-        print(f"Loading topo-AE encoder: {path}")
-        encoder.load_state_dict(torch.load(path, map_location="cpu"))
-        encoder.to(ml_tda.get_runtime_device()).eval()
+    if encoder_path.exists() and decoder_path.exists() and not retrain:
+        print(f"Loading topo-AE encoder: {encoder_path}")
+        print(f"Loading topo-AE decoder: {decoder_path}")
+        encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
+        decoder.load_state_dict(torch.load(decoder_path, map_location="cpu"))
+        device = ml_tda.get_runtime_device()
+        encoder.to(device).eval()
+        decoder.to(device).eval()
         for param in encoder.parameters():
             param.requires_grad = False
-        return encoder, path
+        for param in decoder.parameters():
+            param.requires_grad = False
+        return encoder, decoder, encoder_path, decoder_path
 
-    reason = "retraining" if path.exists() else "missing; training once"
-    print(f"Topo-AE encoder {reason}: {path}")
+    reason = "retraining" if encoder_path.exists() or decoder_path.exists() else "missing; training once"
+    print(f"Topo-AE autoencoder {reason}: {encoder_path} | {decoder_path}")
     device = ml_tda.get_runtime_device()
     encoder.to(device)
     decoder.to(device)
@@ -133,9 +190,14 @@ def load_or_train_topo_encoder(
             f"topo_proxy={total_topo / total_seen:.4f}"
         )
 
-    torch.save(encoder.state_dict(), path)
-    print(f"Saved topo-AE encoder: {path}")
+    torch.save(encoder.state_dict(), encoder_path)
+    torch.save(decoder.state_dict(), decoder_path)
+    print(f"Saved topo-AE encoder: {encoder_path}")
+    print(f"Saved topo-AE decoder: {decoder_path}")
     encoder.eval()
+    decoder.eval()
     for param in encoder.parameters():
         param.requires_grad = False
-    return encoder, path
+    for param in decoder.parameters():
+        param.requires_grad = False
+    return encoder, decoder, encoder_path, decoder_path
