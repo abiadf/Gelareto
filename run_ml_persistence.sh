@@ -6,11 +6,12 @@ set -euo pipefail
 #   latent_tda: z,z_latent_h0,z_latent_h1,z_latent_both,z_latent_h0_zero,z_latent_h0_shuffle,z_latent_h0_noise,z_latent_h0_shift,z_latent_h1_zero,z_latent_h1_shuffle,z_latent_h1_noise,z_latent_h1_shift,z_latent_both_zero,z_latent_both_shuffle,z_latent_both_noise,z_latent_both_shift
 #   aux_tda:    none,aux_h0,aux_h1,aux_both
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
+#   topo_pixel_z: z-only topo-AE latent history -> future frame X
 #   topo_latent_tda: same ones as latent_tda, but with a topo-regularized AE encoder
 #   topo_sequence: same as sequence, but with a topo-regularized AE encoder
 
 args=(
-  --scenario sequence                 # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda
+  --scenario sequence                 # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_z
   --dataset celltracking_fluo             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls
   --seeds 0,1,2,3,4,5,6,7,8,9,10                  # comma-separated seeds
   --modes none #z,z_latent_h1,z_latent_h1_zero,z_latent_h1_shuffle,z_latent_h1_noise,z_latent_h1_shift,z_latent_h0_zero # comma-separated modes; see above
