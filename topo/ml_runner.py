@@ -49,6 +49,7 @@ SEQUENCE_SCENARIOS = {
     "aux_tda",
     "pixel_tda",
     "topo_pixel_z",
+    "topo_pixel_tda",
     "topo_decode_z",
 }
 
@@ -1195,6 +1196,127 @@ def run_topo_pixel_z(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataF
     return results_df, summary_df
 
 
+def run_topo_pixel_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get("PIXEL_TDA_MODES", ["none", "h0", "h1", "both"]),
+    )
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    pixel_epochs = int(_override(cfg.epochs, context.dataset_config.get("PIXEL_TDA_EPOCHS", context.epochs)))
+    pixel_lr = float(_override(cfg.learning_rate, context.dataset_config.get("PIXEL_TDA_LR", context.learning_rate)))
+    pixel_batch_size = int(
+        _override(cfg.pixel_tda_batch_size, context.dataset_config.get("PIXEL_TDA_BATCH_SIZE", 32))
+    )
+    fg_weight = float(
+        _override(cfg.pixel_tda_fg_weight, context.dataset_config.get("PIXEL_TDA_FG_WEIGHT", 10.0))
+    )
+    fg_threshold = float(
+        _override(cfg.pixel_tda_fg_threshold, context.dataset_config.get("PIXEL_TDA_FG_THRESHOLD", 0.05))
+    )
+    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda)
+
+    ml_tda.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        BETTI_SCALE=context.betti_scale,
+        N_STEPS=context.n_steps,
+        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
+        DEVICE=_select_device(cfg.device),
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_pixel.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
+        N_STEPS=context.n_steps,
+        BETTI_SCALE=context.betti_scale,
+        PIXEL_TDA_EPOCHS=pixel_epochs,
+        PIXEL_TDA_LR=pixel_lr,
+        PIXEL_TDA_BATCH_SIZE=pixel_batch_size,
+        PIXEL_TDA_FG_WEIGHT=fg_weight,
+        PIXEL_TDA_FG_THRESHOLD=fg_threshold,
+        PIXEL_TDA_RETRAIN_ENCODER=cfg.retrain_encoder,
+        PIXEL_TDA_RETRAIN_PREDICTOR=cfg.retrain_predictor,
+    )
+    print(
+        f"Topo pixel-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, seeds={seeds}, "
+        f"modes={modes}, topo_ae_lambda={cfg.topo_ae_lambda}, epochs={pixel_epochs}, "
+        f"lr={pixel_lr}, batch={pixel_batch_size}, fg_weight={fg_weight}, "
+        f"fg_threshold={fg_threshold}, predict_steps_ahead={context.predict_steps_ahead}"
+    )
+
+    rows = []
+    for seed in seeds:
+        print(f"\n================ topo pixel-TDA seed={seed} ================")
+        _set_all_seeds(seed)
+        encoder, encoder_path, _ = _load_topo_encoder_for_seed(cfg, context, seed)
+        train_z, train_h0, train_h1 = ml_tda_pixel.compute_z_h0_h1(
+            context.x_train,
+            encoder,
+            split_name="topo pixel train",
+        )
+        test_z, test_h0, test_h1 = ml_tda_pixel.compute_z_h0_h1(
+            context.x_test,
+            encoder,
+            split_name="topo pixel test",
+        )
+
+        for mode in modes:
+            print(f"\n--- topo pixel mode={mode} seed={seed} ---")
+            train_features = ml_tda_pixel.make_mode_features(train_z, train_h0, train_h1, mode, seed)
+            test_features = ml_tda_pixel.make_mode_features(test_z, test_h0, test_h1, mode, seed + 10_000)
+            model, model_path = ml_tda_pixel.train_or_load_predictor(
+                seed,
+                mode,
+                train_features,
+                context.x_train,
+            )
+            metrics = ml_tda_pixel.evaluate_predictor(model, test_features, context.x_test)
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": "topo_ae",
+                "topo_ae_lambda": cfg.topo_ae_lambda,
+                "seed": seed,
+                "mode": mode,
+                "predict_steps_ahead": context.predict_steps_ahead,
+                "pixel_mse": float(metrics["pixel_mse"]),
+                "pixel_r2": float(metrics["pixel_r2"]),
+                "weighted_mse": float(metrics["weighted_mse"]),
+                "foreground_mse": float(metrics["foreground_mse"]),
+                "background_mse": float(metrics["background_mse"]),
+                "warmup_excluded_pixel_mse": float(metrics["warmup_excluded_pixel_mse"]),
+                "fg_weight": fg_weight,
+                "fg_threshold": fg_threshold,
+                "encoder_path": str(encoder_path),
+                "model_path": str(model_path),
+            }
+            rows.append(row)
+            print("topo pixel-TDA summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=[
+            "pixel_mse",
+            "pixel_r2",
+            "weighted_mse",
+            "foreground_mse",
+            "background_mse",
+            "warmup_excluded_pixel_mse",
+        ],
+        sort_metric="weighted_mse",
+    )
+    print("\nTopo pixel-TDA per-run results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nTopo pixel-TDA mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
 def run_pixel_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
@@ -1360,6 +1482,8 @@ def main(argv: list[str] | None = None) -> None:
         results_df, summary_df = run_aux_tda(cfg, context)
     elif cfg.scenario == "topo_pixel_z":
         results_df, summary_df = run_topo_pixel_z(cfg, context)
+    elif cfg.scenario == "topo_pixel_tda":
+        results_df, summary_df = run_topo_pixel_tda(cfg, context)
     elif cfg.scenario == "topo_decode_z":
         results_df, summary_df = run_topo_decode_z(cfg, context)
     elif cfg.scenario == "pixel_tda":

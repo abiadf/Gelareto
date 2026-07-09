@@ -2,23 +2,30 @@
 set -euo pipefail
 
 # Scenarios:
-# sequence: predicts future latents z from past z plus optional TDA summaries computed from X frames
-# latent_tda: predicts future latents z from past z plus optional TDA summaries computed on z frames
-# decode_z: predicts future latents z from past z, then decodes predicted z back into future frames X (for evaluation)
+# sequence: AE z-history + optional frame TDA -> future z
+# topo_sequence: topoAE z-history + optional frame TDA -> future z
+# latent_tda: AE z-history + optional latent-trajectory TDA -> future z
+# topo_latent_tda: topoAE z-history + optional latent-trajectory TDA -> future z
+# decode_z: AE z-history -> future z -> decoded future X
+# topo_decode_z: topoAE z-history -> future z -> decoded future X
+# pixel_tda: AE z-history + optional frame TDA -> future X
+# topo_pixel_tda: topoAE z-history + optional frame TDA -> future X
+# topo_pixel_z: topoAE z-history only -> future X
+# aux_tda: AE z-history -> future z, with optional auxiliary Betti prediction head/loss
 
 # Modes:
 #   sequence:   none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   latent_tda: z,z_latent_h0,z_latent_h1,z_latent_both,z_latent_h0_zero,z_latent_h0_shuffle,z_latent_h0_noise,z_latent_h0_shift,z_latent_h1_zero,z_latent_h1_shuffle,z_latent_h1_noise,z_latent_h1_shift,z_latent_both_zero,z_latent_both_shuffle,z_latent_both_noise,z_latent_both_shift
 #   aux_tda:    none,aux_h0,aux_h1,aux_both
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
-#   topo_pixel_z: z-only topo-AE latent history -> future frame X
-#   decode_z: baseline AE z-history -> future z -> baseline decoder -> future frame X
-#   topo_decode_z: topo-AE z-history -> future z -> topo-AE decoder -> future frame X
+#   topo_pixel_tda: same as pixel_tda, but with a topo-regularized AE encoder
+#   topo_pixel_z: z only
+#   decode_z/topo_decode_z: z_decode only
 #   topo_latent_tda: same ones as latent_tda, but with a topo-regularized AE encoder
 #   topo_sequence: same as sequence, but with a topo-regularized AE encoder
 
 args=(
-  --scenario topo_pixel_z             # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_z | decode_z | topo_decode_z
+  --scenario topo_pixel_tda             # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_tda | topo_pixel_z | decode_z | topo_decode_z
   --dataset bouncing_balls             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls
   --seeds 0,1,2,3                  # comma-separated seeds
   --modes none,h0,h1,both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
