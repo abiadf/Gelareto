@@ -8,11 +8,14 @@ set -euo pipefail
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 
 args=(
-  --scenario aux_tda                 # aux_tda | latent_tda | pixel_tda | sequence
-  --dataset moving_mnist             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls
-  --seeds 0,1,2,3,4                  # comma-separated seeds
-  --modes none,aux_h0,aux_h1,aux_both # comma-separated modes; see above
+  --scenario sequence                 # aux_tda | latent_tda | pixel_tda | sequence
+  --dataset bouncing_balls             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls
+  --seeds 0,1,2                  # comma-separated seeds
+  --modes none,h0,h1,both,h0_shuffle,h0_noise,h0_shift,h0_zero # comma-separated modes; see above
   --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
+  --predict-steps-ahead 5
+  # --retrain-encoder
+  --epochs 10
 
   # --device auto                    # auto | cpu | cuda | mps
   # --predict-steps-ahead 5          # override forecast horizon
