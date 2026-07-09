@@ -156,6 +156,15 @@ def _json_default(value):
     return str(value)
 
 
+def _mse_r2(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-12) -> tuple[float, float]:
+    pred = pred.detach().float().cpu()
+    target = target.detach().float().cpu()
+    mse = torch.mean((pred - target) ** 2)
+    var = torch.mean((target - target.mean()) ** 2)
+    r2 = 1.0 - (mse / var.clamp_min(eps))
+    return float(mse), float(r2)
+
+
 def _save_results(
     cfg: RunConfig,
     context: SequenceContext | None,
@@ -332,11 +341,24 @@ def run_sequence(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame
                 context.learning_rate,
             )
             test_mse, per_frame_mse = test_predictor(model, encoder, context.x_test, use_tda)
+            total_test_features, test_z_features = ml_tda.build_sequence_features(
+                context.x_test,
+                encoder,
+                use_tda,
+                split_name="Test metrics",
+            )
+            device = ml_tda.get_runtime_device()
+            model.to(device).eval()
+            with torch.no_grad():
+                pred_z = model(total_test_features[:-context.predict_steps_ahead].to(device)).cpu()
+            target_z = test_z_features[context.predict_steps_ahead:].cpu()
+            _, latent_r2 = _mse_r2(pred_z, target_z)
             row = {
                 "dataset": cfg.dataset,
                 "seed": seed,
                 "mode": mode,
                 "test_mse": float(test_mse),
+                "latent_r2": float(latent_r2),
                 "warmup_excluded_mse": (
                     float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
                 ),
@@ -348,11 +370,11 @@ def run_sequence(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
         sort_metric="test_mse",
     )
     print("\nSequence per-run results:")
-    print(results_df.to_string(index=False))
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
     print("\nSequence mean +/- std by mode:")
     print(summary_df)
     return results_df, summary_df
@@ -523,10 +545,12 @@ def _evaluate_decode_z_to_future_x(
     pred_x = _decode_sequence(decoder, pred_z)
     target_x = ml_tda_pixel.target_frames(x_test[context.predict_steps_ahead:]).cpu()
     weighted_mse, pixel_mse, fg_mse, bg_mse = ml_tda_pixel.pixel_losses(pred_x, target_x)
+    _, pixel_r2 = _mse_r2(pred_x, target_x)
     per_time_pixel_mse = ((pred_x - target_x) ** 2).mean(dim=(1, 2, 3, 4))
     return {
         "weighted_mse": float(weighted_mse),
         "pixel_mse": float(pixel_mse),
+        "pixel_r2": float(pixel_r2),
         "foreground_mse": float(fg_mse),
         "background_mse": float(bg_mse),
         "warmup_excluded_pixel_mse": (
@@ -636,6 +660,18 @@ def run_topo_sequence(cfg: RunConfig, context: SequenceContext) -> tuple[pd.Data
                 mode=mode,
             )
             test_mse, per_frame_mse = test_predictor(model, encoder, context.x_test, use_tda)
+            total_test_features, test_z_features = ml_tda.build_sequence_features(
+                context.x_test,
+                encoder,
+                use_tda,
+                split_name="Topo Test metrics",
+            )
+            device = ml_tda.get_runtime_device()
+            model.to(device).eval()
+            with torch.no_grad():
+                pred_z = model(total_test_features[:-context.predict_steps_ahead].to(device)).cpu()
+            target_z = test_z_features[context.predict_steps_ahead:].cpu()
+            _, latent_r2 = _mse_r2(pred_z, target_z)
             row = {
                 "dataset": cfg.dataset,
                 "encoder": "topo_ae",
@@ -643,6 +679,7 @@ def run_topo_sequence(cfg: RunConfig, context: SequenceContext) -> tuple[pd.Data
                 "seed": seed,
                 "mode": mode,
                 "test_mse": float(test_mse),
+                "latent_r2": float(latent_r2),
                 "warmup_excluded_mse": (
                     float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
                 ),
@@ -656,7 +693,7 @@ def run_topo_sequence(cfg: RunConfig, context: SequenceContext) -> tuple[pd.Data
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
         sort_metric="test_mse",
     )
     print("\nTopo-sequence per-run results:")
@@ -860,7 +897,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.Da
                 train_features,
                 train_payload["z"],
             )
-            test_mse, per_frame_mse = ml_tda_latent.eval_latent_tda_predictor(
+            test_mse, per_frame_mse, latent_r2 = ml_tda_latent.eval_latent_tda_predictor(
                 model,
                 test_features,
                 test_payload["z"],
@@ -873,6 +910,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.Da
                 "mode": mode,
                 "predict_steps_ahead": context.predict_steps_ahead,
                 "test_mse": float(test_mse),
+                "latent_r2": float(latent_r2),
                 "warmup_excluded_mse": (
                     float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
                 ),
@@ -885,7 +923,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.Da
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
         sort_metric="test_mse",
     )
     print("\nTopo latent-TDA per-run results:")
@@ -999,6 +1037,7 @@ def _run_decode_z(
             "mode": "z_decode",
             "predict_steps_ahead": context.predict_steps_ahead,
             "pixel_mse": float(metrics["pixel_mse"]),
+            "pixel_r2": float(metrics["pixel_r2"]),
             "weighted_mse": float(metrics["weighted_mse"]),
             "foreground_mse": float(metrics["foreground_mse"]),
             "background_mse": float(metrics["background_mse"]),
@@ -1018,6 +1057,7 @@ def _run_decode_z(
         group_cols="mode",
         metric_cols=[
             "pixel_mse",
+            "pixel_r2",
             "weighted_mse",
             "foreground_mse",
             "background_mse",
@@ -1120,6 +1160,7 @@ def run_topo_pixel_z(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataF
             "mode": "z",
             "predict_steps_ahead": context.predict_steps_ahead,
             "pixel_mse": float(metrics["pixel_mse"]),
+            "pixel_r2": float(metrics["pixel_r2"]),
             "weighted_mse": float(metrics["weighted_mse"]),
             "foreground_mse": float(metrics["foreground_mse"]),
             "background_mse": float(metrics["background_mse"]),
@@ -1138,6 +1179,7 @@ def run_topo_pixel_z(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataF
         group_cols="mode",
         metric_cols=[
             "pixel_mse",
+            "pixel_r2",
             "weighted_mse",
             "foreground_mse",
             "background_mse",

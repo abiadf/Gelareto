@@ -212,6 +212,10 @@ def evaluate_predictor(model, test_features, X_test):
     counts = {"weighted": 0, "pixel": 0, "foreground": 0, "background": 0}
     per_time_sse = torch.zeros(x_all.shape[0], dtype=torch.float64)
     per_time_count = torch.zeros(x_all.shape[0], dtype=torch.float64)
+    total_sse = 0.0
+    total_target_sum = 0.0
+    total_target_sq_sum = 0.0
+    total_target_count = 0
 
     model.eval()
     with torch.no_grad():
@@ -235,11 +239,21 @@ def evaluate_predictor(model, test_features, X_test):
             err = ((pred - y_batch) ** 2).detach().cpu().double()
             per_time_sse += err.sum(dim=(1, 2, 3, 4))
             per_time_count += err[0].numel()
+            y_cpu = y_batch.detach().cpu().double()
+            total_sse += float(err.sum())
+            total_target_sum += float(y_cpu.sum())
+            total_target_sq_sum += float((y_cpu ** 2).sum())
+            total_target_count += y_cpu.numel()
 
     per_time_pixel_mse = (per_time_sse / per_time_count.clamp_min(1)).float()
+    target_mean = total_target_sum / max(total_target_count, 1)
+    target_var = total_target_sq_sum / max(total_target_count, 1) - target_mean ** 2
+    pixel_mse_global = total_sse / max(total_target_count, 1)
+    pixel_r2 = 1.0 - (pixel_mse_global / max(target_var, 1e-12))
     return {
         "weighted_mse": sums["weighted"] / max(counts["weighted"], 1),
         "pixel_mse": sums["pixel"] / max(counts["pixel"], 1),
+        "pixel_r2": pixel_r2,
         "foreground_mse": sums["foreground"] / counts["foreground"] if counts["foreground"] else float("nan"),
         "background_mse": sums["background"] / counts["background"] if counts["background"] else float("nan"),
         "warmup_excluded_pixel_mse": float(per_time_pixel_mse[1:].mean()) if len(per_time_pixel_mse) > 1 else float(per_time_pixel_mse.mean()),
@@ -278,6 +292,7 @@ def run_pixel_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
                 "mode": mode,
                 "predict_steps_ahead": PREDICT_STEPS_AHEAD,
                 "pixel_mse": float(metrics["pixel_mse"]),
+                "pixel_r2": float(metrics["pixel_r2"]),
                 "weighted_mse": float(metrics["weighted_mse"]),
                 "foreground_mse": float(metrics["foreground_mse"]),
                 "background_mse": float(metrics["background_mse"]),
@@ -297,11 +312,18 @@ def run_pixel_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["pixel_mse", "weighted_mse", "foreground_mse", "background_mse", "warmup_excluded_pixel_mse"],
+        metric_cols=[
+            "pixel_mse",
+            "pixel_r2",
+            "weighted_mse",
+            "foreground_mse",
+            "background_mse",
+            "warmup_excluded_pixel_mse",
+        ],
         sort_metric="weighted_mse",
     )
     print("\nPixel TDA per-run results:")
-    print(results_df.to_string(index=False))
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
     print("\nPixel TDA mean +/- std:")
     print(summary_df)
     if display_fn is not None:

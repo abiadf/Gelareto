@@ -239,7 +239,10 @@ def eval_latent_tda_predictor(model, test_features, test_z):
         target = test_z[PREDICT_STEPS_AHEAD:].to(device)
         mse = criterion(pred, target).item()
         per_frame = ((pred - target) ** 2).mean(dim=(1, 2)).cpu()
-    return mse, per_frame
+    target_cpu = target.detach().float().cpu()
+    target_var = torch.mean((target_cpu - target_cpu.mean()) ** 2).item()
+    r2 = float(1.0 - (mse / max(target_var, 1e-12)))
+    return mse, per_frame, r2
 
 
 def run_latent_tda_trajectory_experiment(
@@ -280,13 +283,18 @@ def run_latent_tda_trajectory_experiment(
             configure_runtime(CONTROL_SEED=seed + 10_000)
             test_features = features_for_latent_tda_mode(test_payload, mode)
             model = train_or_load_latent_tda_predictor(seed, mode, train_features, train_payload["z"])
-            test_mse, per_frame_mse = eval_latent_tda_predictor(model, test_features, test_payload["z"])
+            test_mse, per_frame_mse, latent_r2 = eval_latent_tda_predictor(
+                model,
+                test_features,
+                test_payload["z"],
+            )
             row = {
                 "dataset": DATASET,
                 "seed": seed,
                 "mode": mode,
                 "predict_steps_ahead": PREDICT_STEPS_AHEAD,
                 "test_mse": float(test_mse),
+                "latent_r2": float(latent_r2),
                 "warmup_excluded_mse": float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse),
             }
             rows.append(row)
@@ -296,7 +304,7 @@ def run_latent_tda_trajectory_experiment(
     summary_df = summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
         sort_metric="test_mse",
     )
     paired_df = results_df.pivot(index="seed", columns="mode", values="test_mse")

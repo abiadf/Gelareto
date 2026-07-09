@@ -193,11 +193,14 @@ def evaluate_predictor(model, mode, test_z, test_b):
         pred_z, pred_b = model(x_test)
         z_mse = loss_fn(pred_z, y_z_test).item()
         per_frame_z_mse = ((pred_z - y_z_test) ** 2).mean(dim=(1, 2)).detach().cpu()
+        target_z = y_z_test.detach().float().cpu()
+        target_var = torch.mean((target_z - target_z.mean()) ** 2).item()
+        z_r2 = float(1.0 - (z_mse / max(target_var, 1e-12)))
         if y_b_test is not None:
             b_mse = loss_fn(pred_b, y_b_test).item()
         else:
             b_mse = float("nan")
-    return z_mse, b_mse, per_frame_z_mse
+    return z_mse, b_mse, per_frame_z_mse, z_r2
 
 
 def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
@@ -224,7 +227,7 @@ def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
             train_b = select_betti_target(train_h0, train_h1, mode)
             test_b = select_betti_target(test_h0, test_h1, mode)
             model, model_path = train_or_load_predictor(seed, mode, train_z, train_b)
-            z_mse, b_mse, per_frame_z_mse = evaluate_predictor(model, mode, test_z, test_b)
+            z_mse, b_mse, per_frame_z_mse, z_r2 = evaluate_predictor(model, mode, test_z, test_b)
             row = {
                 "dataset": DATASET,
                 "seed": seed,
@@ -232,6 +235,7 @@ def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
                 "predict_steps_ahead": PREDICT_STEPS_AHEAD,
                 "lambda_topo": AUX_TDA_LAMBDA,
                 "z_mse": _round_metric(z_mse),
+                "z_r2": _round_metric(z_r2),
                 "b_mse": _round_metric(b_mse),
                 "warmup_excluded_z_mse": _round_metric(
                     per_frame_z_mse[1:].mean() if len(per_frame_z_mse) > 1 else z_mse
@@ -249,7 +253,7 @@ def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["z_mse", "warmup_excluded_z_mse", "b_mse"],
+        metric_cols=["z_mse", "z_r2", "warmup_excluded_z_mse", "b_mse"],
         sort_metric="z_mse",
     )
     print("\nAux TDA per-run results:")
