@@ -13,15 +13,15 @@ set -euo pipefail
 #   topo_sequence: same as sequence, but with a topo-regularized AE encoder
 
 args=(
-  --scenario latent_tda                 # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_z | decode_z | topo_decode_z
-  --dataset celltracking_fluo             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls
-  --seeds 0,1,2,3,4,5,6,7,8,9                  # comma-separated seeds
-  --modes z #z,z_latent_h1,z_latent_h1_zero,z_latent_h1_shuffle,z_latent_h1_noise,z_latent_h1_shift,z_latent_h0_zero # comma-separated modes; see above
+  --scenario topo_sequence             # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_z | decode_z | topo_decode_z
+  --dataset moving_mnist             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls
+  --seeds 0,1,2,3,4                  # comma-separated seeds
+  --modes none,h0,h1,both #,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
   --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
   --predict-steps-ahead 5
-  --retrain-encoder
+  # --retrain-encoder
   --epochs 10
-  --topo-ae-lambda 1
+  --topo-ae-lambda 0.1
   --topo-ae-epochs 3
   --topo-ae-pair-batch-size 64
 
