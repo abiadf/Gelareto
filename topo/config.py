@@ -3,11 +3,11 @@ DATASET_CONFIGS = {
     "moving_mnist": {
         "kind": "moving_mnist",
         "path": "datasets/2D/mnist_test_seq.npy",
-        "train_slice": slice(0, 2000),
-        "test_slice": slice(9500, 9_800),
+        "train_slice": slice(0, 1000),
+        "test_slice": slice(9500, 9_700),
         "image_size": (64, 64),
         "learning_rate": 3e-4,
-        "LATENT_DIM": 64,
+        "LATENT_DIM": 48,
         "HIDDEN_DIM": 64,
         "EPOCHS": 10,
         "BETTI_SCALE": 15,
@@ -39,7 +39,7 @@ DATASET_CONFIGS = {
         "EPOCHS": 10,
         "BETTI_SCALE": 1,
         "N_STEPS": 25,
-        "PREDICT_STEPS_AHEAD": 5,
+        "PREDICT_STEPS_AHEAD": 10,
         "RUN_SEEDS": list(range(3)),
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
