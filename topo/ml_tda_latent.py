@@ -165,13 +165,26 @@ def features_for_latent_tda_mode(payload, mode):
     z = payload["z"]
     if mode == "z":
         return z
-    if mode == "z_latent_h0":
-        return torch.cat([z, payload["h0"]], dim=-1)
-    if mode == "z_latent_h1":
-        return torch.cat([z, payload["h1"]], dim=-1)
-    if mode == "z_latent_both":
-        return torch.cat([z, payload["h0"], payload["h1"]], dim=-1)
-    raise ValueError(f"Unknown latent TDA mode: {mode}")
+
+    control_names = {"zero", "shuffle", "noise", "shift"}
+    parts = mode.rsplit("_", 1)
+    if len(parts) == 2 and parts[1] in control_names:
+        base_mode, control = parts
+    else:
+        base_mode, control = mode, "real"
+
+    if base_mode == "z_latent_h0":
+        tda = payload["h0"]
+    elif base_mode == "z_latent_h1":
+        tda = payload["h1"]
+    elif base_mode == "z_latent_both":
+        tda = torch.cat([payload["h0"], payload["h1"]], dim=-1)
+    else:
+        raise ValueError(f"Unknown latent TDA mode: {mode}")
+
+    control_seed = globals().get("CONTROL_SEED", 0)
+    tda = ml_tda.apply_tda_control(tda, control=control, seed=int(control_seed), shift=1)
+    return torch.cat([z, tda], dim=-1)
 
 
 def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
@@ -262,7 +275,9 @@ def run_latent_tda_trajectory_experiment(
         test_payload = load_or_compute_latent_tda_features(seed, "test", Xte, encoder)
 
         for mode in modes:
+            configure_runtime(CONTROL_SEED=seed)
             train_features = features_for_latent_tda_mode(train_payload, mode)
+            configure_runtime(CONTROL_SEED=seed + 10_000)
             test_features = features_for_latent_tda_mode(test_payload, mode)
             model = train_or_load_latent_tda_predictor(seed, mode, train_features, train_payload["z"])
             test_mse, per_frame_mse = eval_latent_tda_predictor(model, test_features, test_payload["z"])

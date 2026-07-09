@@ -691,7 +691,9 @@ def run_topo_latent_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.Da
 
         for mode in modes:
             print(f"\n--- topo latent mode={mode} seed={seed} ---")
+            ml_tda_latent.configure_runtime(CONTROL_SEED=seed)
             train_features = ml_tda_latent.features_for_latent_tda_mode(train_payload, mode)
+            ml_tda_latent.configure_runtime(CONTROL_SEED=seed + 10_000)
             test_features = ml_tda_latent.features_for_latent_tda_mode(test_payload, mode)
             model = ml_tda_latent.train_or_load_latent_tda_predictor(
                 seed,
