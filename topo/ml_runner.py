@@ -28,6 +28,7 @@ import topo.ml_tda as ml_tda
 import topo.ml_tda_aux as ml_tda_aux
 import topo.ml_tda_latent as ml_tda_latent
 import topo.ml_tda_pixel as ml_tda_pixel
+import topo.ml_tda_topoae as ml_tda_topoae
 from topo.ml_tda import (
     SpatialDecoder,
     SpatialEncoder,
@@ -39,7 +40,7 @@ from topo.ml_tda import (
 )
 
 
-SEQUENCE_SCENARIOS = {"sequence", "latent_tda", "aux_tda", "pixel_tda"}
+SEQUENCE_SCENARIOS = {"sequence", "topo_sequence", "latent_tda", "topo_latent_tda", "aux_tda", "pixel_tda"}
 
 
 @dataclass
@@ -85,6 +86,9 @@ class RunConfig:
     latent_tda_max_train: int | None
     latent_tda_max_test: int | None
     recompute_latent_tda_features: bool
+    topo_ae_lambda: float
+    topo_ae_epochs: int | None
+    topo_ae_pair_batch_size: int
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
@@ -344,6 +348,166 @@ def run_sequence(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame
     return results_df, summary_df
 
 
+def _topo_model_namespace(dataset: str, topo_lambda: float) -> str:
+    return f"{dataset}_topoae_lam{topo_lambda:g}"
+
+
+def _set_all_seeds(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def _topo_predictor_path(
+    model_namespace: str,
+    seed: int,
+    mode: str,
+    context: SequenceContext,
+    input_dim: int,
+) -> Path:
+    model_dir = Path("models") / model_namespace / "topo_sequence_predictors"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    tag = (
+        f"seed{seed}_mode{mode}_pred{context.predict_steps_ahead}_"
+        f"T{context.x_train.shape[0]}_B{context.x_train.shape[1]}_"
+        f"latent{context.latent_dim}_input{input_dim}"
+    )
+    return model_dir / f"{tag}.pt"
+
+
+def _topo_feature_dim(mode: str, context: SequenceContext) -> tuple[bool, int]:
+    base_mode, _ = parse_tda_control_mode(mode)
+    if base_mode == "none":
+        return False, context.latent_dim
+    if base_mode in {"h0", "h1"}:
+        return True, context.latent_dim + context.n_steps
+    if base_mode == "both":
+        return True, context.latent_dim + 2 * context.n_steps
+    raise ValueError(f"Unknown TDA mode: {mode}")
+
+
+def _train_or_load_topo_sequence_predictor(
+    *,
+    cfg: RunConfig,
+    context: SequenceContext,
+    encoder: SpatialEncoder,
+    model_namespace: str,
+    seed: int,
+    mode: str,
+) -> tuple[TopologicalPredictor, Path]:
+    use_tda, input_dim = _topo_feature_dim(mode, context)
+    model = TopologicalPredictor(input_dim=input_dim, hidden_dim=context.hidden_dim)
+    model_path = _topo_predictor_path(model_namespace, seed, mode, context, input_dim)
+    device = ml_tda.get_runtime_device()
+
+    if model_path.exists() and not cfg.retrain_predictor:
+        print(f"Loading topo-sequence predictor: {model_path}")
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.to(device)
+        return model, model_path
+
+    reason = "retraining" if model_path.exists() else "missing; training once"
+    print(f"Topo-sequence predictor {reason}: {model_path}")
+    model.to(device)
+    ml_tda.train_predictor(
+        model,
+        encoder,
+        context.x_train,
+        epochs=context.epochs,
+        use_tda=use_tda,
+        learning_rate=context.learning_rate,
+    )
+    torch.save(model.state_dict(), model_path)
+    print(f"Saved topo-sequence predictor: {model_path}")
+    return model, model_path
+
+
+def _load_topo_encoder_for_seed(
+    cfg: RunConfig,
+    context: SequenceContext,
+    seed: int,
+) -> tuple[SpatialEncoder, Path, str]:
+    topo_epochs = int(_override(cfg.topo_ae_epochs, context.dataset_config.get("TOPO_AE_EPOCHS", 3)))
+    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda)
+    encoder, encoder_path = ml_tda_topoae.load_or_train_topo_encoder(
+        context.x_train,
+        dataset_name=cfg.dataset,
+        model_namespace=model_namespace,
+        seed=seed,
+        latent_dim=context.latent_dim,
+        topo_lambda=cfg.topo_ae_lambda,
+        epochs=topo_epochs,
+        frame_batch_size=context.ae_frame_batch_size or 256,
+        max_frames_per_epoch=context.ae_max_frames_per_epoch,
+        pair_batch_size=cfg.topo_ae_pair_batch_size,
+        retrain=cfg.retrain_encoder,
+    )
+    return encoder, encoder_path, model_namespace
+
+
+def run_topo_sequence(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get("LEGACY_TDA_MODES", ["none", "h0", "h1", "both"]),
+    )
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
+    print(
+        f"Topo-sequence config: dataset={cfg.dataset}, seeds={seeds}, modes={modes}, "
+        f"topo_ae_lambda={cfg.topo_ae_lambda}, predict_steps_ahead={context.predict_steps_ahead}"
+    )
+
+    rows = []
+    for seed in seeds:
+        print(f"\n================ topo-sequence seed={seed} ================")
+        _set_all_seeds(seed)
+        encoder, encoder_path, model_namespace = _load_topo_encoder_for_seed(cfg, context, seed)
+
+        for mode in modes:
+            ml_tda.configure_runtime(EXPERIMENT_SEED=seed, TDA_MODE=mode)
+            use_tda, _ = _topo_feature_dim(mode, context)
+            print(f"\n-------- DATASET={cfg.dataset} seed={seed} TOPO_TDA_MODE={mode} --------")
+            model, model_path = _train_or_load_topo_sequence_predictor(
+                cfg=cfg,
+                context=context,
+                encoder=encoder,
+                model_namespace=model_namespace,
+                seed=seed,
+                mode=mode,
+            )
+            test_mse, per_frame_mse = test_predictor(model, encoder, context.x_test, use_tda)
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": "topo_ae",
+                "topo_ae_lambda": cfg.topo_ae_lambda,
+                "seed": seed,
+                "mode": mode,
+                "test_mse": float(test_mse),
+                "warmup_excluded_mse": (
+                    float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
+                ),
+                "encoder_path": str(encoder_path),
+                "model_path": str(model_path),
+            }
+            rows.append(row)
+            print("topo-sequence summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=["test_mse", "warmup_excluded_mse"],
+        sort_metric="test_mse",
+    )
+    print("\nTopo-sequence per-run results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nTopo-sequence mean +/- std by mode:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
 def run_aux_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
@@ -453,6 +617,124 @@ def run_latent_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFra
     return results_df, summary_df
 
 
+def run_topo_latent_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get(
+            "LATENT_TDA_MODES",
+            ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+        ),
+    )
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    latent_epochs = int(_override(cfg.epochs, context.dataset_config.get("LATENT_TDA_EPOCHS", context.epochs)))
+    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
+    max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
+    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda)
+    recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
+        "RECOMPUTE_LATENT_TDA_FEATURES",
+        True,
+    )
+
+    ml_tda.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        BETTI_SCALE=context.betti_scale,
+        N_STEPS=context.n_steps,
+        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
+        DEVICE=_select_device(cfg.device),
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_latent.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        RETRAIN_ENCODER=cfg.retrain_encoder,
+        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
+        LATENT_TDA_WINDOW=window,
+        LATENT_TDA_BINS=bins,
+        LATENT_TDA_EPOCHS=latent_epochs,
+        LATENT_TDA_LR=latent_lr,
+        RETRAIN_LATENT_TDA_PREDICTOR=cfg.retrain_predictor,
+        RECOMPUTE_LATENT_TDA_FEATURES=recompute_features,
+    )
+    print(
+        f"Topo latent-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, "
+        f"seeds={seeds}, modes={modes}, topo_ae_lambda={cfg.topo_ae_lambda}, "
+        f"window={window}, bins={bins}, epochs={latent_epochs}, lr={latent_lr}, "
+        f"predict_steps_ahead={context.predict_steps_ahead}, "
+        f"max_train={max_train}, max_test={max_test}, recompute_features={recompute_features}"
+    )
+
+    rows = []
+    for seed in seeds:
+        print(f"\n================ topo latent TDA seed={seed} ================")
+        _set_all_seeds(seed)
+        encoder, encoder_path, _ = _load_topo_encoder_for_seed(cfg, context, seed)
+        x_train_subset = ml_tda_latent.take_batch_subset(context.x_train, max_train, seed=seed)
+        x_test_subset = ml_tda_latent.take_batch_subset(context.x_test, max_test, seed=seed + 1)
+        train_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+            seed,
+            "train",
+            x_train_subset,
+            encoder,
+        )
+        test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+            seed,
+            "test",
+            x_test_subset,
+            encoder,
+        )
+
+        for mode in modes:
+            print(f"\n--- topo latent mode={mode} seed={seed} ---")
+            train_features = ml_tda_latent.features_for_latent_tda_mode(train_payload, mode)
+            test_features = ml_tda_latent.features_for_latent_tda_mode(test_payload, mode)
+            model = ml_tda_latent.train_or_load_latent_tda_predictor(
+                seed,
+                mode,
+                train_features,
+                train_payload["z"],
+            )
+            test_mse, per_frame_mse = ml_tda_latent.eval_latent_tda_predictor(
+                model,
+                test_features,
+                test_payload["z"],
+            )
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": "topo_ae",
+                "topo_ae_lambda": cfg.topo_ae_lambda,
+                "seed": seed,
+                "mode": mode,
+                "predict_steps_ahead": context.predict_steps_ahead,
+                "test_mse": float(test_mse),
+                "warmup_excluded_mse": (
+                    float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
+                ),
+                "encoder_path": str(encoder_path),
+            }
+            rows.append(row)
+            print("topo latent TDA summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=["test_mse", "warmup_excluded_mse"],
+        sort_metric="test_mse",
+    )
+    print("\nTopo latent-TDA per-run results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nTopo latent-TDA mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
 def run_pixel_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
@@ -552,6 +834,9 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         action="store_true",
         help="Recompute latent-trajectory TDA caches even when matching cached files exist.",
     )
+    parser.add_argument("--topo-ae-lambda", type=float, default=0.1)
+    parser.add_argument("--topo-ae-epochs", type=int, default=None)
+    parser.add_argument("--topo-ae-pair-batch-size", type=int, default=64)
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
@@ -585,6 +870,9 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         latent_tda_max_train=args.latent_tda_max_train,
         latent_tda_max_test=args.latent_tda_max_test,
         recompute_latent_tda_features=args.recompute_latent_tda_features,
+        topo_ae_lambda=args.topo_ae_lambda,
+        topo_ae_epochs=args.topo_ae_epochs,
+        topo_ae_pair_batch_size=args.topo_ae_pair_batch_size,
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,
@@ -600,8 +888,12 @@ def main(argv: list[str] | None = None) -> None:
     context = load_sequence_context(cfg)
     if cfg.scenario == "sequence":
         results_df, summary_df = run_sequence(cfg, context)
+    elif cfg.scenario == "topo_sequence":
+        results_df, summary_df = run_topo_sequence(cfg, context)
     elif cfg.scenario == "latent_tda":
         results_df, summary_df = run_latent_tda(cfg, context)
+    elif cfg.scenario == "topo_latent_tda":
+        results_df, summary_df = run_topo_latent_tda(cfg, context)
     elif cfg.scenario == "aux_tda":
         results_df, summary_df = run_aux_tda(cfg, context)
     elif cfg.scenario == "pixel_tda":
