@@ -29,6 +29,14 @@ def configure_runtime(**kwargs):
     globals().update(kwargs)
 
 
+def _round_metric(value, digits=4):
+    """Round finite scalar metrics while preserving NaN."""
+    scalar = float(value)
+    if not np.isfinite(scalar):
+        return scalar
+    return round(scalar, digits)
+
+
 def set_all_seeds(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -169,7 +177,7 @@ def train_or_load_predictor(seed, mode, train_z, train_b):
         if epoch == 1 or epoch == AUX_TDA_EPOCHS:
             print(
                 f"aux {mode} seed={seed} epoch {epoch}/{AUX_TDA_EPOCHS} | "
-                f"z_mse={z_loss.item():.6f} b_mse={b_loss.item():.6f} total={loss.item():.6f}"
+                f"z_mse={z_loss.item():.4f} b_mse={b_loss.item():.4f} total={loss.item():.4f}"
             )
 
     torch.save(model.state_dict(), path)
@@ -223,9 +231,11 @@ def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
                 "mode": mode,
                 "predict_steps_ahead": PREDICT_STEPS_AHEAD,
                 "lambda_topo": AUX_TDA_LAMBDA,
-                "z_mse": float(z_mse),
-                "b_mse": float(b_mse),
-                "warmup_excluded_z_mse": float(per_frame_z_mse[1:].mean()) if len(per_frame_z_mse) > 1 else float(z_mse),
+                "z_mse": _round_metric(z_mse),
+                "b_mse": _round_metric(b_mse),
+                "warmup_excluded_z_mse": _round_metric(
+                    per_frame_z_mse[1:].mean() if len(per_frame_z_mse) > 1 else z_mse
+                ),
                 "encoder_path": str(encoder_path),
                 "model_path": str(model_path),
             }
@@ -243,9 +253,10 @@ def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
         sort_metric="z_mse",
     )
     print("\nAux TDA per-run results:")
-    print(results_df.to_string(index=False))
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
     print("\nAux TDA mean +/- std:")
-    print(summary_df)
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
     if display_fn is not None:
         display_fn(summary_df)
         display_fn(results_df.sort_values(["seed", "mode"]))
