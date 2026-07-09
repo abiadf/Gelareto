@@ -72,6 +72,7 @@ def load_or_train_shared_encoder_for_latent_tda(seed, X_train_subset, X_train_fo
         pretrain_spatial_encoder(encoder, decoder, X_train_subset, epochs=3)
         torch.save(encoder.state_dict(), encoder_path)
 
+    encoder.to(ml_tda.get_runtime_device())
     encoder.eval()
     for p in encoder.parameters():
         p.requires_grad = False
@@ -80,11 +81,14 @@ def load_or_train_shared_encoder_for_latent_tda(seed, X_train_subset, X_train_fo
 
 @torch.no_grad()
 def encode_sequence_to_z(X, encoder, frame_batch_size=1024):
+    device = ml_tda.get_runtime_device()
+    encoder.to(device)
     T, B = X.shape[:2]
     frames = X.reshape(T * B, *X.shape[2:])
     chunks = []
     for start in range(0, len(frames), frame_batch_size):
-        chunks.append(encoder(frames[start:start + frame_batch_size]).cpu())
+        frame_batch = ml_tda.tensor_to_model_float(frames[start:start + frame_batch_size]).to(device)
+        chunks.append(encoder(frame_batch).cpu())
     return torch.cat(chunks, dim=0).reshape(T, B, -1)
 
 
@@ -182,11 +186,12 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
         f"model_seed{seed}_pred{PREDICT_STEPS_AHEAD}_{mode}_"
         f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}.pt"
     )
-    model = TopologicalPredictor(input_dim=train_features.shape[-1], hidden_dim=HIDDEN_DIM)
+    device = ml_tda.get_runtime_device()
+    model = TopologicalPredictor(input_dim=train_features.shape[-1], hidden_dim=HIDDEN_DIM).to(device)
 
     if model_path.exists() and not RETRAIN_LATENT_TDA_PREDICTOR:
         print(f"Loading latent TDA predictor: {model_path}")
-        model.load_state_dict(torch.load(model_path, map_location="cpu"))
+        model.load_state_dict(torch.load(model_path, map_location=device))
         return model
 
     reason = "retraining" if model_path.exists() else "missing; training once"
@@ -196,8 +201,8 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
     for epoch in range(1, LATENT_TDA_EPOCHS + 1):
         model.train()
         optimizer.zero_grad()
-        pred = model(train_features[:-PREDICT_STEPS_AHEAD])
-        target = train_z[PREDICT_STEPS_AHEAD:]
+        pred = model(train_features[:-PREDICT_STEPS_AHEAD].to(device))
+        target = train_z[PREDICT_STEPS_AHEAD:].to(device)
         loss = criterion(pred, target)
         loss.backward()
         optimizer.step()
@@ -214,9 +219,11 @@ def eval_latent_tda_predictor(model, test_features, test_z):
         )
     model.eval()
     criterion = nn.MSELoss()
+    device = ml_tda.get_runtime_device()
+    model.to(device)
     with torch.no_grad():
-        pred = model(test_features[:-PREDICT_STEPS_AHEAD])
-        target = test_z[PREDICT_STEPS_AHEAD:]
+        pred = model(test_features[:-PREDICT_STEPS_AHEAD].to(device))
+        target = test_z[PREDICT_STEPS_AHEAD:].to(device)
         mse = criterion(pred, target).item()
         per_frame = ((pred - target) ** 2).mean(dim=(1, 2)).cpu()
     return mse, per_frame

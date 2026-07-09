@@ -26,6 +26,7 @@ if __package__ in {None, ""}:
 import topo.config as topo_config
 import topo.ml_tda as ml_tda
 import topo.ml_tda_aux as ml_tda_aux
+import topo.ml_tda_latent as ml_tda_latent
 import topo.ml_tda_pixel as ml_tda_pixel
 from topo.ml_tda import (
     SpatialDecoder,
@@ -38,7 +39,7 @@ from topo.ml_tda import (
 )
 
 
-SEQUENCE_SCENARIOS = {"sequence", "aux_tda", "pixel_tda"}
+SEQUENCE_SCENARIOS = {"sequence", "latent_tda", "aux_tda", "pixel_tda"}
 
 
 @dataclass
@@ -79,6 +80,11 @@ class RunConfig:
     retrain_encoder: bool
     retrain_predictor: bool
     aux_tda_lambda: float | None
+    latent_tda_window: int | None
+    latent_tda_bins: int | None
+    latent_tda_max_train: int | None
+    latent_tda_max_test: int | None
+    recompute_latent_tda_features: bool
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
@@ -386,6 +392,67 @@ def run_aux_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame,
     return results_df, summary_df
 
 
+def run_latent_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get(
+            "LATENT_TDA_MODES",
+            ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+        ),
+    )
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    latent_epochs = int(_override(cfg.epochs, context.dataset_config.get("LATENT_TDA_EPOCHS", context.epochs)))
+    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
+    max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
+    recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
+        "RECOMPUTE_LATENT_TDA_FEATURES",
+        True,
+    )
+
+    ml_tda.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        BETTI_SCALE=context.betti_scale,
+        N_STEPS=context.n_steps,
+        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
+        DEVICE=_select_device(cfg.device),
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_latent.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        RETRAIN_ENCODER=cfg.retrain_encoder,
+        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
+        LATENT_TDA_WINDOW=window,
+        LATENT_TDA_BINS=bins,
+        LATENT_TDA_EPOCHS=latent_epochs,
+        LATENT_TDA_LR=latent_lr,
+        RETRAIN_LATENT_TDA_PREDICTOR=cfg.retrain_predictor,
+        RECOMPUTE_LATENT_TDA_FEATURES=recompute_features,
+    )
+    print(
+        f"Latent TDA config: dataset={cfg.dataset}, seeds={seeds}, modes={modes}, "
+        f"window={window}, bins={bins}, epochs={latent_epochs}, lr={latent_lr}, "
+        f"predict_steps_ahead={context.predict_steps_ahead}, "
+        f"max_train={max_train}, max_test={max_test}, recompute_features={recompute_features}"
+    )
+    results_df, summary_df, _ = ml_tda_latent.run_latent_tda_trajectory_experiment(
+        X_train=context.x_train,
+        X_test=context.x_test,
+        run_seeds=seeds,
+        modes=modes,
+        max_train=max_train,
+        max_test=max_test,
+        display_fn=None,
+    )
+    return results_df, summary_df
+
+
 def run_pixel_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
@@ -476,6 +543,15 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         help="Load existing predictors when present. By default, match the notebook and retrain predictors.",
     )
     parser.add_argument("--aux-tda-lambda", type=float, default=None)
+    parser.add_argument("--latent-tda-window", type=int, default=None)
+    parser.add_argument("--latent-tda-bins", type=int, default=None)
+    parser.add_argument("--latent-tda-max-train", type=int, default=None)
+    parser.add_argument("--latent-tda-max-test", type=int, default=None)
+    parser.add_argument(
+        "--recompute-latent-tda-features",
+        action="store_true",
+        help="Recompute latent-trajectory TDA caches even when matching cached files exist.",
+    )
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
@@ -504,6 +580,11 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         retrain_encoder=args.retrain_encoder,
         retrain_predictor=not args.reuse_predictor,
         aux_tda_lambda=args.aux_tda_lambda,
+        latent_tda_window=args.latent_tda_window,
+        latent_tda_bins=args.latent_tda_bins,
+        latent_tda_max_train=args.latent_tda_max_train,
+        latent_tda_max_test=args.latent_tda_max_test,
+        recompute_latent_tda_features=args.recompute_latent_tda_features,
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,
@@ -519,6 +600,8 @@ def main(argv: list[str] | None = None) -> None:
     context = load_sequence_context(cfg)
     if cfg.scenario == "sequence":
         results_df, summary_df = run_sequence(cfg, context)
+    elif cfg.scenario == "latent_tda":
+        results_df, summary_df = run_latent_tda(cfg, context)
     elif cfg.scenario == "aux_tda":
         results_df, summary_df = run_aux_tda(cfg, context)
     elif cfg.scenario == "pixel_tda":
