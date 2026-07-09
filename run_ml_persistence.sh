@@ -10,15 +10,15 @@ set -euo pipefail
 #   topo_sequence: same as sequence, but with a topo-regularized AE encoder
 
 args=(
-  --scenario sequence                 # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda
-  --dataset bouncing_balls             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls
+  --scenario topo_latent_tda                 # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda
+  --dataset moving_mnist             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls
   --seeds 0,1,2                  # comma-separated seeds
-  --modes none,h0,h1,both,h0_shuffle,h0_noise,h0_shift,h0_zero # comma-separated modes; see above
+  --modes z,z_latent_h0,z_latent_h1,z_latent_both # comma-separated modes; see above
   --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
   --predict-steps-ahead 5
   # --retrain-encoder
   --epochs 10
-  --topo-ae-lambda 0.1 \
+  --topo-ae-lambda 0.1
   --topo-ae-epochs 3
   --topo-ae-pair-batch-size 64
 
