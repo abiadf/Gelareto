@@ -811,7 +811,7 @@ def run_topo_pixel_z(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataF
         )
         model, model_path = ml_tda_pixel.train_or_load_predictor(
             seed,
-            "z",
+            "none",
             train_features,
             context.x_train,
         )
