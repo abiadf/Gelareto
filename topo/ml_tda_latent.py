@@ -1,4 +1,4 @@
-"""Latent-trajectory TDA helpers for sequence experiments."""
+"""Latent-trajectory TDA helpers for video forecasting experiments."""
 
 from pathlib import Path
 import random
@@ -24,10 +24,10 @@ DATASET = "default"
 LATENT_DIM = 128
 HIDDEN_DIM = 128
 RETRAIN_ENCODER = False
-PREDICT_STEPS_AHEAD = 1
+HORIZON = 1
 LATENT_TDA_WINDOW = 20
 LATENT_TDA_BINS = 16
-LATENT_TDA_EPOCHS = 10
+LATENT_TDA_PREDICTOR_EPOCHS = 10
 LATENT_TDA_LR = 3e-4
 RETRAIN_LATENT_TDA_PREDICTOR = True
 RECOMPUTE_LATENT_TDA_FEATURES = True
@@ -39,7 +39,7 @@ def configure_runtime(**kwargs):
     ml_tda.configure_runtime(
         DATASET=globals().get("DATASET", DATASET),
         LATENT_DIM=globals().get("LATENT_DIM", LATENT_DIM),
-        PREDICT_STEPS_AHEAD=globals().get("PREDICT_STEPS_AHEAD", PREDICT_STEPS_AHEAD),
+        HORIZON=globals().get("HORIZON", HORIZON),
     )
 
 
@@ -51,7 +51,7 @@ def take_batch_subset(X, max_batch, seed=0):
     return X[:, idx]
 
 
-def shared_encoder_path_for_sequence(seed, X):
+def shared_encoder_path_for_video(seed, X):
     encoder_tag = f"seed{seed}_T{X.shape[0]}_B{X.shape[1]}_H{X.shape[-2]}_W{X.shape[-1]}_latent{LATENT_DIM}"
     return Path("models") / DATASET / "encoders" / f"encoder_{encoder_tag}.pt"
 
@@ -60,7 +60,7 @@ def load_or_train_shared_encoder_for_latent_tda(seed, X_train_subset, X_train_fo
     encoder = SpatialEncoder(latent_dim=LATENT_DIM)
     decoder = SpatialDecoder(latent_dim=LATENT_DIM, output_size=X_train_subset.shape[-2:])
     tag_source = X_train_subset if X_train_for_tag is None else X_train_for_tag
-    encoder_path = shared_encoder_path_for_sequence(seed, tag_source)
+    encoder_path = shared_encoder_path_for_video(seed, tag_source)
     encoder_path.parent.mkdir(parents=True, exist_ok=True)
 
     if encoder_path.exists() and not RETRAIN_ENCODER:
@@ -69,7 +69,7 @@ def load_or_train_shared_encoder_for_latent_tda(seed, X_train_subset, X_train_fo
     else:
         reason = "retraining" if encoder_path.exists() else "missing; training once"
         print(f"Shared encoder {reason}: {encoder_path}")
-        pretrain_spatial_encoder(encoder, decoder, X_train_subset, epochs=3)
+        pretrain_spatial_encoder(encoder, decoder, X_train_subset, ae_epochs=3)
         torch.save(encoder.state_dict(), encoder_path)
 
     encoder.to(ml_tda.get_runtime_device())
@@ -80,7 +80,7 @@ def load_or_train_shared_encoder_for_latent_tda(seed, X_train_subset, X_train_fo
 
 
 @torch.no_grad()
-def encode_sequence_to_z(X, encoder, frame_batch_size=1024):
+def encode_video_to_z(X, encoder, frame_batch_size=1024):
     device = ml_tda.get_runtime_device()
     encoder.to(device)
     T, B = X.shape[:2]
@@ -153,7 +153,7 @@ def load_or_compute_latent_tda_features(seed, split_name, X_subset, encoder):
         return torch.load(cache_path, map_location="cpu")
 
     print(f"Computing z + latent-window TDA for {split_name}...")
-    z = encode_sequence_to_z(X_subset, encoder)
+    z = encode_video_to_z(X_subset, encoder)
     h0, h1 = latent_window_betti_features(z, window=LATENT_TDA_WINDOW, n_bins=LATENT_TDA_BINS)
     payload = {"z": z, "h0": h0, "h1": h1}
     torch.save(payload, cache_path)
@@ -188,15 +188,15 @@ def features_for_latent_tda_mode(payload, mode):
 
 
 def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
-    if PREDICT_STEPS_AHEAD >= train_features.shape[0]:
+    if HORIZON >= train_features.shape[0]:
         raise ValueError(
-            f"PREDICT_STEPS_AHEAD={PREDICT_STEPS_AHEAD} must be smaller than sequence length "
+            f"HORIZON={HORIZON} must be smaller than sequence length "
             f"{train_features.shape[0]}"
         )
     model_dir = Path("models") / DATASET / "latent_tda_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
     model_path = model_dir / (
-        f"model_seed{seed}_pred{PREDICT_STEPS_AHEAD}_{mode}_"
+        f"model_seed{seed}_pred{HORIZON}_{mode}_"
         f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}.pt"
     )
     device = ml_tda.get_runtime_device()
@@ -211,23 +211,23 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
     print(f"Latent TDA predictor {reason}: {model_path}")
     optimizer = optim.AdamW(model.parameters(), lr=LATENT_TDA_LR)
     criterion = nn.MSELoss()
-    for epoch in range(1, LATENT_TDA_EPOCHS + 1):
+    for epoch in range(1, LATENT_TDA_PREDICTOR_EPOCHS + 1):
         model.train()
         optimizer.zero_grad()
-        pred = model(train_features[:-PREDICT_STEPS_AHEAD].to(device))
-        target = train_z[PREDICT_STEPS_AHEAD:].to(device)
+        pred = model(train_features[:-HORIZON].to(device))
+        target = train_z[HORIZON:].to(device)
         loss = criterion(pred, target)
         loss.backward()
         optimizer.step()
-        print(f"Epoch {epoch:02d}/{LATENT_TDA_EPOCHS:02d} | {mode} train MSE: {loss.item():.6f}")
+        print(f"Epoch {epoch:02d}/{LATENT_TDA_PREDICTOR_EPOCHS:02d} | {mode} train MSE: {loss.item():.6f}")
     torch.save(model.state_dict(), model_path)
     return model
 
 
 def eval_latent_tda_predictor(model, test_features, test_z):
-    if PREDICT_STEPS_AHEAD >= test_features.shape[0]:
+    if HORIZON >= test_features.shape[0]:
         raise ValueError(
-            f"PREDICT_STEPS_AHEAD={PREDICT_STEPS_AHEAD} must be smaller than sequence length "
+            f"HORIZON={HORIZON} must be smaller than sequence length "
             f"{test_features.shape[0]}"
         )
     model.eval()
@@ -235,8 +235,8 @@ def eval_latent_tda_predictor(model, test_features, test_z):
     device = ml_tda.get_runtime_device()
     model.to(device)
     with torch.no_grad():
-        pred = model(test_features[:-PREDICT_STEPS_AHEAD].to(device))
-        target = test_z[PREDICT_STEPS_AHEAD:].to(device)
+        pred = model(test_features[:-HORIZON].to(device))
+        target = test_z[HORIZON:].to(device)
         mse = criterion(pred, target).item()
         per_frame = ((pred - target) ** 2).mean(dim=(1, 2)).cpu()
     target_cpu = target.detach().float().cpu()
@@ -257,7 +257,7 @@ def run_latent_tda_trajectory_experiment(
     if X_train is None or X_test is None:
         print(
             "Skipping standalone latent-TDA cell: X_train/X_test are not defined. "
-            "Run the legacy sequence ML cell first, or use the celltracking runner's built-in latent-TDA block."
+            "Provide X_train/X_test, or use the celltracking runner's built-in latent-TDA block."
         )
         empty = pd.DataFrame()
         return empty, empty, empty
@@ -292,7 +292,7 @@ def run_latent_tda_trajectory_experiment(
                 "dataset": DATASET,
                 "seed": seed,
                 "mode": mode,
-                "predict_steps_ahead": PREDICT_STEPS_AHEAD,
+                "horizon": HORIZON,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
                 "warmup_excluded_mse": float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse),

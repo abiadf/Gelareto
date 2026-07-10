@@ -74,7 +74,7 @@ def load_or_train_topo_encoder(
     seed: int,
     latent_dim: int,
     topo_lambda: float = 0.1,
-    epochs: int = 3,
+    ae_epochs: int = 3,
     frame_batch_size: int = 256,
     max_frames_per_epoch: int | None = 8192,
     pair_batch_size: int = 64,
@@ -89,7 +89,7 @@ def load_or_train_topo_encoder(
         seed=seed,
         latent_dim=latent_dim,
         topo_lambda=topo_lambda,
-        epochs=epochs,
+        ae_epochs=ae_epochs,
         frame_batch_size=frame_batch_size,
         max_frames_per_epoch=max_frames_per_epoch,
         pair_batch_size=pair_batch_size,
@@ -107,7 +107,7 @@ def load_or_train_topo_autoencoder(
     seed: int,
     latent_dim: int,
     topo_lambda: float = 0.1,
-    epochs: int = 3,
+    ae_epochs: int = 3,
     frame_batch_size: int = 256,
     max_frames_per_epoch: int | None = 8192,
     pair_batch_size: int = 64,
@@ -146,10 +146,10 @@ def load_or_train_topo_autoencoder(
     pair_batch_size = max(2, int(pair_batch_size))
     print(
         f"Topo-AE config: dataset={dataset_name}, namespace={model_namespace}, "
-        f"lambda={topo_lambda}, epochs={epochs}, device={device}"
+        f"lambda={topo_lambda}, ae_epochs={ae_epochs}, device={device}"
     )
 
-    for epoch in range(1, int(epochs) + 1):
+    for epoch in range(1, int(ae_epochs) + 1):
         encoder.train()
         decoder.train()
         generator = torch.Generator().manual_seed(seed * 10_000 + epoch)
@@ -185,7 +185,7 @@ def load_or_train_topo_autoencoder(
             total_seen += seen
 
         print(
-            f"Topo-AE epoch {epoch}/{epochs} | "
+            f"Topo-AE epoch {epoch}/{ae_epochs} | "
             f"recon_mse={total_recon / total_seen:.4f} "
             f"topo_proxy={total_topo / total_seen:.4f}"
         )

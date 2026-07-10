@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Scenarios:
-# sequence: AE z-history + optional frame TDA -> future z
-# topo_sequence: topoAE z-history + optional frame TDA -> future z
+# real_tda: AE z-history + optional frame/real-space TDA -> future z
+# topo_real_tda: topoAE z-history + optional frame/real-space TDA -> future z
 # latent_tda: AE z-history + optional latent-trajectory TDA -> future z
 # topo_latent_tda: topoAE z-history + optional latent-trajectory TDA -> future z
 # decode_z: AE z-history -> future z -> decoded future X
@@ -14,8 +14,8 @@ set -euo pipefail
 # topo_* models: same as their non-topo counterparts, but with a topo-regularized AE encoder
 
 # Modes:
-#   sequence:      none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
-#   topo_sequence: same as sequence
+#   real_tda:      none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
+#   topo_real_tda: same as real_tda
 #   latent_tda: z,z_latent_h0,z_latent_h1,z_latent_both,z_latent_h0_zero,z_latent_h0_shuffle,z_latent_h0_noise,z_latent_h0_shift,z_latent_h1_zero,z_latent_h1_shuffle,z_latent_h1_noise,z_latent_h1_shift,z_latent_both_zero,z_latent_both_shuffle,z_latent_both_noise,z_latent_both_shift
 #   topo_latent_tda: same ones as latent_tda
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
@@ -30,13 +30,13 @@ set -euo pipefail
 #   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
 
 args=(
-  --scenario topo_sequence             # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_tda | decode_z | topo_decode_z
+  --scenario topo_real_tda             # aux_tda | real_tda | topo_real_tda | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_tda | decode_z | topo_decode_z
   --dataset orbiting_rings             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls | bouncing_disks | orbiting_rings | orbiting_disks
   --seeds 0,1,2 #,3,4                  # comma-separated seeds
   --modes none,h0,h1,both,h0_zero,h1_zero,both_zero #,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #z,z_latent_h0,z_latent_h1,z_latent_both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
-  --predict-steps-ahead 10
+  --horizon 10
   # --retrain-encoder
-  --epochs 10
+  --predictor-epochs 10
   --topo-ae-lambda 0.1
   --topo-ae-epochs 3
   --topo-ae-pair-batch-size 64
@@ -45,13 +45,13 @@ args=(
   # --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
 
   # --device auto                    # auto | cpu | cuda | mps
-  # --predict-steps-ahead 5          # override forecast horizon
+  # --horizon 5          # override forecast horizon
   # --latent-dim 64                  # override encoder latent dimension
   # --hidden-dim 64                  # override LSTM hidden dimension
-  # --epochs 10                      # predictor epochs; scenario-specific where applicable
+  # --predictor-epochs 10          # predictor training epochs; scenario-specific where applicable
   # --learning-rate 3e-4             # predictor learning rate
-  # --betti-scale 15                 # image-space Betti curve normalization
-  # --n-steps 25                     # image-space Betti curve bins
+  # --real-tda-scale 15            # real/frame-space Betti curve normalization
+  # --real-tda-bins 25             # real/frame-space Betti curve bins
   # --ae-frame-batch-size 256        # autoencoder frame batch size
   # --ae-max-frames-per-epoch 8192   # autoencoder frame subsample cap
   # --force-rebuild-data-cache       # synthetic datasets: rebuild cached clips
@@ -65,7 +65,7 @@ args=(
   # --latent-tda-max-test 100        # latent_tda: test clip subset
   # --recompute-latent-tda-features  # latent_tda: rebuild feature cache
   # --topo-ae-lambda 0.1             # topo_*: shape-preservation regularizer weight
-  # --topo-ae-epochs 3               # topo_*: topo-AE pretraining epochs
+  # --topo-ae-epochs 3             # topo_*: topo-AE pretraining epochs
   # --topo-ae-pair-batch-size 64     # topo_*: batch size for pairwise-distance regularizer
   # --pixel-tda-batch-size 32        # pixel_tda: predictor batch size
   # --pixel-tda-fg-weight 10.0       # pixel_tda: foreground loss weight

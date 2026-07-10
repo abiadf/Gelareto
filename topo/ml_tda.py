@@ -20,10 +20,10 @@ DATASET = "default"
 EXPERIMENT_SEED = "default"
 TDA_MODE = "none"
 LATENT_DIM = 128
-BETTI_SCALE = 15
-N_STEPS = 25
-PREDICT_STEPS_AHEAD = 1
-EPOCHS = 10
+REAL_TDA_SCALE = 15
+REAL_TDA_BINS = 25
+HORIZON = 1
+PREDICTOR_EPOCHS = 10
 DEVICE = "auto"
 criterion = nn.MSELoss()
 
@@ -113,12 +113,12 @@ def diagrams_to_betti_curves(batch_diagrams, num_steps=25, min_v=0.0, max_v=1.0)
             continue
         alive     = (diag[:, 0][:, None] <= thresholds) & (diag[:, 1][:, None] > thresholds)
         curves[i] = alive.sum(axis=0)
-    curves = np.clip(curves / BETTI_SCALE, 0.0, 1.0)
+    curves = np.clip(curves / REAL_TDA_SCALE, 0.0, 1.0)
     return torch.from_numpy(curves).float()
 
 def select_tda_features(h0_diags, h1_diags):
-    betti_h0 = diagrams_to_betti_curves(h0_diags, num_steps=N_STEPS)
-    betti_h1 = diagrams_to_betti_curves(h1_diags, num_steps=N_STEPS)
+    betti_h0 = diagrams_to_betti_curves(h0_diags, num_steps=REAL_TDA_BINS)
+    betti_h1 = diagrams_to_betti_curves(h1_diags, num_steps=REAL_TDA_BINS)
     base_mode, _ = parse_tda_control_mode(TDA_MODE)
     if base_mode == "h0":
         return betti_h0
@@ -211,7 +211,7 @@ def run_cripser_tda_on_current_frames(video_prefix):
         h1_diagrams.append(h1)
     return h0_diagrams, h1_diagrams
 
-def pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3):
+def pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=3):
     print("\n--- Phase 1: Pre-training Spatial Encoder ---")
     device = get_runtime_device()
     encoder.to(device)
@@ -221,7 +221,7 @@ def pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3):
     all_frames = X_train.reshape(-1, *X_train.shape[2:])
     frame_batch_size = globals().get("AE_FRAME_BATCH_SIZE", 256)
     max_frames_per_epoch = globals().get("AE_MAX_FRAMES_PER_EPOCH", min(len(all_frames), 8192))
-    for ae_epoch in range(epochs):
+    for ae_epoch in range(ae_epochs):
         encoder.train()
         decoder.train()
         generator = torch.Generator().manual_seed(1000 + ae_epoch)
@@ -241,9 +241,9 @@ def pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3):
             ae_optimizer.step()
             total_loss += ae_loss.item() * len(frames)
             total_seen += len(frames)
-        print(f"AE Pretrain Epoch {ae_epoch+1}/{epochs} | Reconstr MSE: {total_loss / total_seen:.4f}")
+        print(f"AE Pretrain Epoch {ae_epoch+1}/{ae_epochs} | Reconstr MSE: {total_loss / total_seen:.4f}")
 
-def build_sequence_features(video_tensor, encoder, use_tda, split_name="Train"):
+def build_real_tda_features(video_tensor, encoder, use_tda, split_name="Train"):
     device = get_runtime_device()
     encoder.to(device)
     encoder.eval()
@@ -272,25 +272,25 @@ def build_sequence_features(video_tensor, encoder, use_tda, split_name="Train"):
     tda_seq = apply_tda_control(tda_seq, control=control, seed=int(control_seed), shift=1)
     return torch.cat([z_seq, tda_seq], dim=2), z_seq
 
-def train_predictor(model, encoder, X_train, epochs, use_tda, learning_rate):
+def train_predictor(model, encoder, X_train, predictor_epochs, use_tda, learning_rate):
     print(f"\n--- Phase 2: Training LSTM Predictor (USE_TDA={use_tda}) ---")
     device = get_runtime_device()
     encoder.to(device)
     model.to(device)
     print(f"Predictor device: {device}")
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
-    for epoch in range(epochs):
+    for epoch in range(predictor_epochs):
         model.train()
         optimizer.zero_grad()
-        print(f"\n--- Epoch {epoch+1:02d}/{epochs:02d} ---")
-        total_features, z_features = build_sequence_features(X_train, encoder, use_tda, split_name="Train")
-        predict_steps_ahead = PREDICT_STEPS_AHEAD
-        predictions = model(total_features[:-predict_steps_ahead])
-        targets = z_features[predict_steps_ahead:]
+        print(f"\n--- Epoch {epoch+1:02d}/{predictor_epochs:02d} ---")
+        total_features, z_features = build_real_tda_features(X_train, encoder, use_tda, split_name="Train")
+        horizon = HORIZON
+        predictions = model(total_features[:-horizon])
+        targets = z_features[horizon:]
         loss = criterion(predictions, targets)
         loss.backward()
         optimizer.step()
-        print(f"Epoch {epoch+1:02d}/{epochs:02d} | Training MSE Loss: {loss.item():.4f}")
+        print(f"Epoch {epoch+1:02d}/{predictor_epochs:02d} | Training MSE Loss: {loss.item():.4f}")
 
 def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retrain_predictor, use_tda, learning_rate):
     device = get_runtime_device()
@@ -303,8 +303,12 @@ def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retra
     # The predictor remains variant-specific because its input dimension changes.
     seed_tag     = globals().get("EXPERIMENT_SEED", "default")
     encoder_tag  = f"seed{seed_tag}_T{X_train.shape[0]}_B{X_train.shape[1]}_H{X_train.shape[-2]}_W{X_train.shape[-1]}_latent{LATENT_DIM}"
-    predict_tag = f"pred{PREDICT_STEPS_AHEAD}"
-    model_suffix = f"seed{seed_tag}_{predict_tag}_tda_{TDA_MODE}_bettiscale{BETTI_SCALE}" if use_tda else f"seed{seed_tag}_{predict_tag}_tda_none"
+    predict_tag = f"pred{HORIZON}"
+    model_suffix = (
+        f"seed{seed_tag}_{predict_tag}_real_tda_{TDA_MODE}_realtdascale{REAL_TDA_SCALE}"
+        if use_tda
+        else f"seed{seed_tag}_{predict_tag}_real_tda_none"
+    )
     encoder_path = encoder_dir / f"encoder_{encoder_tag}.pt"
     model_path   = model_dir / f"model_{model_suffix}.pt"
 
@@ -314,7 +318,7 @@ def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retra
     else:
         reason = "retraining" if encoder_path.exists() else "missing; training once"
         print(f"Shared encoder {reason}: {encoder_path}")
-        pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3)
+        pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=3)
         torch.save(encoder.state_dict(), encoder_path)
         print(f"Saved shared encoder: {encoder_path}")
     encoder.to(device)
@@ -330,7 +334,7 @@ def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retra
         reason = "retraining" if model_path.exists() else "missing; training once"
         print(f"Predictor {reason}: {model_path}")
         model.to(device)
-        train_predictor(model, encoder, X_train, epochs=EPOCHS, use_tda=use_tda, learning_rate=learning_rate)
+        train_predictor(model, encoder, X_train, predictor_epochs=PREDICTOR_EPOCHS, use_tda=use_tda, learning_rate=learning_rate)
         torch.save(model.state_dict(), model_path)
         print(f"Saved predictor weights to {model_path}")
 
@@ -342,11 +346,11 @@ def test_predictor(model, encoder, X_test, use_tda):
     encoder.to(device)
     model.to(device)
     model.eval()
-    total_test_features, test_z_features = build_sequence_features(X_test, encoder, use_tda, split_name="Test")
+    total_test_features, test_z_features = build_real_tda_features(X_test, encoder, use_tda, split_name="Test")
     with torch.no_grad():
-        predict_steps_ahead = PREDICT_STEPS_AHEAD
-        test_predictions = model(total_test_features[:-predict_steps_ahead])
-        test_targets = test_z_features[predict_steps_ahead:]
+        horizon = HORIZON
+        test_predictions = model(total_test_features[:-horizon])
+        test_targets = test_z_features[horizon:]
         test_loss = criterion(test_predictions, test_targets)
         per_frame_mse = ((test_predictions - test_targets) ** 2).mean(dim=(1, 2))
     print(f"Final test MSE Loss (USE_TDA={use_tda}): {test_loss.item():.6f}")
@@ -377,7 +381,7 @@ def pretrain_spatial_encoder_on_clips(
     encoder,
     decoder,
     train_clips,
-    epochs=1,
+    ae_epochs=1,
     frame_batch_size=256,
     max_frames_per_epoch=8192,
     learning_rate=1e-3,
@@ -388,7 +392,7 @@ def pretrain_spatial_encoder_on_clips(
     optimizer = optim.AdamW(list(encoder.parameters()) + list(decoder.parameters()), lr=learning_rate)
     all_frames = train_clips.reshape(-1, 1, train_clips.shape[-2], train_clips.shape[-1])
     n_frames = all_frames.shape[0]
-    for epoch in range(1, epochs + 1):
+    for epoch in range(1, ae_epochs + 1):
         generator = torch.Generator().manual_seed(1000 + epoch)
         if max_frames_per_epoch is None or max_frames_per_epoch >= n_frames:
             frame_idx = torch.randperm(n_frames, generator=generator)
@@ -407,7 +411,7 @@ def pretrain_spatial_encoder_on_clips(
             optimizer.step()
             total_loss += loss.item() * len(frames)
             total_seen += len(frames)
-        print(f"AE Pretrain Epoch {epoch}/{epochs} | Reconstr MSE: {total_loss / total_seen:.4f}")
+        print(f"AE Pretrain Epoch {epoch}/{ae_epochs} | Reconstr MSE: {total_loss / total_seen:.4f}")
 
 def normalize_video_array(arr):
     arr = arr.astype(np.float32)

@@ -239,7 +239,7 @@ def load_or_train_shared_encoder(train_clips, test_clips, seed, dataset_name=Non
             encoder,
             decoder,
             train_clips,
-            epochs=AE_EPOCHS,
+            ae_epochs=AE_EPOCHS,
             frame_batch_size=256,
             max_frames_per_epoch=AE_MAX_FRAMES_PER_EPOCH,
         )

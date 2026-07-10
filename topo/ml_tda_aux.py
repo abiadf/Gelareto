@@ -1,4 +1,4 @@
-"""Auxiliary topology prediction helpers for sequence experiments."""
+"""Auxiliary topology prediction helpers for video forecasting experiments."""
 
 from pathlib import Path
 import random
@@ -14,11 +14,11 @@ from topo import ml_tda
 DATASET = "default"
 LATENT_DIM = 128
 HIDDEN_DIM = 128
-PREDICT_STEPS_AHEAD = 1
-N_STEPS = 25
-BETTI_SCALE = 15
+HORIZON = 1
+REAL_TDA_BINS = 25
+REAL_TDA_SCALE = 15
 AUX_TDA_LAMBDA = 0.1
-AUX_TDA_EPOCHS = 6
+AUX_TDA_PREDICTOR_EPOCHS = 6
 AUX_TDA_LR = 3e-4
 AUX_TDA_RETRAIN_ENCODER = False
 AUX_TDA_RETRAIN_PREDICTOR = True
@@ -66,9 +66,9 @@ def aux_mode_betti_dim(mode):
     if mode == "none":
         return 0
     if mode in {"aux_h0", "aux_h1"}:
-        return N_STEPS
+        return REAL_TDA_BINS
     if mode == "aux_both":
-        return 2 * N_STEPS
+        return 2 * REAL_TDA_BINS
     raise ValueError(f"Unknown auxiliary TDA mode: {mode}")
 
 
@@ -102,7 +102,7 @@ def load_or_train_aux_encoder(X_train, seed, output_size):
     else:
         reason = "retraining" if encoder_path.exists() else "missing; training once"
         print(f"Auxiliary encoder {reason}: {encoder_path}")
-        ml_tda.pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3)
+        ml_tda.pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=3)
         torch.save(encoder.state_dict(), encoder_path)
         print(f"Saved auxiliary encoder: {encoder_path}")
 
@@ -116,22 +116,22 @@ def load_or_train_aux_encoder(X_train, seed, output_size):
 def compute_z_h0_h1(video_tensor, encoder, split_name):
     old_mode = getattr(ml_tda, "TDA_MODE", "none")
     ml_tda.configure_runtime(TDA_MODE="both")
-    both_features, z_seq = ml_tda.build_sequence_features(
+    both_features, z_seq = ml_tda.build_real_tda_features(
         video_tensor,
         encoder,
         use_tda=True,
         split_name=f"{split_name} aux h0+h1 cache",
     )
-    h0 = both_features[..., LATENT_DIM:LATENT_DIM + N_STEPS]
-    h1 = both_features[..., LATENT_DIM + N_STEPS:LATENT_DIM + 2 * N_STEPS]
+    h0 = both_features[..., LATENT_DIM:LATENT_DIM + REAL_TDA_BINS]
+    h1 = both_features[..., LATENT_DIM + REAL_TDA_BINS:LATENT_DIM + 2 * REAL_TDA_BINS]
     ml_tda.configure_runtime(TDA_MODE=old_mode)
     return z_seq, h0, h1
 
 
-def make_supervised_sequences(z_seq, b_seq, predict_steps_ahead):
-    x = z_seq[:-predict_steps_ahead]
-    y_z = z_seq[predict_steps_ahead:]
-    y_b = b_seq[predict_steps_ahead:] if b_seq is not None else None
+def make_supervised_sequences(z_seq, b_seq, horizon):
+    x = z_seq[:-horizon]
+    y_z = z_seq[horizon:]
+    y_b = b_seq[horizon:] if b_seq is not None else None
     return x, y_z, y_b
 
 
@@ -139,9 +139,9 @@ def predictor_path(seed, mode, train_z):
     model_dir = Path("models") / DATASET / "aux_tda_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
     tag = (
-        f"seed{seed}_mode{mode}_pred{PREDICT_STEPS_AHEAD}_"
+        f"seed{seed}_mode{mode}_pred{HORIZON}_"
         f"T{train_z.shape[0]}_B{train_z.shape[1]}_latent{LATENT_DIM}_"
-        f"nsteps{N_STEPS}_lambda{AUX_TDA_LAMBDA}"
+        f"realtdabins{REAL_TDA_BINS}_lambda{AUX_TDA_LAMBDA}"
     )
     return model_dir / f"{tag}.pt"
 
@@ -157,10 +157,10 @@ def train_or_load_predictor(seed, mode, train_z, train_b):
         model.load_state_dict(torch.load(path, map_location=device))
         return model, path
 
-    x_train, y_z_train, y_b_train = make_supervised_sequences(train_z, train_b, PREDICT_STEPS_AHEAD)
+    x_train, y_z_train, y_b_train = make_supervised_sequences(train_z, train_b, HORIZON)
     opt = optim.AdamW(model.parameters(), lr=AUX_TDA_LR)
     loss_fn = nn.MSELoss()
-    for epoch in range(1, AUX_TDA_EPOCHS + 1):
+    for epoch in range(1, AUX_TDA_PREDICTOR_EPOCHS + 1):
         model.train()
         opt.zero_grad()
         pred_z, pred_b = model(x_train)
@@ -174,9 +174,9 @@ def train_or_load_predictor(seed, mode, train_z, train_b):
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
-        if epoch == 1 or epoch == AUX_TDA_EPOCHS:
+        if epoch == 1 or epoch == AUX_TDA_PREDICTOR_EPOCHS:
             print(
-                f"aux {mode} seed={seed} epoch {epoch}/{AUX_TDA_EPOCHS} | "
+                f"aux {mode} seed={seed} epoch {epoch}/{AUX_TDA_PREDICTOR_EPOCHS} | "
                 f"z_mse={z_loss.item():.4f} b_mse={b_loss.item():.4f} total={loss.item():.4f}"
             )
 
@@ -187,7 +187,7 @@ def train_or_load_predictor(seed, mode, train_z, train_b):
 
 def evaluate_predictor(model, mode, test_z, test_b):
     loss_fn = nn.MSELoss()
-    x_test, y_z_test, y_b_test = make_supervised_sequences(test_z, test_b, PREDICT_STEPS_AHEAD)
+    x_test, y_z_test, y_b_test = make_supervised_sequences(test_z, test_b, HORIZON)
     model.eval()
     with torch.no_grad():
         pred_z, pred_b = model(x_test)
@@ -209,9 +209,9 @@ def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
     ml_tda.configure_runtime(
         DATASET=DATASET,
         LATENT_DIM=LATENT_DIM,
-        BETTI_SCALE=BETTI_SCALE,
-        N_STEPS=N_STEPS,
-        PREDICT_STEPS_AHEAD=PREDICT_STEPS_AHEAD,
+        REAL_TDA_SCALE=REAL_TDA_SCALE,
+        REAL_TDA_BINS=REAL_TDA_BINS,
+        HORIZON=HORIZON,
     )
     print(f"Aux TDA device: {ml_tda.get_runtime_device()}")
 
@@ -232,7 +232,7 @@ def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
                 "dataset": DATASET,
                 "seed": seed,
                 "mode": mode,
-                "predict_steps_ahead": PREDICT_STEPS_AHEAD,
+                "horizon": HORIZON,
                 "lambda_topo": AUX_TDA_LAMBDA,
                 "z_mse": _round_metric(z_mse),
                 "z_r2": _round_metric(z_r2),

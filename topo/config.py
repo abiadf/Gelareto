@@ -9,19 +9,19 @@ DATASET_CONFIGS = {
         "learning_rate": 3e-4,
         "LATENT_DIM": 48,
         "HIDDEN_DIM": 64,
-        "EPOCHS": 10,
-        "BETTI_SCALE": 15,
-        "N_STEPS": 25,
-        "PREDICT_STEPS_AHEAD": 5,
+        "PREDICTOR_EPOCHS": 10,
+        "REAL_TDA_SCALE": 15,
+        "REAL_TDA_BINS": 25,
+        "HORIZON": 5,
         "RUN_SEEDS": list(range(3)),
 
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
-        "LATENT_TDA_EPOCHS" : 10,
+        "LATENT_TDA_PREDICTOR_EPOCHS" : 10,
 
-        # params for regular sequence ablation:
-        "LEGACY_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
+        # params for real-space TDA ablation:
+        "REAL_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "davis_images": {
         "kind": "davis_images",
@@ -36,18 +36,18 @@ DATASET_CONFIGS = {
         "learning_rate": 1e-4,
         "LATENT_DIM": 16,
         "HIDDEN_DIM": 128,
-        "EPOCHS": 10,
-        "BETTI_SCALE": 1,
-        "N_STEPS": 25,
-        "PREDICT_STEPS_AHEAD": 10,
+        "PREDICTOR_EPOCHS": 10,
+        "REAL_TDA_SCALE": 1,
+        "REAL_TDA_BINS": 25,
+        "HORIZON": 10,
         "RUN_SEEDS": list(range(3)),
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
-        "LATENT_TDA_EPOCHS" : 10,
+        "LATENT_TDA_PREDICTOR_EPOCHS" : 10,
 
-        # params for regular sequence ablation:
-        "LEGACY_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
+        # params for real-space TDA ablation:
+        "REAL_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "celltracking_fluo": {
         "kind": "tif_folder",
@@ -58,18 +58,18 @@ DATASET_CONFIGS = {
         "learning_rate": 3e-4,
         "LATENT_DIM": 128,
         "HIDDEN_DIM": 128,
-        "EPOCHS": 10,
-        "BETTI_SCALE": 15,
-        "N_STEPS": 25,
-        "PREDICT_STEPS_AHEAD": 1,
+        "PREDICTOR_EPOCHS": 10,
+        "REAL_TDA_SCALE": 15,
+        "REAL_TDA_BINS": 25,
+        "HORIZON": 1,
         "RUN_SEEDS": list(range(5)),
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
-        "LATENT_TDA_EPOCHS" : 10,
+        "LATENT_TDA_PREDICTOR_EPOCHS" : 10,
 
-        # params for regular sequence ablation:
-        "LEGACY_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
+        # params for real-space TDA ablation:
+        "REAL_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "bouncing_balls": {
         "kind": "lorenz_moving_shapes",
@@ -95,27 +95,27 @@ DATASET_CONFIGS = {
         "learning_rate": 3e-4,
         "LATENT_DIM": 64,
         "HIDDEN_DIM": 96,
-        "EPOCHS": 4,
+        "PREDICTOR_EPOCHS": 4,
         "AE_FRAME_BATCH_SIZE": 256,
         "AE_MAX_FRAMES_PER_EPOCH": 8192,
-        "BETTI_SCALE": 5,
-        "N_STEPS": 25,
-        "PREDICT_STEPS_AHEAD": 5,
+        "REAL_TDA_SCALE": 5,
+        "REAL_TDA_BINS": 25,
+        "HORIZON": 5,
         "RUN_SEEDS": list(range(5)),
 
         # params for TDA-on-latents:
         "LATENT_TDA_WINDOW": 20,
         "LATENT_TDA_BINS": 16,
-        "LATENT_TDA_EPOCHS": 8,
+        "LATENT_TDA_PREDICTOR_EPOCHS": 8,
 
         # params for auxiliary topology prediction:
         "AUX_TDA_MODES": ["none", "aux_h0", "aux_h1", "aux_both"],
         "AUX_TDA_LAMBDA": 0.1,
-        "AUX_TDA_EPOCHS": 4,
+        "AUX_TDA_PREDICTOR_EPOCHS": 4,
 
         # params for z+TDA -> future-frame prediction:
         "PIXEL_TDA_MODES": ["none", "h0", "h1", "both"],
-        "PIXEL_TDA_EPOCHS": 4,
+        "PIXEL_TDA_PREDICTOR_EPOCHS": 4,
         "PIXEL_TDA_BATCH_SIZE": 32,
         "PIXEL_TDA_FG_WEIGHT": 10.0,
         "PIXEL_TDA_FG_THRESHOLD": 0.05,
@@ -131,8 +131,8 @@ DATASET_CONFIGS = {
         "XLSTM_RECOMPUTE_LATENT_TDA_FEATURES": False,
         "XLSTM_LATENT_TDA_MODES": ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
 
-        # params for regular sequence ablation:
-        "LEGACY_TDA_MODES": ["none", "h0", "h0_zero", "h0_shuffle", "h0_noise", "h0_shift"],
+        # params for real-space TDA ablation:
+        "REAL_TDA_MODES": ["none", "h0", "h0_zero", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "glioblastoma": {
         "kind": "ctc_tif_clips",
@@ -146,8 +146,8 @@ DATASET_CONFIGS = {
         ],
         "learning_rate": 3e-4,
         "LATENT_DIM": 128,
-        "BETTI_SCALE": 15,
-        "N_STEPS": 25,
+        "REAL_TDA_SCALE": 15,
+        "REAL_TDA_BINS": 25,
 
         # CTC time-lapse preprocessing: raw stack -> spatial patch tracks -> temporal clips.
         "patch_size": 256,
@@ -165,7 +165,7 @@ DATASET_CONFIGS = {
 
         # Clip-tensor ablation runner params.
         "RUN_SEEDS": list(range(3)),
-        "PREDICT_STEPS_AHEAD": 5,
+        "HORIZON": 5,
         "AE_EPOCHS": 2,
         "AE_MAX_FRAMES_PER_EPOCH": 2048,
         "MLP_EPOCHS": 4,
@@ -196,8 +196,8 @@ DATASET_CONFIGS = {
         ],
         "learning_rate": 3e-4,
         "LATENT_DIM": 128,
-        "BETTI_SCALE": 15,
-        "N_STEPS": 25,
+        "REAL_TDA_SCALE": 15,
+        "REAL_TDA_BINS": 25,
 
         # CTC time-lapse preprocessing: raw stack -> spatial patch tracks -> temporal clips.
         "patch_size": 256,
@@ -215,7 +215,7 @@ DATASET_CONFIGS = {
 
         # Clip-tensor ablation runner params.
         "RUN_SEEDS": list(range(3)),
-        "PREDICT_STEPS_AHEAD": 1,
+        "HORIZON": 1,
         "AE_EPOCHS": 2,
         "AE_MAX_FRAMES_PER_EPOCH": 2048,
         "MLP_EPOCHS": 4,
@@ -262,25 +262,25 @@ _ORBITING_BASE = {
     "learning_rate": 3e-4,
     "LATENT_DIM": 64,
     "HIDDEN_DIM": 96,
-    "EPOCHS": 4,
+    "PREDICTOR_EPOCHS": 4,
     "AE_FRAME_BATCH_SIZE": 256,
     "AE_MAX_FRAMES_PER_EPOCH": 8192,
-    "BETTI_SCALE": 5,
-    "N_STEPS": 25,
-    "PREDICT_STEPS_AHEAD": 5,
+    "REAL_TDA_SCALE": 5,
+    "REAL_TDA_BINS": 25,
+    "HORIZON": 5,
     "RUN_SEEDS": list(range(5)),
     "LATENT_TDA_WINDOW": 20,
     "LATENT_TDA_BINS": 16,
-    "LATENT_TDA_EPOCHS": 8,
+    "LATENT_TDA_PREDICTOR_EPOCHS": 8,
     "AUX_TDA_MODES": ["none", "aux_h0", "aux_h1", "aux_both"],
     "AUX_TDA_LAMBDA": 0.1,
-    "AUX_TDA_EPOCHS": 4,
+    "AUX_TDA_PREDICTOR_EPOCHS": 4,
     "PIXEL_TDA_MODES": ["none", "h0", "h1", "both"],
-    "PIXEL_TDA_EPOCHS": 4,
+    "PIXEL_TDA_PREDICTOR_EPOCHS": 4,
     "PIXEL_TDA_BATCH_SIZE": 32,
     "PIXEL_TDA_FG_WEIGHT": 10.0,
     "PIXEL_TDA_FG_THRESHOLD": 0.05,
-    "LEGACY_TDA_MODES": ["none", "h0", "h1", "both"],
+    "REAL_TDA_MODES": ["none", "h0", "h1", "both"],
 }
 
 DATASET_CONFIGS["orbiting_rings"] = {

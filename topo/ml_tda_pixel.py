@@ -1,4 +1,4 @@
-"""Pixel prediction helpers for z + TDA sequence experiments."""
+"""Pixel prediction helpers for z + real/frame-space TDA video experiments."""
 
 from pathlib import Path
 import random
@@ -14,10 +14,10 @@ from topo import ml_tda
 DATASET = "default"
 LATENT_DIM = 128
 HIDDEN_DIM = 128
-PREDICT_STEPS_AHEAD = 1
-N_STEPS = 25
-BETTI_SCALE = 15
-PIXEL_TDA_EPOCHS = 4
+HORIZON = 1
+REAL_TDA_BINS = 25
+REAL_TDA_SCALE = 15
+PIXEL_TDA_PREDICTOR_EPOCHS = 4
 PIXEL_TDA_LR = 3e-4
 PIXEL_TDA_BATCH_SIZE = 32
 PIXEL_TDA_FG_WEIGHT = 10.0
@@ -64,9 +64,9 @@ def mode_input_dim(mode):
     if base == "none":
         return LATENT_DIM
     if base in {"h0", "h1"}:
-        return LATENT_DIM + N_STEPS
+        return LATENT_DIM + REAL_TDA_BINS
     if base == "both":
-        return LATENT_DIM + 2 * N_STEPS
+        return LATENT_DIM + 2 * REAL_TDA_BINS
     raise ValueError(f"Unknown pixel TDA mode: {mode}")
 
 
@@ -87,7 +87,7 @@ def load_or_train_pixel_encoder(X_train, seed, output_size):
     else:
         reason = "retraining" if encoder_path.exists() else "missing; training once"
         print(f"Pixel encoder {reason}: {encoder_path}")
-        ml_tda.pretrain_spatial_encoder(encoder, decoder, X_train, epochs=3)
+        ml_tda.pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=3)
         torch.save(encoder.state_dict(), encoder_path)
         print(f"Saved shared pixel encoder: {encoder_path}")
 
@@ -101,14 +101,14 @@ def load_or_train_pixel_encoder(X_train, seed, output_size):
 def compute_z_h0_h1(video_tensor, encoder, split_name):
     old_mode = getattr(ml_tda, "TDA_MODE", "none")
     ml_tda.configure_runtime(TDA_MODE="both")
-    both_features, z_seq = ml_tda.build_sequence_features(
+    both_features, z_seq = ml_tda.build_real_tda_features(
         video_tensor,
         encoder,
         use_tda=True,
         split_name=f"{split_name} pixel h0+h1 cache",
     )
-    h0 = both_features[..., LATENT_DIM:LATENT_DIM + N_STEPS]
-    h1 = both_features[..., LATENT_DIM + N_STEPS:LATENT_DIM + 2 * N_STEPS]
+    h0 = both_features[..., LATENT_DIM:LATENT_DIM + REAL_TDA_BINS]
+    h1 = both_features[..., LATENT_DIM + REAL_TDA_BINS:LATENT_DIM + 2 * REAL_TDA_BINS]
     ml_tda.configure_runtime(TDA_MODE=old_mode)
     return z_seq, h0, h1
 
@@ -121,9 +121,9 @@ def predictor_path(seed, mode, train_features, output_size):
     model_dir = Path("models") / DATASET / "pixel_tda_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
     tag = (
-        f"seed{seed}_mode{mode}_pred{PREDICT_STEPS_AHEAD}_"
+        f"seed{seed}_mode{mode}_pred{HORIZON}_"
         f"T{train_features.shape[0]}_B{train_features.shape[1]}_"
-        f"H{output_size[0]}_W{output_size[1]}_latent{LATENT_DIM}_nsteps{N_STEPS}_"
+        f"H{output_size[0]}_W{output_size[1]}_latent{LATENT_DIM}_realtdabins{REAL_TDA_BINS}_"
         f"fgw{PIXEL_TDA_FG_WEIGHT}"
     )
     return model_dir / f"{tag}.pt"
@@ -167,13 +167,13 @@ def train_or_load_predictor(seed, mode, train_features, X_train):
         model.load_state_dict(torch.load(path, map_location=device))
         return model, path
 
-    x_all = train_features[:-PREDICT_STEPS_AHEAD]
-    y_all = target_frames(X_train[PREDICT_STEPS_AHEAD:])
+    x_all = train_features[:-HORIZON]
+    y_all = target_frames(X_train[HORIZON:])
     batch_size = min(PIXEL_TDA_BATCH_SIZE, x_all.shape[1])
     opt = optim.AdamW(model.parameters(), lr=PIXEL_TDA_LR)
     generator = torch.Generator().manual_seed(seed + 1234)
 
-    for epoch in range(1, PIXEL_TDA_EPOCHS + 1):
+    for epoch in range(1, PIXEL_TDA_PREDICTOR_EPOCHS + 1):
         model.train()
         perm = torch.randperm(x_all.shape[1], generator=generator)
         total_weighted, total_pixel, total_seen = 0.0, 0.0, 0
@@ -191,9 +191,9 @@ def train_or_load_predictor(seed, mode, train_features, X_train):
             total_weighted += loss.item() * seen
             total_pixel += pixel_mse.item() * seen
             total_seen += seen
-        if epoch == 1 or epoch == PIXEL_TDA_EPOCHS:
+        if epoch == 1 or epoch == PIXEL_TDA_PREDICTOR_EPOCHS:
             print(
-                f"pixel {mode} seed={seed} epoch {epoch}/{PIXEL_TDA_EPOCHS} | "
+                f"pixel {mode} seed={seed} epoch {epoch}/{PIXEL_TDA_PREDICTOR_EPOCHS} | "
                 f"weighted_mse={total_weighted / total_seen:.6f} "
                 f"pixel_mse={total_pixel / total_seen:.6f}"
             )
@@ -205,8 +205,8 @@ def train_or_load_predictor(seed, mode, train_features, X_train):
 
 def evaluate_predictor(model, test_features, X_test):
     device = ml_tda.get_runtime_device()
-    x_all = test_features[:-PREDICT_STEPS_AHEAD]
-    y_all = target_frames(X_test[PREDICT_STEPS_AHEAD:])
+    x_all = test_features[:-HORIZON]
+    y_all = target_frames(X_test[HORIZON:])
     batch_size = min(PIXEL_TDA_BATCH_SIZE, x_all.shape[1])
     sums = {"weighted": 0.0, "pixel": 0.0, "foreground": 0.0, "background": 0.0}
     counts = {"weighted": 0, "pixel": 0, "foreground": 0, "background": 0}
@@ -267,9 +267,9 @@ def run_pixel_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
     ml_tda.configure_runtime(
         DATASET=DATASET,
         LATENT_DIM=LATENT_DIM,
-        BETTI_SCALE=BETTI_SCALE,
-        N_STEPS=N_STEPS,
-        PREDICT_STEPS_AHEAD=PREDICT_STEPS_AHEAD,
+        REAL_TDA_SCALE=REAL_TDA_SCALE,
+        REAL_TDA_BINS=REAL_TDA_BINS,
+        HORIZON=HORIZON,
     )
     print(f"Pixel TDA device: {ml_tda.get_runtime_device()}")
 
@@ -290,7 +290,7 @@ def run_pixel_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
                 "dataset": DATASET,
                 "seed": seed,
                 "mode": mode,
-                "predict_steps_ahead": PREDICT_STEPS_AHEAD,
+                "horizon": HORIZON,
                 "pixel_mse": float(metrics["pixel_mse"]),
                 "pixel_r2": float(metrics["pixel_r2"]),
                 "weighted_mse": float(metrics["weighted_mse"]),
