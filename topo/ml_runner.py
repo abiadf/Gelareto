@@ -1,8 +1,7 @@
-"""Terminal runner for ML persistence experiments.
+"""Command-line entrypoint for video topology forecasting experiments.
 
-This is the command-line counterpart to ``topo/ml_persistence.ipynb``.  The
-notebook remains useful for interactive exploration; this module keeps
-repeatable experiment runs in a normal Python entrypoint.
+This runner trains/evaluates the AE, topoAE, latent-TDA, frame-TDA, and
+decode-to-frame scenarios without modifying the exploratory notebook.
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ from topo.ml_tda import (
 )
 
 
-SEQUENCE_SCENARIOS = {
+RUNNER_SCENARIOS = {
     "sequence",
     "decode_z",
     "topo_sequence",
@@ -48,7 +47,6 @@ SEQUENCE_SCENARIOS = {
     "topo_latent_tda",
     "aux_tda",
     "pixel_tda",
-    "topo_pixel_z",
     "topo_pixel_tda",
     "topo_decode_z",
 }
@@ -220,7 +218,7 @@ def load_sequence_context(cfg: RunConfig) -> SequenceContext:
             "migrated to topo.ml_runner yet."
         )
 
-    if cfg.dataset == "bouncing_balls":
+    if run_config.get("kind") in {"lorenz_moving_shapes", "orbiting_shapes"}:
         if cfg.num_train_clips is not None:
             run_config["num_train_clips"] = cfg.num_train_clips
         if cfg.num_test_clips is not None:
@@ -1082,120 +1080,6 @@ def run_topo_decode_z(cfg: RunConfig, context: SequenceContext) -> tuple[pd.Data
     return _run_decode_z(cfg, context, use_topo_ae=True)
 
 
-def run_topo_pixel_z(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
-    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
-    pixel_epochs = int(_override(cfg.epochs, context.dataset_config.get("PIXEL_TDA_EPOCHS", context.epochs)))
-    pixel_lr = float(_override(cfg.learning_rate, context.dataset_config.get("PIXEL_TDA_LR", context.learning_rate)))
-    pixel_batch_size = int(
-        _override(cfg.pixel_tda_batch_size, context.dataset_config.get("PIXEL_TDA_BATCH_SIZE", 32))
-    )
-    fg_weight = float(
-        _override(cfg.pixel_tda_fg_weight, context.dataset_config.get("PIXEL_TDA_FG_WEIGHT", 10.0))
-    )
-    fg_threshold = float(
-        _override(cfg.pixel_tda_fg_threshold, context.dataset_config.get("PIXEL_TDA_FG_THRESHOLD", 0.05))
-    )
-    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda)
-
-    ml_tda.configure_runtime(
-        DATASET=model_namespace,
-        LATENT_DIM=context.latent_dim,
-        BETTI_SCALE=context.betti_scale,
-        N_STEPS=context.n_steps,
-        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
-        DEVICE=_select_device(cfg.device),
-        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
-        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
-    )
-    ml_tda_pixel.configure_runtime(
-        DATASET=model_namespace,
-        LATENT_DIM=context.latent_dim,
-        HIDDEN_DIM=context.hidden_dim,
-        PREDICT_STEPS_AHEAD=context.predict_steps_ahead,
-        N_STEPS=context.n_steps,
-        BETTI_SCALE=context.betti_scale,
-        PIXEL_TDA_EPOCHS=pixel_epochs,
-        PIXEL_TDA_LR=pixel_lr,
-        PIXEL_TDA_BATCH_SIZE=pixel_batch_size,
-        PIXEL_TDA_FG_WEIGHT=fg_weight,
-        PIXEL_TDA_FG_THRESHOLD=fg_threshold,
-        PIXEL_TDA_RETRAIN_ENCODER=cfg.retrain_encoder,
-        PIXEL_TDA_RETRAIN_PREDICTOR=cfg.retrain_predictor,
-    )
-    print(
-        f"Topo pixel-z config: dataset={cfg.dataset}, namespace={model_namespace}, seeds={seeds}, "
-        f"topo_ae_lambda={cfg.topo_ae_lambda}, epochs={pixel_epochs}, lr={pixel_lr}, "
-        f"batch={pixel_batch_size}, predict_steps_ahead={context.predict_steps_ahead}"
-    )
-
-    rows = []
-    for seed in seeds:
-        print(f"\n================ topo pixel-z seed={seed} ================")
-        _set_all_seeds(seed)
-        encoder, encoder_path, _ = _load_topo_encoder_for_seed(cfg, context, seed)
-        ml_tda.configure_runtime(TDA_MODE="none")
-        train_features, _ = ml_tda.build_sequence_features(
-            context.x_train,
-            encoder,
-            use_tda=False,
-            split_name="topo pixel-z train",
-        )
-        test_features, _ = ml_tda.build_sequence_features(
-            context.x_test,
-            encoder,
-            use_tda=False,
-            split_name="topo pixel-z test",
-        )
-        model, model_path = ml_tda_pixel.train_or_load_predictor(
-            seed,
-            "none",
-            train_features,
-            context.x_train,
-        )
-        metrics = ml_tda_pixel.evaluate_predictor(model, test_features, context.x_test)
-        row = {
-            "dataset": cfg.dataset,
-            "encoder": "topo_ae",
-            "topo_ae_lambda": cfg.topo_ae_lambda,
-            "seed": seed,
-            "mode": "z",
-            "predict_steps_ahead": context.predict_steps_ahead,
-            "pixel_mse": float(metrics["pixel_mse"]),
-            "pixel_r2": float(metrics["pixel_r2"]),
-            "weighted_mse": float(metrics["weighted_mse"]),
-            "foreground_mse": float(metrics["foreground_mse"]),
-            "background_mse": float(metrics["background_mse"]),
-            "warmup_excluded_pixel_mse": float(metrics["warmup_excluded_pixel_mse"]),
-            "fg_weight": fg_weight,
-            "fg_threshold": fg_threshold,
-            "encoder_path": str(encoder_path),
-            "model_path": str(model_path),
-        }
-        rows.append(row)
-        print("topo pixel-z summary:", row)
-
-    results_df = pd.DataFrame(rows)
-    summary_df = ml_tda.summarize_metric_runs(
-        results_df,
-        group_cols="mode",
-        metric_cols=[
-            "pixel_mse",
-            "pixel_r2",
-            "weighted_mse",
-            "foreground_mse",
-            "background_mse",
-            "warmup_excluded_pixel_mse",
-        ],
-        sort_metric="weighted_mse",
-    )
-    print("\nTopo pixel-z per-run results:")
-    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
-    print("\nTopo pixel-z mean +/- std:")
-    with pd.option_context("display.float_format", "{:.4f}".format):
-        print(summary_df)
-    return results_df, summary_df
-
-
 def run_topo_pixel_tda(cfg: RunConfig, context: SequenceContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
@@ -1380,9 +1264,9 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=sorted(SEQUENCE_SCENARIOS),
+        choices=sorted(RUNNER_SCENARIOS),
         default="aux_tda",
-        help="Notebook scenario to run. Initial migration covers sequence datasets only.",
+        help="Experiment scenario to run.",
     )
     parser.add_argument("--dataset", default="moving_mnist")
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
@@ -1404,7 +1288,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument(
         "--reuse-predictor",
         action="store_true",
-        help="Load existing predictors when present. By default, match the notebook and retrain predictors.",
+        help="Load existing predictors when present. By default, retrain predictors.",
     )
     parser.add_argument("--aux-tda-lambda", type=float, default=None)
     parser.add_argument("--latent-tda-window", type=int, default=None)
@@ -1480,8 +1364,6 @@ def main(argv: list[str] | None = None) -> None:
         results_df, summary_df = run_topo_latent_tda(cfg, context)
     elif cfg.scenario == "aux_tda":
         results_df, summary_df = run_aux_tda(cfg, context)
-    elif cfg.scenario == "topo_pixel_z":
-        results_df, summary_df = run_topo_pixel_z(cfg, context)
     elif cfg.scenario == "topo_pixel_tda":
         results_df, summary_df = run_topo_pixel_tda(cfg, context)
     elif cfg.scenario == "topo_decode_z":

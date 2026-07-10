@@ -1,4 +1,4 @@
-"""Reusable CNN + TDA helpers for the persistence notebook."""
+"""Core video forecasting helpers: encoders, predictors, TDA features, and datasets."""
 
 from pathlib import Path
 import random
@@ -29,7 +29,7 @@ criterion = nn.MSELoss()
 
 
 def configure_runtime(**kwargs):
-    """Update notebook-controlled globals used by legacy helper functions."""
+    """Update runtime settings shared by the terminal runner and notebook helpers."""
     globals().update(kwargs)
 
 
@@ -517,8 +517,8 @@ def summarize_metric_runs(results_df, group_cols, metric_cols, sort_metric=None)
         sort_metric = metric_cols[0]
     return summary.sort_values((sort_metric, "mean"))
 
-class BouncingBallsDataset(torch.utils.data.Dataset):
-    """Synthetic Lorenz-driven hollow-ball video clips.
+class LorenzMovingShapesDataset(torch.utils.data.Dataset):
+    """Synthetic disk/ring clips with Lorenz-driven irregular motion.
 
     Each item is a tensor with shape (T, 1, H, W), values in [0, 1].
     Seeds are index-derived, so train/test splits stay reproducible and separate.
@@ -539,6 +539,7 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
         thickness_min=2,
         thickness_max=2,
         overlap_strength=0.0,
+        shape="ring",
         output_dtype="float32",
     ):
         if min_balls < 1 or max_balls < min_balls:
@@ -547,6 +548,8 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
             raise ValueError("Require 0 <= overlap_strength <= 1")
         if min(image_size) <= 2 * (base_radius + 4):
             raise ValueError("image_size is too small for the requested ball radius")
+        if shape not in {"ring", "disk"}:
+            raise ValueError("shape must be 'ring' or 'disk'")
 
         self.num_clips = int(num_clips)
         self.clip_len = int(clip_len)
@@ -561,6 +564,7 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
         self.thickness_min = int(thickness_min)
         self.thickness_max = int(thickness_max)
         self.overlap_strength = float(overlap_strength)
+        self.shape = str(shape)
         self.output_dtype = output_dtype
 
     def __len__(self):
@@ -580,6 +584,7 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
             thickness_min=self.thickness_min,
             thickness_max=self.thickness_max,
             overlap_strength=self.overlap_strength,
+            shape=self.shape,
             rng=rng,
         )
         if self.output_dtype == "uint8":
@@ -642,6 +647,7 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
         thickness_min,
         thickness_max,
         overlap_strength,
+        shape,
         rng,
     ):
         H, W = image_size
@@ -664,10 +670,30 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
                     thickness = thickness_min
                 thickness = max(1, min(thickness, pulse_x, pulse_y))
                 angle = np.deg2rad(t * (1.0 + 0.5 * ball_idx))
-                cls._draw_hollow_ellipse(frame, int(cx[t]), int(cy[t]), pulse_x, pulse_y, angle, thickness=thickness)
+                if shape == "disk":
+                    cls._draw_filled_ellipse(frame, int(cx[t]), int(cy[t]), pulse_x, pulse_y, angle)
+                else:
+                    cls._draw_hollow_ellipse(frame, int(cx[t]), int(cy[t]), pulse_x, pulse_y, angle, thickness=thickness)
             video[t] = frame
 
         return video[:, None].astype(np.float32) / 255.0
+
+    @staticmethod
+    def _draw_filled_ellipse(frame, cx, cy, rx, ry, angle):
+        H, W = frame.shape
+        pad = max(rx, ry) + 1
+        y0, y1 = max(0, cy - pad), min(H, cy + pad + 1)
+        x0, x1 = max(0, cx - pad), min(W, cx + pad + 1)
+        yy, xx = np.ogrid[y0:y1, x0:x1]
+
+        x = xx - cx
+        y = yy - cy
+        ca, sa = np.cos(angle), np.sin(angle)
+        xr = ca * x + sa * y
+        yr = -sa * x + ca * y
+
+        filled = (xr / max(rx, 1)) ** 2 + (yr / max(ry, 1)) ** 2 <= 1.0
+        frame[y0:y1, x0:x1][filled] = 255
 
     @staticmethod
     def _draw_hollow_ellipse(frame, cx, cy, rx, ry, angle, thickness=2):
@@ -690,22 +716,179 @@ class BouncingBallsDataset(torch.utils.data.Dataset):
         frame[y0:y1, x0:x1][outer & ~inner] = 255
 
     def make_tensor(self):
-        print(f"Generating {self.num_clips} synthetic Lorenz-ball clips...")
+        print(f"Generating {self.num_clips} synthetic Lorenz {self.shape} clips...")
         data = torch.stack([self[i] for i in range(len(self))])
         print(f"Dataset generated. Final shape: {tuple(data.shape)}")
         return data
 
-def generate_bouncing_balls_synthetic_dataset(**kwargs):
-    return BouncingBallsDataset(**kwargs).make_tensor()
+class OrbitingShapesDataset(torch.utils.data.Dataset):
+    """Synthetic disk/ring clips with periodic circular/elliptical motion."""
+
+    def __init__(
+        self,
+        num_clips=512,
+        clip_len=24,
+        image_size=(96, 96),
+        base_radius=6,
+        min_shapes=2,
+        max_shapes=4,
+        seed_offset=0,
+        orbit_radius_min=14,
+        orbit_radius_max=32,
+        angular_speed_min=0.18,
+        angular_speed_max=0.42,
+        thickness_min=2,
+        thickness_max=4,
+        shape="ring",
+        output_dtype="float32",
+    ):
+        if min_shapes < 1 or max_shapes < min_shapes:
+            raise ValueError("Require 1 <= min_shapes <= max_shapes")
+        if shape not in {"ring", "disk"}:
+            raise ValueError("shape must be 'ring' or 'disk'")
+        self.num_clips = int(num_clips)
+        self.clip_len = int(clip_len)
+        self.image_size = tuple(image_size)
+        self.base_radius = int(base_radius)
+        self.min_shapes = int(min_shapes)
+        self.max_shapes = int(max_shapes)
+        self.seed_offset = int(seed_offset)
+        self.orbit_radius_min = float(orbit_radius_min)
+        self.orbit_radius_max = float(orbit_radius_max)
+        self.angular_speed_min = float(angular_speed_min)
+        self.angular_speed_max = float(angular_speed_max)
+        self.thickness_min = int(thickness_min)
+        self.thickness_max = int(thickness_max)
+        self.shape = str(shape)
+        self.output_dtype = output_dtype
+
+    def __len__(self):
+        return self.num_clips
+
+    def __getitem__(self, index):
+        rng = np.random.RandomState(self.seed_offset + int(index) * 1009)
+        num_shapes = rng.randint(self.min_shapes, self.max_shapes + 1)
+        clip = self._render_clip(num_shapes, rng)
+        if self.output_dtype == "uint8":
+            clip = np.clip(np.rint(clip * 255.0), 0, 255).astype(np.uint8)
+        return torch.from_numpy(clip)
+
+    def _render_clip(self, num_shapes, rng):
+        H, W = self.image_size
+        center_x = (W - 1) / 2.0 + rng.uniform(-0.05, 0.05) * W
+        center_y = (H - 1) / 2.0 + rng.uniform(-0.05, 0.05) * H
+        video = np.zeros((self.clip_len, H, W), dtype=np.uint8)
+        params = []
+        for idx in range(num_shapes):
+            orbit_rx = rng.uniform(self.orbit_radius_min, self.orbit_radius_max)
+            orbit_ry = orbit_rx * rng.uniform(0.65, 1.1)
+            phase = rng.uniform(0.0, 2.0 * np.pi)
+            direction = -1.0 if rng.rand() < 0.5 else 1.0
+            speed = direction * rng.uniform(self.angular_speed_min, self.angular_speed_max)
+            rx = max(2, int(round(self.base_radius * rng.uniform(0.75, 1.25))))
+            ry = max(2, int(round(self.base_radius * rng.uniform(0.75, 1.25))))
+            params.append((orbit_rx, orbit_ry, phase, speed, rx, ry, idx))
+
+        for t in range(self.clip_len):
+            frame = np.zeros((H, W), dtype=np.uint8)
+            for orbit_rx, orbit_ry, phase, speed, rx, ry, idx in params:
+                theta = phase + speed * t
+                cx = int(round(center_x + orbit_rx * np.cos(theta)))
+                cy = int(round(center_y + orbit_ry * np.sin(theta)))
+                angle = theta + 0.35 * idx
+                if self.thickness_max > self.thickness_min:
+                    thickness = int(round(rng.uniform(self.thickness_min, self.thickness_max)))
+                else:
+                    thickness = self.thickness_min
+                if self.shape == "disk":
+                    LorenzMovingShapesDataset._draw_filled_ellipse(frame, cx, cy, rx, ry, angle)
+                else:
+                    LorenzMovingShapesDataset._draw_hollow_ellipse(frame, cx, cy, rx, ry, angle, thickness=thickness)
+            video[t] = frame
+        return video[:, None].astype(np.float32) / 255.0
+
+    def make_tensor(self):
+        print(f"Generating {self.num_clips} synthetic orbiting {self.shape} clips...")
+        data = torch.stack([self[i] for i in range(len(self))])
+        print(f"Dataset generated. Final shape: {tuple(data.shape)}")
+        return data
 
 
-def bouncing_balls_cache_path(config, split_name, num_clips, seed_offset):
+def orbiting_shapes_cache_path(config, split_name, num_clips, seed_offset):
+    cache_dir = Path(config.get("cache_dir", "datasets/2D/orbiting_shapes/processed"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    image_size = tuple(config.get("image_size", (96, 96)))
+    tag = (
+        f"{split_name}_N{num_clips}_T{config.get('clip_len', 24)}_"
+        f"H{image_size[0]}_W{image_size[1]}_"
+        f"shape{config.get('shape', 'ring')}_"
+        f"objects{config.get('min_shapes', 2)}-{config.get('max_shapes', 4)}_"
+        f"r{config.get('base_radius', 6)}_"
+        f"orbit{config.get('orbit_radius_min', 14)}-{config.get('orbit_radius_max', 32)}_"
+        f"speed{config.get('angular_speed_min', 0.18)}-{config.get('angular_speed_max', 0.42)}_"
+        f"dtype{config.get('cache_dtype', 'uint8')}_seed{seed_offset}.pt"
+    )
+    return cache_dir / tag.replace("/", "-")
+
+
+def load_or_generate_orbiting_split(config, split_name, num_clips, seed_offset):
+    cache_path = orbiting_shapes_cache_path(config, split_name, num_clips, seed_offset)
+    force_rebuild = config.get("force_rebuild_cache", False)
+    if cache_path.exists() and not force_rebuild:
+        print(f"Loading cached orbiting-shapes {split_name}: {cache_path}")
+        return torch.load(cache_path, map_location="cpu")
+
+    data = OrbitingShapesDataset(
+        num_clips=num_clips,
+        clip_len=config.get("clip_len", 24),
+        image_size=config.get("image_size", (96, 96)),
+        base_radius=config.get("base_radius", 6),
+        min_shapes=config.get("min_shapes", 2),
+        max_shapes=config.get("max_shapes", 4),
+        seed_offset=seed_offset,
+        orbit_radius_min=config.get("orbit_radius_min", 14),
+        orbit_radius_max=config.get("orbit_radius_max", 32),
+        angular_speed_min=config.get("angular_speed_min", 0.18),
+        angular_speed_max=config.get("angular_speed_max", 0.42),
+        thickness_min=config.get("thickness_min", 2),
+        thickness_max=config.get("thickness_max", 4),
+        shape=config.get("shape", "ring"),
+        output_dtype=config.get("cache_dtype", "uint8"),
+    ).make_tensor()
+    torch.save(data, cache_path)
+    print(f"Saved orbiting-shapes {split_name} cache: {cache_path}")
+    return data
+
+
+def load_orbiting_shapes(config):
+    train_n = config.get("num_train_clips", 512)
+    test_n = config.get("num_test_clips", 128)
+    train_seed = config.get("train_seed_offset", 0)
+    test_seed = config.get("test_seed_offset", 50000)
+    train = load_or_generate_orbiting_split(config, "train", train_n, train_seed)
+    test = load_or_generate_orbiting_split(config, "test", test_n, test_seed)
+    train = train.squeeze(2).permute(1, 0, 2, 3).numpy()
+    test = test.squeeze(2).permute(1, 0, 2, 3).numpy()
+    normalize = config.get("normalize", "minmax")
+    if normalize == "minmax":
+        if train.dtype != np.uint8:
+            train = normalize_video_array(train)
+            test = normalize_video_array(test)
+    elif normalize in {None, "none"}:
+        pass
+    else:
+        raise ValueError(f"Unknown orbiting_shapes normalize mode: {normalize}")
+    return train, test
+
+
+def lorenz_moving_shapes_cache_path(config, split_name, num_clips, seed_offset):
     cache_dir = Path(config.get("cache_dir", "datasets/2D/bouncing_balls/processed"))
     cache_dir.mkdir(parents=True, exist_ok=True)
     image_size = tuple(config.get("image_size", (96, 96)))
     tag = (
         f"{split_name}_N{num_clips}_T{config.get('clip_len', 30)}_"
         f"H{image_size[0]}_W{image_size[1]}_"
+        f"shape{config.get('shape', 'ring')}_"
         f"balls{config.get('min_balls', 2)}-{config.get('max_balls', 5)}_"
         f"r{config.get('base_radius', 6)}_dt{config.get('lorenz_dt', 0.015)}_"
         f"pulse{config.get('radius_pulse_amp', 0.25)}-{config.get('radius_pulse_freq', 0.15)}_"
@@ -716,24 +899,24 @@ def bouncing_balls_cache_path(config, split_name, num_clips, seed_offset):
     return cache_dir / tag.replace("/", "-")
 
 
-def load_or_generate_bouncing_split(config, split_name, num_clips, seed_offset, common):
-    cache_path = bouncing_balls_cache_path(config, split_name, num_clips, seed_offset)
+def load_or_generate_lorenz_shapes_split(config, split_name, num_clips, seed_offset, common):
+    cache_path = lorenz_moving_shapes_cache_path(config, split_name, num_clips, seed_offset)
     force_rebuild = config.get("force_rebuild_cache", False)
     if cache_path.exists() and not force_rebuild:
-        print(f"Loading cached bouncing-balls {split_name}: {cache_path}")
+        print(f"Loading cached Lorenz moving-shapes {split_name}: {cache_path}")
         return torch.load(cache_path, map_location="cpu")
 
-    data = generate_bouncing_balls_synthetic_dataset(
+    data = LorenzMovingShapesDataset(
         num_clips=num_clips,
         seed_offset=seed_offset,
         **common,
-    )
+    ).make_tensor()
     torch.save(data, cache_path)
-    print(f"Saved bouncing-balls {split_name} cache: {cache_path}")
+    print(f"Saved Lorenz moving-shapes {split_name} cache: {cache_path}")
     return data
 
 
-def load_bouncing_lorenz(config):
+def load_lorenz_moving_shapes(config):
     common = {
         "clip_len": config.get("clip_len", 30),
         "image_size": config.get("image_size", (96, 96)),
@@ -746,14 +929,15 @@ def load_bouncing_lorenz(config):
         "thickness_min": config.get("thickness_min", 2),
         "thickness_max": config.get("thickness_max", 2),
         "overlap_strength": config.get("overlap_strength", 0.0),
+        "shape": config.get("shape", "ring"),
         "output_dtype": config.get("cache_dtype", "uint8"),
     }
     train_n = config.get("num_train_clips", 160)
     test_n = config.get("num_test_clips", 48)
     train_seed = config.get("train_seed_offset", 0)
     test_seed = config.get("test_seed_offset", 50000)
-    train = load_or_generate_bouncing_split(config, "train", train_n, train_seed, common)
-    test = load_or_generate_bouncing_split(config, "test", test_n, test_seed, common)
+    train = load_or_generate_lorenz_shapes_split(config, "train", train_n, train_seed, common)
+    test = load_or_generate_lorenz_shapes_split(config, "test", test_n, test_seed, common)
     train = train.squeeze(2).permute(1, 0, 2, 3).numpy()
     test = test.squeeze(2).permute(1, 0, 2, 3).numpy()
     normalize = config.get("normalize", "minmax")
@@ -764,7 +948,7 @@ def load_bouncing_lorenz(config):
     elif normalize in {None, "none"}:
         pass
     else:
-        raise ValueError(f"Unknown bouncing_balls normalize mode: {normalize}")
+        raise ValueError(f"Unknown Lorenz moving-shapes normalize mode: {normalize}")
     return train, test
 
 def load_video_dataset(config):
@@ -779,8 +963,11 @@ def load_video_dataset(config):
         test = arr[config["test_slice"], :, :, :]
     elif config["kind"] == "davis_images":
         train, test = load_davis_images(config)
-    elif config["kind"] == "bouncing_balls":
-        train, test = load_bouncing_lorenz(config)
+    elif config["kind"] == "lorenz_moving_shapes":
+        train, test = load_lorenz_moving_shapes(config)
+        return train, test
+    elif config["kind"] == "orbiting_shapes":
+        train, test = load_orbiting_shapes(config)
         return train, test
     else:
         raise ValueError(f"Unknown dataset kind: {config['kind']}")

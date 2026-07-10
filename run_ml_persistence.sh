@@ -10,7 +10,6 @@ set -euo pipefail
 # topo_decode_z: topoAE z-history -> future z -> decoded future X
 # pixel_tda: AE z-history + optional frame TDA -> future X
 # topo_pixel_tda: topoAE z-history + optional frame TDA -> future X
-# topo_pixel_z: topoAE z-history only -> future X
 # aux_tda: AE z-history -> future z, with optional auxiliary Betti prediction head/loss
 # topo_* models: same as their non-topo counterparts, but with a topo-regularized AE encoder
 
@@ -20,15 +19,20 @@ set -euo pipefail
 #   latent_tda: z,z_latent_h0,z_latent_h1,z_latent_both,z_latent_h0_zero,z_latent_h0_shuffle,z_latent_h0_noise,z_latent_h0_shift,z_latent_h1_zero,z_latent_h1_shuffle,z_latent_h1_noise,z_latent_h1_shift,z_latent_both_zero,z_latent_both_shuffle,z_latent_both_noise,z_latent_both_shift
 #   topo_latent_tda: same ones as latent_tda
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
-#   topo_pixel_tda: same as pixel_tda
+#   topo_pixel_tda: same as pixel_tda; none is topoAE z-only -> future X
 #   decode_z/topo_decode_z: z_decode only
-#   topo_pixel_z: z only
 #   aux_tda:    none,aux_h0,aux_h1,aux_both
 
+# Synthetic datasets:
+#   bouncing_balls: hollow/ring objects with Lorenz-like irregular motion
+#   bouncing_disks: filled objects with Lorenz-like irregular motion
+#   orbiting_rings: hollow/ring objects with periodic circular/elliptical orbit motion
+#   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
+
 args=(
-  --scenario topo_pixel_tda             # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_tda | topo_pixel_z | decode_z | topo_decode_z
-  --dataset bouncing_balls             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls
-  --seeds 0,1,2,3                  # comma-separated seeds
+  --scenario topo_pixel_tda             # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_tda | decode_z | topo_decode_z
+  --dataset bouncing_balls             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls | bouncing_disks | orbiting_rings | orbiting_disks
+  --seeds 0,1,2,3,4                  # comma-separated seeds
   --modes none,h0,h1,both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
   --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
   --predict-steps-ahead 5
@@ -48,9 +52,9 @@ args=(
   # --n-steps 25                     # image-space Betti curve bins
   # --ae-frame-batch-size 256        # autoencoder frame batch size
   # --ae-max-frames-per-epoch 8192   # autoencoder frame subsample cap
-  # --force-rebuild-data-cache       # bouncing_balls: rebuild cached clips
-  # --num-train-clips 512            # bouncing_balls: train clips
-  # --num-test-clips 128             # bouncing_balls: test clips
+  # --force-rebuild-data-cache       # synthetic datasets: rebuild cached clips
+  # --num-train-clips 512            # synthetic datasets: train clips
+  # --num-test-clips 128             # synthetic datasets: test clips
   # --retrain-encoder                # ignore existing encoder checkpoint
   # --reuse-predictor                # load predictor checkpoint if present
   # --latent-tda-window 20           # latent_tda: trajectory window

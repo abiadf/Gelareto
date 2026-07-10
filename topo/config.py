@@ -72,12 +72,12 @@ DATASET_CONFIGS = {
         "LEGACY_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
     },
     "bouncing_balls": {
-        "kind": "bouncing_balls",
+        "kind": "lorenz_moving_shapes",
         "num_train_clips": 512,
         "num_test_clips": 128,
         "cache_dir": "datasets/2D/bouncing_balls/processed",
         "cache_dtype": "uint8",
-        "clip_len": 20,
+        "clip_len": 30,
         "image_size": (96, 96),
         "base_radius": 6,
         "min_balls": 5,
@@ -87,6 +87,7 @@ DATASET_CONFIGS = {
         "radius_pulse_freq": 0.35,
         "thickness_min": 2,
         "thickness_max": 5,
+        "shape": "ring",
         "overlap_strength": 0.3,
         "normalize": "minmax",
         "train_seed_offset": 0,
@@ -232,3 +233,64 @@ DATASET_CONFIGS = {
         "LATENT_TDA_WINDOW": 20,
         "LATENT_TDA_BINS": 16,
     },}
+
+DATASET_CONFIGS["bouncing_disks"] = {
+    **DATASET_CONFIGS["bouncing_balls"],
+    "shape": "disk",
+    "cache_dir": "datasets/2D/bouncing_disks/processed",
+}
+
+_ORBITING_BASE = {
+    "kind": "orbiting_shapes",
+    "num_train_clips": 512,
+    "num_test_clips": 128,
+    "cache_dtype": "uint8",
+    "clip_len": 30,
+    "image_size": (96, 96),
+    "base_radius": 6,
+    "min_shapes": 2,
+    "max_shapes": 4,
+    "orbit_radius_min": 14,
+    "orbit_radius_max": 32,
+    "angular_speed_min": 0.18,
+    "angular_speed_max": 0.42,
+    "thickness_min": 2,
+    "thickness_max": 4,
+    "normalize": "minmax",
+    "train_seed_offset": 0,
+    "test_seed_offset": 50000,
+    "learning_rate": 3e-4,
+    "LATENT_DIM": 64,
+    "HIDDEN_DIM": 96,
+    "EPOCHS": 4,
+    "AE_FRAME_BATCH_SIZE": 256,
+    "AE_MAX_FRAMES_PER_EPOCH": 8192,
+    "BETTI_SCALE": 5,
+    "N_STEPS": 25,
+    "PREDICT_STEPS_AHEAD": 5,
+    "RUN_SEEDS": list(range(5)),
+    "LATENT_TDA_WINDOW": 20,
+    "LATENT_TDA_BINS": 16,
+    "LATENT_TDA_EPOCHS": 8,
+    "AUX_TDA_MODES": ["none", "aux_h0", "aux_h1", "aux_both"],
+    "AUX_TDA_LAMBDA": 0.1,
+    "AUX_TDA_EPOCHS": 4,
+    "PIXEL_TDA_MODES": ["none", "h0", "h1", "both"],
+    "PIXEL_TDA_EPOCHS": 4,
+    "PIXEL_TDA_BATCH_SIZE": 32,
+    "PIXEL_TDA_FG_WEIGHT": 10.0,
+    "PIXEL_TDA_FG_THRESHOLD": 0.05,
+    "LEGACY_TDA_MODES": ["none", "h0", "h1", "both"],
+}
+
+DATASET_CONFIGS["orbiting_rings"] = {
+    **_ORBITING_BASE,
+    "shape": "ring",
+    "cache_dir": "datasets/2D/orbiting_rings/processed",
+}
+
+DATASET_CONFIGS["orbiting_disks"] = {
+    **_ORBITING_BASE,
+    "shape": "disk",
+    "cache_dir": "datasets/2D/orbiting_disks/processed",
+}
