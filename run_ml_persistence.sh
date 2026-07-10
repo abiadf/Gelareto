@@ -30,17 +30,19 @@ set -euo pipefail
 #   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
 
 args=(
-  --scenario topo_pixel_tda             # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_tda | decode_z | topo_decode_z
-  --dataset bouncing_balls             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls | bouncing_disks | orbiting_rings | orbiting_disks
-  --seeds 0,1,2,3,4                  # comma-separated seeds
-  --modes none,h0,h1,both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
-  --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
-  --predict-steps-ahead 5
+  --scenario topo_sequence             # aux_tda | sequence | topo_sequence | latent_tda | topo_latent_tda | pixel_tda | topo_pixel_tda | decode_z | topo_decode_z
+  --dataset orbiting_rings             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls | bouncing_disks | orbiting_rings | orbiting_disks
+  --seeds 0,1,2 #,3,4                  # comma-separated seeds
+  --modes none,h0,h1,both,h0_zero,h1_zero,both_zero #,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #z,z_latent_h0,z_latent_h1,z_latent_both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
+  --predict-steps-ahead 10
   # --retrain-encoder
   --epochs 10
   --topo-ae-lambda 0.1
   --topo-ae-epochs 3
   --topo-ae-pair-batch-size 64
+  # --latent-tda-window 30
+  # --latent-tda-bins 16
+  # --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
 
   # --device auto                    # auto | cpu | cuda | mps
   # --predict-steps-ahead 5          # override forecast horizon
