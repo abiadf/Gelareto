@@ -237,9 +237,6 @@ def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
                 "z_mse": _round_metric(z_mse),
                 "z_r2": _round_metric(z_r2),
                 "b_mse": _round_metric(b_mse),
-                "warmup_excluded_z_mse": _round_metric(
-                    per_frame_z_mse[1:].mean() if len(per_frame_z_mse) > 1 else z_mse
-                ),
                 "encoder_path": str(encoder_path),
                 "model_path": str(model_path),
             }
@@ -253,7 +250,7 @@ def run_aux_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["z_mse", "z_r2", "warmup_excluded_z_mse", "b_mse"],
+        metric_cols=["z_mse", "z_r2", "b_mse"],
         sort_metric="z_mse",
     )
     print("\nAux TDA per-run results:")

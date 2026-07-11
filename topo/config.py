@@ -71,11 +71,11 @@ DATASET_CONFIGS = {
         # params for real-space TDA ablation:
         "REAL_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
     },
-    "bouncing_balls": {
+    "bouncing_rings": {
         "kind": "lorenz_moving_shapes",
         "num_train_clips": 512,
         "num_test_clips": 128,
-        "cache_dir": "datasets/2D/bouncing_balls/processed",
+        "cache_dir": "datasets/2D/bouncing_rings/processed",
         "cache_dtype": "uint8",
         "clip_len": 30,
         "image_size": (96, 96),
@@ -235,7 +235,7 @@ DATASET_CONFIGS = {
     },}
 
 DATASET_CONFIGS["bouncing_disks"] = {
-    **DATASET_CONFIGS["bouncing_balls"],
+    **DATASET_CONFIGS["bouncing_rings"],
     "shape": "disk",
     "cache_dir": "datasets/2D/bouncing_disks/processed",
 }

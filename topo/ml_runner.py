@@ -372,9 +372,6 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
                 "mode": mode,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
-                "warmup_excluded_mse": (
-                    float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
-                ),
             }
             rows.append(row)
             print("real-TDA summary:", row)
@@ -383,7 +380,7 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2"],
         sort_metric="test_mse",
     )
     print("\nReal-TDA per-run results:")
@@ -570,9 +567,6 @@ def _evaluate_decode_z_to_future_x(
         "pixel_r2": float(pixel_r2),
         "foreground_mse": float(fg_mse),
         "background_mse": float(bg_mse),
-        "warmup_excluded_pixel_mse": (
-            float(per_time_pixel_mse[1:].mean()) if len(per_time_pixel_mse) > 1 else float(per_time_pixel_mse.mean())
-        ),
         "per_time_pixel_mse": per_time_pixel_mse,
     }
 
@@ -721,9 +715,6 @@ def run_geo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFram
                 "mode": mode,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
-                "warmup_excluded_mse": (
-                    float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
-                ),
                 "encoder_path": str(encoder_path),
                 "model_path": str(model_path),
             }
@@ -734,7 +725,7 @@ def run_geo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFram
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2"],
         sort_metric="test_mse",
     )
     print("\nGeo-real-TDA per-run results:")
@@ -810,9 +801,6 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
                 "mode": mode,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
-                "warmup_excluded_mse": (
-                    float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
-                ),
                 "encoder_path": str(encoder_path),
                 "model_path": str(model_path),
             }
@@ -823,7 +811,7 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2"],
         sort_metric="test_mse",
     )
     print("\nTopo-real-TDA per-run results:")
@@ -1041,9 +1029,6 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
                 "horizon": context.horizon,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
-                "warmup_excluded_mse": (
-                    float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
-                ),
                 "encoder_path": str(encoder_path),
             }
             rows.append(row)
@@ -1053,7 +1038,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2"],
         sort_metric="test_mse",
     )
     print("\nGeo latent-TDA per-run results:")
@@ -1163,9 +1148,6 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
                 "horizon": context.horizon,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
-                "warmup_excluded_mse": (
-                    float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
-                ),
                 "encoder_path": str(encoder_path),
             }
             rows.append(row)
@@ -1175,7 +1157,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2"],
         sort_metric="test_mse",
     )
     print("\nTopo latent-TDA per-run results:")
@@ -1342,7 +1324,6 @@ def _run_decode_z(
             "weighted_mse": float(metrics["weighted_mse"]),
             "foreground_mse": float(metrics["foreground_mse"]),
             "background_mse": float(metrics["background_mse"]),
-            "warmup_excluded_pixel_mse": float(metrics["warmup_excluded_pixel_mse"]),
             "fg_weight": fg_weight,
             "fg_threshold": fg_threshold,
             "encoder_path": str(encoder_path),
@@ -1362,7 +1343,6 @@ def _run_decode_z(
             "weighted_mse",
             "foreground_mse",
             "background_mse",
-            "warmup_excluded_pixel_mse",
         ],
         sort_metric="weighted_mse",
     )
@@ -1476,7 +1456,6 @@ def run_geo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
                 "weighted_mse": float(metrics["weighted_mse"]),
                 "foreground_mse": float(metrics["foreground_mse"]),
                 "background_mse": float(metrics["background_mse"]),
-                "warmup_excluded_pixel_mse": float(metrics["warmup_excluded_pixel_mse"]),
                 "fg_weight": fg_weight,
                 "fg_threshold": fg_threshold,
                 "encoder_path": str(encoder_path),
@@ -1495,7 +1474,6 @@ def run_geo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
             "weighted_mse",
             "foreground_mse",
             "background_mse",
-            "warmup_excluded_pixel_mse",
         ],
         sort_metric="weighted_mse",
     )
@@ -1599,7 +1577,6 @@ def run_topo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
                 "weighted_mse": float(metrics["weighted_mse"]),
                 "foreground_mse": float(metrics["foreground_mse"]),
                 "background_mse": float(metrics["background_mse"]),
-                "warmup_excluded_pixel_mse": float(metrics["warmup_excluded_pixel_mse"]),
                 "fg_weight": fg_weight,
                 "fg_threshold": fg_threshold,
                 "encoder_path": str(encoder_path),
@@ -1618,7 +1595,6 @@ def run_topo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
             "weighted_mse",
             "foreground_mse",
             "background_mse",
-            "warmup_excluded_pixel_mse",
         ],
         sort_metric="weighted_mse",
     )

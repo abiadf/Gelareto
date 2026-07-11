@@ -256,7 +256,6 @@ def evaluate_predictor(model, test_features, X_test):
         "pixel_r2": pixel_r2,
         "foreground_mse": sums["foreground"] / counts["foreground"] if counts["foreground"] else float("nan"),
         "background_mse": sums["background"] / counts["background"] if counts["background"] else float("nan"),
-        "warmup_excluded_pixel_mse": float(per_time_pixel_mse[1:].mean()) if len(per_time_pixel_mse) > 1 else float(per_time_pixel_mse.mean()),
         "per_time_pixel_mse": per_time_pixel_mse,
     }
 
@@ -296,7 +295,6 @@ def run_pixel_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
                 "weighted_mse": float(metrics["weighted_mse"]),
                 "foreground_mse": float(metrics["foreground_mse"]),
                 "background_mse": float(metrics["background_mse"]),
-                "warmup_excluded_pixel_mse": float(metrics["warmup_excluded_pixel_mse"]),
                 "fg_weight": PIXEL_TDA_FG_WEIGHT,
                 "fg_threshold": PIXEL_TDA_FG_THRESHOLD,
                 "encoder_path": str(encoder_path),
@@ -318,7 +316,6 @@ def run_pixel_tda_experiment(X_train, X_test, seeds, modes, display_fn=None):
             "weighted_mse",
             "foreground_mse",
             "background_mse",
-            "warmup_excluded_pixel_mse",
         ],
         sort_metric="weighted_mse",
     )

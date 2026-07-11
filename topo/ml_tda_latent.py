@@ -295,7 +295,6 @@ def run_latent_tda_trajectory_experiment(
                 "horizon": HORIZON,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
-                "warmup_excluded_mse": float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse),
             }
             rows.append(row)
             print("latent TDA run summary:", row)
@@ -304,7 +303,7 @@ def run_latent_tda_trajectory_experiment(
     summary_df = summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
+        metric_cols=["test_mse", "latent_r2"],
         sort_metric="test_mse",
     )
     paired_df = results_df.pivot(index="seed", columns="mode", values="test_mse")

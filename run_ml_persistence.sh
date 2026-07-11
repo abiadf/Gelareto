@@ -28,7 +28,7 @@ set -euo pipefail
 #   aux_tda:    none,aux_h0,aux_h1,aux_both
 
 # Synthetic datasets:
-#   bouncing_balls: hollow/ring objects with Lorenz-like irregular motion
+#   bouncing_rings: hollow/ring objects with Lorenz-like irregular motion
 #   bouncing_disks: filled objects with Lorenz-like irregular motion
 #   orbiting_rings: hollow/ring objects with periodic circular/elliptical orbit motion
 #   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
@@ -40,7 +40,7 @@ set -euo pipefail
 
 args=(
   --scenario geo_decode_z           # aux_tda | real_tda | geo_real_tda | topo_real_tda | latent_tda | geo_latent_tda | topo_latent_tda | pixel_tda | geo_pixel_tda | topo_pixel_tda | decode_z | geo_decode_z | topo_decode_z
-  --dataset orbiting_rings             # moving_mnist | davis_images | celltracking_fluo | bouncing_balls | bouncing_disks | orbiting_rings | orbiting_disks
+  --dataset orbiting_rings             # moving_mnist | davis_images | celltracking_fluo | bouncing_rings | bouncing_disks | orbiting_rings | orbiting_disks
   --seeds 0,1,2,3,4                  # comma-separated seeds
   --modes z,z_latent_h0,z_latent_h1,z_latent_both,z_latent_h0_zero,z_latent_h0_shuffle,z_latent_h0_noise,z_latent_h0_shift,z_latent_h1_zero #,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #z,z_latent_h0,z_latent_h1,z_latent_both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
   --horizon 5

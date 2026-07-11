@@ -886,7 +886,7 @@ def load_orbiting_shapes(config):
 
 
 def lorenz_moving_shapes_cache_path(config, split_name, num_clips, seed_offset):
-    cache_dir = Path(config.get("cache_dir", "datasets/2D/bouncing_balls/processed"))
+    cache_dir = Path(config.get("cache_dir", "datasets/2D/bouncing_rings/processed"))
     cache_dir.mkdir(parents=True, exist_ok=True)
     image_size = tuple(config.get("image_size", (96, 96)))
     tag = (
