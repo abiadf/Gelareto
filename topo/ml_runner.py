@@ -1847,6 +1847,42 @@ def _drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[:, keep_cols]
 
 
+def _format_mean_std(value: object, std: object) -> str:
+    if pd.isna(value) and pd.isna(std):
+        return ""
+    if pd.isna(std):
+        return f"{float(value):.4f}"
+    if pd.isna(value):
+        return f"{float(std):.4f}"
+    return f"{float(value):.4f} {float(std):.4f}"
+
+
+def _combine_summary_mean_std_columns(df: pd.DataFrame) -> pd.DataFrame:
+    combined = df.copy()
+    output = pd.DataFrame(index=combined.index)
+    used_cols: set[str] = set()
+
+    for col in combined.columns:
+        if col in used_cols:
+            continue
+        if col.endswith("_mean"):
+            metric = col[: -len("_mean")]
+            std_col = f"{metric}_std"
+            if std_col in combined.columns:
+                output[f"{metric} mean +/- std"] = [
+                    _format_mean_std(value, std)
+                    for value, std in zip(combined[col], combined[std_col])
+                ]
+                used_cols.update({col, std_col})
+                continue
+        if col.endswith("_std") and f"{col[: -len('_std')]}_mean" in combined.columns:
+            continue
+        output[col] = combined[col]
+        used_cols.add(col)
+
+    return output
+
+
 def _print_grouped_aggregate_frame(title: str, df: pd.DataFrame) -> None:
     print(f"\n{title}:")
     group_cols = [col for col in ["dataset", "scenario"] if col in df.columns]
@@ -1879,6 +1915,7 @@ def _print_aggregate_tables(
             _print_grouped_aggregate_frame("All per-run results", combined_results)
         if summary_frames:
             combined_summary = pd.concat(summary_frames, ignore_index=True, sort=False)
+            combined_summary = _combine_summary_mean_std_columns(combined_summary)
             _print_grouped_aggregate_frame("All mean +/- std summaries", combined_summary)
 
 
