@@ -1837,6 +1837,33 @@ def _tag_run_frame(df: pd.DataFrame | None, cfg: RunConfig, *, summary: bool = F
     return tagged
 
 
+def _drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
+    protected_cols = {"dataset", "scenario", "seed", "mode", "horizon"}
+    keep_cols = [
+        col
+        for col in df.columns
+        if col in protected_cols or not df[col].isna().all()
+    ]
+    return df.loc[:, keep_cols]
+
+
+def _print_grouped_aggregate_frame(title: str, df: pd.DataFrame) -> None:
+    print(f"\n{title}:")
+    group_cols = [col for col in ["dataset", "scenario"] if col in df.columns]
+    if not group_cols:
+        compact = _drop_empty_columns(df)
+        print(compact.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+        return
+
+    for keys, group in df.groupby(group_cols, sort=False, dropna=False):
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+        label = " | ".join(f"{col}={value}" for col, value in zip(group_cols, keys))
+        compact = _drop_empty_columns(group).drop(columns=group_cols, errors="ignore")
+        print(f"\n---------------- {label} ----------------")
+        print(compact.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+
+
 def _print_aggregate_tables(
     result_frames: list[pd.DataFrame],
     summary_frames: list[pd.DataFrame],
@@ -1844,15 +1871,13 @@ def _print_aggregate_tables(
     if not result_frames and not summary_frames:
         return
     print("\n\n================ FINAL COMBINED RESULTS ================")
-    if result_frames:
-        combined_results = pd.concat(result_frames, ignore_index=True, sort=False)
-        print("\nAll per-run results:")
-        print(combined_results.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
-    if summary_frames:
-        combined_summary = pd.concat(summary_frames, ignore_index=True, sort=False)
-        print("\nAll mean +/- std summaries:")
-        with pd.option_context("display.float_format", "{:.4f}".format):
-            print(combined_summary.to_string(index=False))
+    with pd.option_context("display.width", 240, "display.max_columns", None):
+        if result_frames:
+            combined_results = pd.concat(result_frames, ignore_index=True, sort=False)
+            _print_grouped_aggregate_frame("All per-run results", combined_results)
+        if summary_frames:
+            combined_summary = pd.concat(summary_frames, ignore_index=True, sort=False)
+            _print_grouped_aggregate_frame("All mean +/- std summaries", combined_summary)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1878,6 +1903,7 @@ def main(argv: list[str] | None = None) -> None:
                 result_frames.append(tagged_results)
             if tagged_summary is not None and not tagged_summary.empty:
                 summary_frames.append(tagged_summary)
+            print("=" * 88)
 
     _print_aggregate_tables(result_frames, summary_frames)
 
