@@ -1,6 +1,6 @@
 """Command-line entrypoint for video topology forecasting experiments.
 
-This runner trains/evaluates the AE, topoAE, latent-TDA, frame-TDA, and
+This runner trains/evaluates the AE, geoAE, latent-TDA, frame-TDA, and
 decode-to-frame scenarios without modifying the exploratory notebook.
 """
 
@@ -27,6 +27,7 @@ import topo.ml_tda as ml_tda
 import topo.ml_tda_aux as ml_tda_aux
 import topo.ml_tda_latent as ml_tda_latent
 import topo.ml_tda_pixel as ml_tda_pixel
+import topo.ml_tda_geoae as ml_tda_geoae
 import topo.ml_tda_topoae as ml_tda_topoae
 from topo.ml_tda import (
     SpatialDecoder,
@@ -42,12 +43,16 @@ from topo.ml_tda import (
 RUNNER_SCENARIOS = {
     "real_tda",
     "decode_z",
+    "geo_real_tda",
     "topo_real_tda",
     "latent_tda",
+    "geo_latent_tda",
     "topo_latent_tda",
     "aux_tda",
     "pixel_tda",
+    "geo_pixel_tda",
     "topo_pixel_tda",
+    "geo_decode_z",
     "topo_decode_z",
 }
 
@@ -95,9 +100,13 @@ class RunConfig:
     latent_tda_max_train: int | None
     latent_tda_max_test: int | None
     recompute_latent_tda_features: bool
+    geo_ae_lambda: float
+    geo_ae_epochs: int | None
+    geo_ae_pair_batch_size: int
     topo_ae_lambda: float
     topo_ae_epochs: int | None
     topo_ae_pair_batch_size: int
+    topo_ae_distance: str
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
@@ -310,6 +319,11 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
+        # Train or refresh the shared encoder once per seed, then all modes
+        # below load that frozen checkpoint. This keeps mode comparisons fair
+        # when --retrain-encoder is enabled.
+        _load_or_train_baseline_autoencoder(cfg, context, seed)
+
         for mode in modes:
             ml_tda.configure_runtime(EXPERIMENT_SEED=seed, TDA_MODE=mode)
             base_mode, _ = parse_tda_control_mode(mode)
@@ -334,7 +348,7 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
                 decoder,
                 model,
                 context.x_train,
-                cfg.retrain_encoder,
+                False,
                 cfg.retrain_predictor,
                 use_tda,
                 context.learning_rate,
@@ -379,8 +393,12 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
     return results_df, summary_df
 
 
-def _topo_model_namespace(dataset: str, topo_lambda: float) -> str:
-    return f"{dataset}_topoae_lam{topo_lambda:g}"
+def _geo_model_namespace(dataset: str, geo_lambda: float) -> str:
+    return f"{dataset}_geoae_lam{geo_lambda:g}"
+
+
+def _topo_model_namespace(dataset: str, topo_lambda: float, topo_distance: str) -> str:
+    return f"{dataset}_topoae_lam{topo_lambda:g}_{topo_distance}"
 
 
 def _autoencoder_tag(seed: int, x_train: torch.Tensor, latent_dim: int) -> str:
@@ -441,14 +459,14 @@ def _set_all_seeds(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _topo_predictor_path(
+def _geo_predictor_path(
     model_namespace: str,
     seed: int,
     mode: str,
     context: VideoContext,
     input_dim: int,
 ) -> Path:
-    model_dir = Path("models") / model_namespace / "topo_real_tda_predictors"
+    model_dir = Path("models") / model_namespace / "geo_real_tda_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_mode{mode}_pred{context.horizon}_"
@@ -559,7 +577,7 @@ def _evaluate_decode_z_to_future_x(
     }
 
 
-def _topo_feature_dim(mode: str, context: VideoContext) -> tuple[bool, int]:
+def _geo_feature_dim(mode: str, context: VideoContext) -> tuple[bool, int]:
     base_mode, _ = parse_tda_control_mode(mode)
     if base_mode == "none":
         return False, context.latent_dim
@@ -570,7 +588,7 @@ def _topo_feature_dim(mode: str, context: VideoContext) -> tuple[bool, int]:
     raise ValueError(f"Unknown TDA mode: {mode}")
 
 
-def _train_or_load_topo_real_tda_predictor(
+def _train_or_load_geo_real_tda_predictor(
     *,
     cfg: RunConfig,
     context: VideoContext,
@@ -579,19 +597,19 @@ def _train_or_load_topo_real_tda_predictor(
     seed: int,
     mode: str,
 ) -> tuple[TopologicalPredictor, Path]:
-    use_tda, input_dim = _topo_feature_dim(mode, context)
+    use_tda, input_dim = _geo_feature_dim(mode, context)
     model = TopologicalPredictor(input_dim=input_dim, hidden_dim=context.hidden_dim)
-    model_path = _topo_predictor_path(model_namespace, seed, mode, context, input_dim)
+    model_path = _geo_predictor_path(model_namespace, seed, mode, context, input_dim)
     device = ml_tda.get_runtime_device()
 
     if model_path.exists() and not cfg.retrain_predictor:
-        print(f"Loading topo-real-tda predictor: {model_path}")
+        print(f"Loading geo-real-tda predictor: {model_path}")
         model.load_state_dict(torch.load(model_path, map_location=device))
         model.to(device)
         return model, model_path
 
     reason = "retraining" if model_path.exists() else "missing; training once"
-    print(f"Topo-real-TDA predictor {reason}: {model_path}")
+    print(f"Geo-real-TDA predictor {reason}: {model_path}")
     model.to(device)
     ml_tda.train_predictor(
         model,
@@ -602,8 +620,31 @@ def _train_or_load_topo_real_tda_predictor(
         learning_rate=context.learning_rate,
     )
     torch.save(model.state_dict(), model_path)
-    print(f"Saved topo-real-tda predictor: {model_path}")
+    print(f"Saved geo-real-tda predictor: {model_path}")
     return model, model_path
+
+
+def _load_geo_encoder_for_seed(
+    cfg: RunConfig,
+    context: VideoContext,
+    seed: int,
+) -> tuple[SpatialEncoder, Path, str]:
+    geo_epochs = int(_override(cfg.geo_ae_epochs, context.dataset_config.get("GEO_AE_EPOCHS", 3)))
+    model_namespace = _geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda)
+    encoder, encoder_path = ml_tda_geoae.load_or_train_geo_encoder(
+        context.x_train,
+        dataset_name=cfg.dataset,
+        model_namespace=model_namespace,
+        seed=seed,
+        latent_dim=context.latent_dim,
+        geo_lambda=cfg.geo_ae_lambda,
+        ae_epochs=geo_epochs,
+        frame_batch_size=context.ae_frame_batch_size or 256,
+        max_frames_per_epoch=context.ae_max_frames_per_epoch,
+        pair_batch_size=cfg.geo_ae_pair_batch_size,
+        retrain=cfg.retrain_encoder,
+    )
+    return encoder, encoder_path, model_namespace
 
 
 def _load_topo_encoder_for_seed(
@@ -612,7 +653,7 @@ def _load_topo_encoder_for_seed(
     seed: int,
 ) -> tuple[SpatialEncoder, Path, str]:
     topo_epochs = int(_override(cfg.topo_ae_epochs, context.dataset_config.get("TOPO_AE_EPOCHS", 3)))
-    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda)
+    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda, cfg.topo_ae_distance)
     encoder, encoder_path = ml_tda_topoae.load_or_train_topo_encoder(
         context.x_train,
         dataset_name=cfg.dataset,
@@ -620,6 +661,7 @@ def _load_topo_encoder_for_seed(
         seed=seed,
         latent_dim=context.latent_dim,
         topo_lambda=cfg.topo_ae_lambda,
+        topo_distance=cfg.topo_ae_distance,
         ae_epochs=topo_epochs,
         frame_batch_size=context.ae_frame_batch_size or 256,
         max_frames_per_epoch=context.ae_max_frames_per_epoch,
@@ -629,28 +671,28 @@ def _load_topo_encoder_for_seed(
     return encoder, encoder_path, model_namespace
 
 
-def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+def run_geo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
         context.dataset_config.get("REAL_TDA_MODES", ["none", "h0", "h1", "both"]),
     )
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
     print(
-        f"Topo-real-TDA config: dataset={cfg.dataset}, seeds={seeds}, modes={modes}, "
-        f"topo_ae_lambda={cfg.topo_ae_lambda}, horizon={context.horizon}"
+        f"Geo-real-TDA config: dataset={cfg.dataset}, seeds={seeds}, modes={modes}, "
+        f"geo_ae_lambda={cfg.geo_ae_lambda}, horizon={context.horizon}"
     )
 
     rows = []
     for seed in seeds:
-        print(f"\n================ topo-real-tda seed={seed} ================")
+        print(f"\n================ geo-real-tda seed={seed} ================")
         _set_all_seeds(seed)
-        encoder, encoder_path, model_namespace = _load_topo_encoder_for_seed(cfg, context, seed)
+        encoder, encoder_path, model_namespace = _load_geo_encoder_for_seed(cfg, context, seed)
 
         for mode in modes:
             ml_tda.configure_runtime(EXPERIMENT_SEED=seed, TDA_MODE=mode)
-            use_tda, _ = _topo_feature_dim(mode, context)
-            print(f"\n-------- DATASET={cfg.dataset} seed={seed} TOPO_TDA_MODE={mode} --------")
-            model, model_path = _train_or_load_topo_real_tda_predictor(
+            use_tda, _ = _geo_feature_dim(mode, context)
+            print(f"\n-------- DATASET={cfg.dataset} seed={seed} GEO_TDA_MODE={mode} --------")
+            model, model_path = _train_or_load_geo_real_tda_predictor(
                 cfg=cfg,
                 context=context,
                 encoder=encoder,
@@ -663,7 +705,7 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
                 context.x_test,
                 encoder,
                 use_tda,
-                split_name="Topo Test metrics",
+                split_name="Geo Test metrics",
             )
             device = ml_tda.get_runtime_device()
             model.to(device).eval()
@@ -673,8 +715,97 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
             _, latent_r2 = _mse_r2(pred_z, target_z)
             row = {
                 "dataset": cfg.dataset,
+                "encoder": "geo_ae",
+                "geo_ae_lambda": cfg.geo_ae_lambda,
+                "seed": seed,
+                "mode": mode,
+                "test_mse": float(test_mse),
+                "latent_r2": float(latent_r2),
+                "warmup_excluded_mse": (
+                    float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
+                ),
+                "encoder_path": str(encoder_path),
+                "model_path": str(model_path),
+            }
+            rows.append(row)
+            print("geo-real-tda summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
+        sort_metric="test_mse",
+    )
+    print("\nGeo-real-TDA per-run results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nGeo-real-TDA mean +/- std by mode:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
+def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get("REAL_TDA_MODES", ["none", "h0", "h1", "both"]),
+    )
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
+    print(
+        f"Topo-real-TDA config: dataset={cfg.dataset}, seeds={seeds}, modes={modes}, "
+        f"topo_ae_lambda={cfg.topo_ae_lambda}, topo_ae_distance={cfg.topo_ae_distance}, "
+        f"horizon={context.horizon}"
+    )
+
+    rows = []
+    for seed in seeds:
+        print(f"\n================ topo-real-tda seed={seed} ================")
+        _set_all_seeds(seed)
+        encoder, encoder_path, model_namespace = _load_topo_encoder_for_seed(cfg, context, seed)
+
+        for mode in modes:
+            ml_tda.configure_runtime(EXPERIMENT_SEED=seed, TDA_MODE=mode)
+            use_tda, input_dim = _geo_feature_dim(mode, context)
+            print(f"\n-------- DATASET={cfg.dataset} seed={seed} TOPO_TDA_MODE={mode} --------")
+            model = TopologicalPredictor(input_dim=input_dim, hidden_dim=context.hidden_dim)
+            model_path = _geo_predictor_path(model_namespace, seed, mode, context, input_dim)
+            device = ml_tda.get_runtime_device()
+            if model_path.exists() and not cfg.retrain_predictor:
+                print(f"Loading topo-real-tda predictor: {model_path}")
+                model.load_state_dict(torch.load(model_path, map_location=device))
+                model.to(device)
+            else:
+                reason = "retraining" if model_path.exists() else "missing; training once"
+                print(f"Topo-real-TDA predictor {reason}: {model_path}")
+                model.to(device)
+                ml_tda.train_predictor(
+                    model,
+                    encoder,
+                    context.x_train,
+                    predictor_epochs=context.predictor_epochs,
+                    use_tda=use_tda,
+                    learning_rate=context.learning_rate,
+                )
+                torch.save(model.state_dict(), model_path)
+                print(f"Saved topo-real-tda predictor: {model_path}")
+
+            test_mse, per_frame_mse = test_predictor(model, encoder, context.x_test, use_tda)
+            total_test_features, test_z_features = ml_tda.build_real_tda_features(
+                context.x_test,
+                encoder,
+                use_tda,
+                split_name="Topo Test metrics",
+            )
+            model.to(device).eval()
+            with torch.no_grad():
+                pred_z = model(total_test_features[:-context.horizon].to(device)).cpu()
+            target_z = test_z_features[context.horizon:].cpu()
+            _, latent_r2 = _mse_r2(pred_z, target_z)
+            row = {
+                "dataset": cfg.dataset,
                 "encoder": "topo_ae",
                 "topo_ae_lambda": cfg.topo_ae_lambda,
+                "topo_ae_distance": cfg.topo_ae_distance,
                 "seed": seed,
                 "mode": mode,
                 "test_mse": float(test_mse),
@@ -812,6 +943,127 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
     return results_df, summary_df
 
 
+def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get(
+            "LATENT_TDA_MODES",
+            ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+        ),
+    )
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
+    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
+    max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
+    model_namespace = _geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda)
+    recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
+        "RECOMPUTE_LATENT_TDA_FEATURES",
+        True,
+    )
+
+    ml_tda.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        REAL_TDA_SCALE=context.real_tda_scale,
+        REAL_TDA_BINS=context.real_tda_bins,
+        HORIZON=context.horizon,
+        DEVICE=_select_device(cfg.device),
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_latent.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        RETRAIN_ENCODER=cfg.retrain_encoder,
+        HORIZON=context.horizon,
+        LATENT_TDA_WINDOW=window,
+        LATENT_TDA_BINS=bins,
+        LATENT_TDA_PREDICTOR_EPOCHS=latent_epochs,
+        LATENT_TDA_LR=latent_lr,
+        RETRAIN_LATENT_TDA_PREDICTOR=cfg.retrain_predictor,
+        RECOMPUTE_LATENT_TDA_FEATURES=recompute_features,
+    )
+    print(
+        f"Geo latent-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, "
+        f"seeds={seeds}, modes={modes}, geo_ae_lambda={cfg.geo_ae_lambda}, "
+        f"window={window}, bins={bins}, predictor_epochs={latent_epochs}, lr={latent_lr}, "
+        f"horizon={context.horizon}, "
+        f"max_train={max_train}, max_test={max_test}, recompute_features={recompute_features}"
+    )
+
+    rows = []
+    for seed in seeds:
+        print(f"\n================ geo latent TDA seed={seed} ================")
+        _set_all_seeds(seed)
+        encoder, encoder_path, _ = _load_geo_encoder_for_seed(cfg, context, seed)
+        x_train_subset = ml_tda_latent.take_batch_subset(context.x_train, max_train, seed=seed)
+        x_test_subset = ml_tda_latent.take_batch_subset(context.x_test, max_test, seed=seed + 1)
+        train_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+            seed,
+            "train",
+            x_train_subset,
+            encoder,
+        )
+        test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+            seed,
+            "test",
+            x_test_subset,
+            encoder,
+        )
+
+        for mode in modes:
+            print(f"\n--- geo latent mode={mode} seed={seed} ---")
+            ml_tda_latent.configure_runtime(CONTROL_SEED=seed)
+            train_features = ml_tda_latent.features_for_latent_tda_mode(train_payload, mode)
+            ml_tda_latent.configure_runtime(CONTROL_SEED=seed + 10_000)
+            test_features = ml_tda_latent.features_for_latent_tda_mode(test_payload, mode)
+            model = ml_tda_latent.train_or_load_latent_tda_predictor(
+                seed,
+                mode,
+                train_features,
+                train_payload["z"],
+            )
+            test_mse, per_frame_mse, latent_r2 = ml_tda_latent.eval_latent_tda_predictor(
+                model,
+                test_features,
+                test_payload["z"],
+            )
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": "geo_ae",
+                "geo_ae_lambda": cfg.geo_ae_lambda,
+                "seed": seed,
+                "mode": mode,
+                "horizon": context.horizon,
+                "test_mse": float(test_mse),
+                "latent_r2": float(latent_r2),
+                "warmup_excluded_mse": (
+                    float(per_frame_mse[1:].mean()) if len(per_frame_mse) > 1 else float(test_mse)
+                ),
+                "encoder_path": str(encoder_path),
+            }
+            rows.append(row)
+            print("geo latent TDA summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=["test_mse", "latent_r2", "warmup_excluded_mse"],
+        sort_metric="test_mse",
+    )
+    print("\nGeo latent-TDA per-run results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nGeo latent-TDA mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
 def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
@@ -827,7 +1079,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
-    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda)
+    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda, cfg.topo_ae_distance)
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
         True,
@@ -859,8 +1111,8 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     print(
         f"Topo latent-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, "
         f"seeds={seeds}, modes={modes}, topo_ae_lambda={cfg.topo_ae_lambda}, "
-        f"window={window}, bins={bins}, predictor_epochs={latent_epochs}, lr={latent_lr}, "
-        f"horizon={context.horizon}, "
+        f"topo_ae_distance={cfg.topo_ae_distance}, window={window}, bins={bins}, "
+        f"predictor_epochs={latent_epochs}, lr={latent_lr}, horizon={context.horizon}, "
         f"max_train={max_train}, max_test={max_test}, recompute_features={recompute_features}"
     )
 
@@ -905,6 +1157,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
                 "dataset": cfg.dataset,
                 "encoder": "topo_ae",
                 "topo_ae_lambda": cfg.topo_ae_lambda,
+                "topo_ae_distance": cfg.topo_ae_distance,
                 "seed": seed,
                 "mode": mode,
                 "horizon": context.horizon,
@@ -933,13 +1186,36 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     return results_df, summary_df
 
 
+def _load_geo_autoencoder_for_seed(
+    cfg: RunConfig,
+    context: VideoContext,
+    seed: int,
+) -> tuple[SpatialEncoder, SpatialDecoder, Path, Path, str]:
+    geo_epochs = int(_override(cfg.geo_ae_epochs, context.dataset_config.get("GEO_AE_EPOCHS", 3)))
+    model_namespace = _geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda)
+    encoder, decoder, encoder_path, decoder_path = ml_tda_geoae.load_or_train_geo_autoencoder(
+        context.x_train,
+        dataset_name=cfg.dataset,
+        model_namespace=model_namespace,
+        seed=seed,
+        latent_dim=context.latent_dim,
+        geo_lambda=cfg.geo_ae_lambda,
+        ae_epochs=geo_epochs,
+        frame_batch_size=context.ae_frame_batch_size or 256,
+        max_frames_per_epoch=context.ae_max_frames_per_epoch,
+        pair_batch_size=cfg.geo_ae_pair_batch_size,
+        retrain=cfg.retrain_encoder,
+    )
+    return encoder, decoder, encoder_path, decoder_path, model_namespace
+
+
 def _load_topo_autoencoder_for_seed(
     cfg: RunConfig,
     context: VideoContext,
     seed: int,
 ) -> tuple[SpatialEncoder, SpatialDecoder, Path, Path, str]:
     topo_epochs = int(_override(cfg.topo_ae_epochs, context.dataset_config.get("TOPO_AE_EPOCHS", 3)))
-    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda)
+    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda, cfg.topo_ae_distance)
     encoder, decoder, encoder_path, decoder_path = ml_tda_topoae.load_or_train_topo_autoencoder(
         context.x_train,
         dataset_name=cfg.dataset,
@@ -947,6 +1223,7 @@ def _load_topo_autoencoder_for_seed(
         seed=seed,
         latent_dim=context.latent_dim,
         topo_lambda=cfg.topo_ae_lambda,
+        topo_distance=cfg.topo_ae_distance,
         ae_epochs=topo_epochs,
         frame_batch_size=context.ae_frame_batch_size or 256,
         max_frames_per_epoch=context.ae_max_frames_per_epoch,
@@ -960,7 +1237,7 @@ def _run_decode_z(
     cfg: RunConfig,
     context: VideoContext,
     *,
-    use_topo_ae: bool,
+    ae_kind: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
     fg_weight = float(
@@ -969,8 +1246,26 @@ def _run_decode_z(
     fg_threshold = float(
         _override(cfg.pixel_tda_fg_threshold, context.dataset_config.get("PIXEL_TDA_FG_THRESHOLD", 0.05))
     )
-    scenario_name = "topo_decode_z" if use_topo_ae else "decode_z"
-    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda) if use_topo_ae else cfg.dataset
+    if ae_kind == "baseline":
+        scenario_name = "decode_z"
+        model_namespace = cfg.dataset
+        ae_label = "baseline_ae"
+        ae_lambda = np.nan
+        ae_distance = ""
+    elif ae_kind == "geo":
+        scenario_name = "geo_decode_z"
+        model_namespace = _geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda)
+        ae_label = "geo_ae"
+        ae_lambda = cfg.geo_ae_lambda
+        ae_distance = ""
+    elif ae_kind == "topo":
+        scenario_name = "topo_decode_z"
+        model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda, cfg.topo_ae_distance)
+        ae_label = "topo_ae"
+        ae_lambda = cfg.topo_ae_lambda
+        ae_distance = cfg.topo_ae_distance
+    else:
+        raise ValueError(f"Unknown AE kind: {ae_kind}")
 
     ml_tda.configure_runtime(
         DATASET=model_namespace,
@@ -991,14 +1286,20 @@ def _run_decode_z(
     print(
         f"{scenario_name} config: dataset={cfg.dataset}, namespace={model_namespace}, "
         f"seeds={seeds}, horizon={context.horizon}, "
-        f"predictor_epochs={context.predictor_epochs}, topo_ae_lambda={cfg.topo_ae_lambda if use_topo_ae else 'n/a'}"
+        f"predictor_epochs={context.predictor_epochs}, ae_lambda={ae_lambda}, ae_distance={ae_distance or 'n/a'}"
     )
 
     rows = []
     for seed in seeds:
         print(f"\n================ {scenario_name} seed={seed} ================")
         _set_all_seeds(seed)
-        if use_topo_ae:
+        if ae_kind == "geo":
+            encoder, decoder, encoder_path, decoder_path, model_namespace = _load_geo_autoencoder_for_seed(
+                cfg,
+                context,
+                seed,
+            )
+        elif ae_kind == "topo":
             encoder, decoder, encoder_path, decoder_path, model_namespace = _load_topo_autoencoder_for_seed(
                 cfg,
                 context,
@@ -1030,8 +1331,9 @@ def _run_decode_z(
         metrics = _evaluate_decode_z_to_future_x(model, decoder, test_z, context.x_test, context)
         row = {
             "dataset": cfg.dataset,
-            "encoder": "topo_ae" if use_topo_ae else "baseline_ae",
-            "topo_ae_lambda": cfg.topo_ae_lambda if use_topo_ae else np.nan,
+            "encoder": ae_label,
+            "ae_lambda": ae_lambda,
+            "ae_distance": ae_distance,
             "seed": seed,
             "mode": "z_decode",
             "horizon": context.horizon,
@@ -1073,11 +1375,136 @@ def _run_decode_z(
 
 
 def run_decode_z(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
-    return _run_decode_z(cfg, context, use_topo_ae=False)
+    return _run_decode_z(cfg, context, ae_kind="baseline")
+
+
+def run_geo_decode_z(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return _run_decode_z(cfg, context, ae_kind="geo")
 
 
 def run_topo_decode_z(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
-    return _run_decode_z(cfg, context, use_topo_ae=True)
+    return _run_decode_z(cfg, context, ae_kind="topo")
+
+
+def run_geo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get("PIXEL_TDA_MODES", ["none", "h0", "h1", "both"]),
+    )
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    pixel_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("PIXEL_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
+    pixel_lr = float(_override(cfg.learning_rate, context.dataset_config.get("PIXEL_TDA_LR", context.learning_rate)))
+    pixel_batch_size = int(
+        _override(cfg.pixel_tda_batch_size, context.dataset_config.get("PIXEL_TDA_BATCH_SIZE", 32))
+    )
+    fg_weight = float(
+        _override(cfg.pixel_tda_fg_weight, context.dataset_config.get("PIXEL_TDA_FG_WEIGHT", 10.0))
+    )
+    fg_threshold = float(
+        _override(cfg.pixel_tda_fg_threshold, context.dataset_config.get("PIXEL_TDA_FG_THRESHOLD", 0.05))
+    )
+    model_namespace = _geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda)
+
+    ml_tda.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        REAL_TDA_SCALE=context.real_tda_scale,
+        REAL_TDA_BINS=context.real_tda_bins,
+        HORIZON=context.horizon,
+        DEVICE=_select_device(cfg.device),
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_pixel.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        HORIZON=context.horizon,
+        REAL_TDA_BINS=context.real_tda_bins,
+        REAL_TDA_SCALE=context.real_tda_scale,
+        PIXEL_TDA_PREDICTOR_EPOCHS=pixel_epochs,
+        PIXEL_TDA_LR=pixel_lr,
+        PIXEL_TDA_BATCH_SIZE=pixel_batch_size,
+        PIXEL_TDA_FG_WEIGHT=fg_weight,
+        PIXEL_TDA_FG_THRESHOLD=fg_threshold,
+        PIXEL_TDA_RETRAIN_ENCODER=cfg.retrain_encoder,
+        PIXEL_TDA_RETRAIN_PREDICTOR=cfg.retrain_predictor,
+    )
+    print(
+        f"Geo pixel-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, seeds={seeds}, "
+        f"modes={modes}, geo_ae_lambda={cfg.geo_ae_lambda}, predictor_epochs={pixel_epochs}, "
+        f"lr={pixel_lr}, batch={pixel_batch_size}, fg_weight={fg_weight}, "
+        f"fg_threshold={fg_threshold}, horizon={context.horizon}"
+    )
+
+    rows = []
+    for seed in seeds:
+        print(f"\n================ geo pixel-TDA seed={seed} ================")
+        _set_all_seeds(seed)
+        encoder, encoder_path, _ = _load_geo_encoder_for_seed(cfg, context, seed)
+        train_z, train_h0, train_h1 = ml_tda_pixel.compute_z_h0_h1(
+            context.x_train,
+            encoder,
+            split_name="geo pixel train",
+        )
+        test_z, test_h0, test_h1 = ml_tda_pixel.compute_z_h0_h1(
+            context.x_test,
+            encoder,
+            split_name="geo pixel test",
+        )
+
+        for mode in modes:
+            print(f"\n--- geo pixel mode={mode} seed={seed} ---")
+            train_features = ml_tda_pixel.make_mode_features(train_z, train_h0, train_h1, mode, seed)
+            test_features = ml_tda_pixel.make_mode_features(test_z, test_h0, test_h1, mode, seed + 10_000)
+            model, model_path = ml_tda_pixel.train_or_load_predictor(
+                seed,
+                mode,
+                train_features,
+                context.x_train,
+            )
+            metrics = ml_tda_pixel.evaluate_predictor(model, test_features, context.x_test)
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": "geo_ae",
+                "geo_ae_lambda": cfg.geo_ae_lambda,
+                "seed": seed,
+                "mode": mode,
+                "horizon": context.horizon,
+                "pixel_mse": float(metrics["pixel_mse"]),
+                "pixel_r2": float(metrics["pixel_r2"]),
+                "weighted_mse": float(metrics["weighted_mse"]),
+                "foreground_mse": float(metrics["foreground_mse"]),
+                "background_mse": float(metrics["background_mse"]),
+                "warmup_excluded_pixel_mse": float(metrics["warmup_excluded_pixel_mse"]),
+                "fg_weight": fg_weight,
+                "fg_threshold": fg_threshold,
+                "encoder_path": str(encoder_path),
+                "model_path": str(model_path),
+            }
+            rows.append(row)
+            print("geo pixel-TDA summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=[
+            "pixel_mse",
+            "pixel_r2",
+            "weighted_mse",
+            "foreground_mse",
+            "background_mse",
+            "warmup_excluded_pixel_mse",
+        ],
+        sort_metric="weighted_mse",
+    )
+    print("\nGeo pixel-TDA per-run results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nGeo pixel-TDA mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
 
 
 def run_topo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -1097,7 +1524,7 @@ def run_topo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     fg_threshold = float(
         _override(cfg.pixel_tda_fg_threshold, context.dataset_config.get("PIXEL_TDA_FG_THRESHOLD", 0.05))
     )
-    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda)
+    model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda, cfg.topo_ae_distance)
 
     ml_tda.configure_runtime(
         DATASET=model_namespace,
@@ -1126,7 +1553,8 @@ def run_topo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     )
     print(
         f"Topo pixel-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, seeds={seeds}, "
-        f"modes={modes}, topo_ae_lambda={cfg.topo_ae_lambda}, predictor_epochs={pixel_epochs}, "
+        f"modes={modes}, topo_ae_lambda={cfg.topo_ae_lambda}, "
+        f"topo_ae_distance={cfg.topo_ae_distance}, predictor_epochs={pixel_epochs}, "
         f"lr={pixel_lr}, batch={pixel_batch_size}, fg_weight={fg_weight}, "
         f"fg_threshold={fg_threshold}, horizon={context.horizon}"
     )
@@ -1162,6 +1590,7 @@ def run_topo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
                 "dataset": cfg.dataset,
                 "encoder": "topo_ae",
                 "topo_ae_lambda": cfg.topo_ae_lambda,
+                "topo_ae_distance": cfg.topo_ae_distance,
                 "seed": seed,
                 "mode": mode,
                 "horizon": context.horizon,
@@ -1284,7 +1713,13 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument("--force-rebuild-data-cache", action="store_true")
     parser.add_argument("--num-train-clips", type=int, default=None)
     parser.add_argument("--num-test-clips", type=int, default=None)
-    parser.add_argument("--retrain-encoder", action="store_true")
+    parser.add_argument(
+        "--retrain-encoder",
+        "--include-retrain-encoder",
+        dest="retrain_encoder",
+        action="store_true",
+        help="Refresh the shared encoder once per seed, then freeze it for all modes.",
+    )
     parser.add_argument(
         "--reuse-predictor",
         action="store_true",
@@ -1300,9 +1735,17 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         action="store_true",
         help="Recompute latent-trajectory TDA caches even when matching cached files exist.",
     )
+    parser.add_argument("--geo-ae-lambda", type=float, default=0.1)
+    parser.add_argument("--geo-ae-epochs", type=int, default=None)
+    parser.add_argument("--geo-ae-pair-batch-size", type=int, default=64)
     parser.add_argument("--topo-ae-lambda", type=float, default=0.1)
     parser.add_argument("--topo-ae-epochs", type=int, default=None)
     parser.add_argument("--topo-ae-pair-batch-size", type=int, default=64)
+    parser.add_argument(
+        "--topo-ae-distance",
+        choices=sorted(ml_tda_topoae.TOPO_AE_DISTANCES),
+        default="signature",
+    )
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
@@ -1336,9 +1779,13 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         latent_tda_max_train=args.latent_tda_max_train,
         latent_tda_max_test=args.latent_tda_max_test,
         recompute_latent_tda_features=args.recompute_latent_tda_features,
+        geo_ae_lambda=args.geo_ae_lambda,
+        geo_ae_epochs=args.geo_ae_epochs,
+        geo_ae_pair_batch_size=args.geo_ae_pair_batch_size,
         topo_ae_lambda=args.topo_ae_lambda,
         topo_ae_epochs=args.topo_ae_epochs,
         topo_ae_pair_batch_size=args.topo_ae_pair_batch_size,
+        topo_ae_distance=args.topo_ae_distance,
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,
@@ -1356,14 +1803,22 @@ def main(argv: list[str] | None = None) -> None:
         results_df, summary_df = run_real_tda(cfg, context)
     elif cfg.scenario == "decode_z":
         results_df, summary_df = run_decode_z(cfg, context)
+    elif cfg.scenario == "geo_real_tda":
+        results_df, summary_df = run_geo_real_tda(cfg, context)
     elif cfg.scenario == "topo_real_tda":
         results_df, summary_df = run_topo_real_tda(cfg, context)
     elif cfg.scenario == "latent_tda":
         results_df, summary_df = run_latent_tda(cfg, context)
+    elif cfg.scenario == "geo_latent_tda":
+        results_df, summary_df = run_geo_latent_tda(cfg, context)
     elif cfg.scenario == "topo_latent_tda":
         results_df, summary_df = run_topo_latent_tda(cfg, context)
     elif cfg.scenario == "aux_tda":
         results_df, summary_df = run_aux_tda(cfg, context)
+    elif cfg.scenario == "geo_pixel_tda":
+        results_df, summary_df = run_geo_pixel_tda(cfg, context)
+    elif cfg.scenario == "geo_decode_z":
+        results_df, summary_df = run_geo_decode_z(cfg, context)
     elif cfg.scenario == "topo_pixel_tda":
         results_df, summary_df = run_topo_pixel_tda(cfg, context)
     elif cfg.scenario == "topo_decode_z":
