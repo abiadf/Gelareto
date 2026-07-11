@@ -45,7 +45,7 @@ torch==2.8.0
 # tslearn
 # pykeops
 PyYAML
-# umap-learn # not umap
+umap-learn
 # wandb
 
 #TDA
