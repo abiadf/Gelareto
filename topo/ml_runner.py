@@ -1855,13 +1855,15 @@ def _print_grouped_aggregate_frame(title: str, df: pd.DataFrame) -> None:
         print(compact.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
         return
 
-    for keys, group in df.groupby(group_cols, sort=False, dropna=False):
-        if not isinstance(keys, tuple):
-            keys = (keys,)
-        label = " | ".join(f"{col}={value}" for col, value in zip(group_cols, keys))
-        compact = _drop_empty_columns(group).drop(columns=group_cols, errors="ignore")
-        print(f"\n---------------- {label} ----------------")
-        print(compact.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    grouped_blocks: dict[tuple[str, ...], list[pd.DataFrame]] = {}
+    for _, group in df.groupby(group_cols, sort=False, dropna=False):
+        compact = _drop_empty_columns(group)
+        grouped_blocks.setdefault(tuple(compact.columns), []).append(compact)
+
+    for _, blocks in grouped_blocks.items():
+        combined = pd.concat(blocks, ignore_index=True, sort=False)
+        print("\n" + "-" * 88)
+        print(combined.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
 
 
 def _print_aggregate_tables(

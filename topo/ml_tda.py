@@ -515,9 +515,11 @@ def load_davis_images(config):
     return DavisWindowLoader(config).load()
 
 def summarize_metric_runs(results_df, group_cols, metric_cols, sort_metric=None):
-    """Mean/std/n summary with std=0 for a single seed instead of NaN."""
-    summary = results_df.groupby(group_cols)[metric_cols].agg(["mean", lambda x: x.std(ddof=0), "count"])
-    summary = summary.rename(columns={"<lambda_0>": "std", "count": "n"}, level=1)
+    """Mean/std summary plus one n_runs column for the grouped experiment count."""
+    grouped = results_df.groupby(group_cols)
+    summary = grouped[metric_cols].agg(["mean", lambda x: x.std(ddof=0)])
+    summary = summary.rename(columns={"<lambda_0>": "std"}, level=1)
+    summary.insert(0, ("n_runs", ""), grouped.size())
     if sort_metric is None:
         sort_metric = metric_cols[0]
     return summary.sort_values((sort_metric, "mean"))
