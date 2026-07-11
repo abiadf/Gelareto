@@ -37,6 +37,7 @@ set -euo pipefail
 #   First fair run for a scenario/dataset: add --include-retrain-encoder and list all modes.
 #   The encoder is refreshed once per seed, frozen, then reused for every mode including none/z.
 #   Later reruns: remove --include-retrain-encoder to reuse the existing frozen encoder checkpoint.
+# Stacked runs print each scenario/dataset as they finish, then print combined tables at the end.
 
 args=(
   --scenario real_tda,geo_real_tda  # comma-separated allowed; options: aux_tda | real_tda | geo_real_tda | topo_real_tda | latent_tda | geo_latent_tda | topo_latent_tda | pixel_tda | geo_pixel_tda | topo_pixel_tda | decode_z | geo_decode_z | topo_decode_z

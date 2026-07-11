@@ -1777,7 +1777,7 @@ def _validate_requested_items(requested: list[str], valid: set[str], label: str)
         raise ValueError(f"Unknown {label}: {unknown_text}. Valid {label}s: {valid_text}")
 
 
-def _run_one_config(cfg: RunConfig) -> None:
+def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
     print(f"Control panel: scenario={cfg.scenario}, dataset={cfg.dataset}")
     context = load_video_context(cfg)
     if cfg.scenario == "real_tda":
@@ -1810,6 +1810,49 @@ def _run_one_config(cfg: RunConfig) -> None:
         raise ValueError(f"Unsupported scenario: {cfg.scenario}")
 
     _save_results(cfg, context, results_df, summary_df)
+    return results_df, summary_df
+
+
+def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
+    flat = df.copy()
+    flat.columns = [
+        "_".join(str(part) for part in col if str(part))
+        if isinstance(col, tuple)
+        else str(col)
+        for col in flat.columns
+    ]
+    return flat
+
+
+def _tag_run_frame(df: pd.DataFrame | None, cfg: RunConfig, *, summary: bool = False) -> pd.DataFrame | None:
+    if df is None or df.empty:
+        return df
+    tagged = df.reset_index() if summary else df.copy()
+    tagged = _flatten_columns(tagged)
+    if "dataset" in tagged.columns:
+        tagged["dataset"] = cfg.dataset
+    else:
+        tagged.insert(0, "dataset", cfg.dataset)
+    tagged.insert(1, "scenario", cfg.scenario)
+    return tagged
+
+
+def _print_aggregate_tables(
+    result_frames: list[pd.DataFrame],
+    summary_frames: list[pd.DataFrame],
+) -> None:
+    if not result_frames and not summary_frames:
+        return
+    print("\n\n================ FINAL COMBINED RESULTS ================")
+    if result_frames:
+        combined_results = pd.concat(result_frames, ignore_index=True, sort=False)
+        print("\nAll per-run results:")
+        print(combined_results.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    if summary_frames:
+        combined_summary = pd.concat(summary_frames, ignore_index=True, sort=False)
+        print("\nAll mean +/- std summaries:")
+        with pd.option_context("display.float_format", "{:.4f}".format):
+            print(combined_summary.to_string(index=False))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1821,11 +1864,22 @@ def main(argv: list[str] | None = None) -> None:
 
     total = len(scenarios) * len(datasets)
     run_idx = 0
+    result_frames = []
+    summary_frames = []
     for dataset in datasets:
         for scenario in scenarios:
             run_idx += 1
             print(f"\n######## run {run_idx}/{total}: dataset={dataset} scenario={scenario} ########")
-            _run_one_config(replace(cfg, dataset=dataset, scenario=scenario))
+            run_cfg = replace(cfg, dataset=dataset, scenario=scenario)
+            results_df, summary_df = _run_one_config(run_cfg)
+            tagged_results = _tag_run_frame(results_df, run_cfg)
+            tagged_summary = _tag_run_frame(summary_df, run_cfg, summary=True)
+            if tagged_results is not None and not tagged_results.empty:
+                result_frames.append(tagged_results)
+            if tagged_summary is not None and not tagged_summary.empty:
+                summary_frames.append(tagged_summary)
+
+    _print_aggregate_tables(result_frames, summary_frames)
 
 
 if __name__ == "__main__":
