@@ -10,7 +10,7 @@ import argparse
 import json
 import random
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -1669,11 +1669,10 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=sorted(RUNNER_SCENARIOS),
         default="aux_tda",
-        help="Experiment scenario to run.",
+        help="Experiment scenario(s), comma-separated, e.g. real_tda,geo_real_tda.",
     )
-    parser.add_argument("--dataset", default="moving_mnist")
+    parser.add_argument("--dataset", default="moving_mnist", help="Dataset(s), comma-separated.")
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
     parser.add_argument("--seeds", type=_parse_int_list, default=None, help="Comma-separated seeds, e.g. 0,1,2")
     parser.add_argument("--modes", type=_parse_str_list, default=None, help="Comma-separated mode names")
@@ -1770,10 +1769,16 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     )
 
 
-def main(argv: list[str] | None = None) -> None:
-    cfg = parse_args(argv)
-    print(f"Control panel: scenario={cfg.scenario}, dataset={cfg.dataset}")
+def _validate_requested_items(requested: list[str], valid: set[str], label: str) -> None:
+    unknown = [item for item in requested if item not in valid]
+    if unknown:
+        valid_text = ", ".join(sorted(valid))
+        unknown_text = ", ".join(unknown)
+        raise ValueError(f"Unknown {label}: {unknown_text}. Valid {label}s: {valid_text}")
 
+
+def _run_one_config(cfg: RunConfig) -> None:
+    print(f"Control panel: scenario={cfg.scenario}, dataset={cfg.dataset}")
     context = load_video_context(cfg)
     if cfg.scenario == "real_tda":
         results_df, summary_df = run_real_tda(cfg, context)
@@ -1801,10 +1806,26 @@ def main(argv: list[str] | None = None) -> None:
         results_df, summary_df = run_topo_decode_z(cfg, context)
     elif cfg.scenario == "pixel_tda":
         results_df, summary_df = run_pixel_tda(cfg, context)
-    else:  # pragma: no cover - argparse choices prevent this.
+    else:  # pragma: no cover - validated before dispatch.
         raise ValueError(f"Unsupported scenario: {cfg.scenario}")
 
     _save_results(cfg, context, results_df, summary_df)
+
+
+def main(argv: list[str] | None = None) -> None:
+    cfg = parse_args(argv)
+    scenarios = _parse_str_list(cfg.scenario) or [cfg.scenario]
+    datasets = _parse_str_list(cfg.dataset) or [cfg.dataset]
+    _validate_requested_items(scenarios, RUNNER_SCENARIOS, "scenario")
+    _validate_requested_items(datasets, set(topo_config.DATASET_CONFIGS), "dataset")
+
+    total = len(scenarios) * len(datasets)
+    run_idx = 0
+    for dataset in datasets:
+        for scenario in scenarios:
+            run_idx += 1
+            print(f"\n######## run {run_idx}/{total}: dataset={dataset} scenario={scenario} ########")
+            _run_one_config(replace(cfg, dataset=dataset, scenario=scenario))
 
 
 if __name__ == "__main__":
