@@ -290,7 +290,8 @@ def train_predictor(model, encoder, X_train, predictor_epochs, use_tda, learning
         loss = criterion(predictions, targets)
         loss.backward()
         optimizer.step()
-        print(f"Epoch {epoch+1:02d}/{predictor_epochs:02d} | Training MSE Loss: {loss.item():.4f}")
+        if epoch % 5 == 0 or epoch == predictor_epochs - 1:
+            print(f"Epoch {epoch+1:02d}/{predictor_epochs:02d} | Training MSE Loss: {loss.item():.4f}")
 
 def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retrain_predictor, use_tda, learning_rate):
     device = get_runtime_device()

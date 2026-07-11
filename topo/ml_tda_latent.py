@@ -219,7 +219,8 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
         loss = criterion(pred, target)
         loss.backward()
         optimizer.step()
-        print(f"Epoch {epoch:02d}/{LATENT_TDA_PREDICTOR_EPOCHS:02d} | {mode} train MSE: {loss.item():.6f}")
+        if epoch % 5 == 0 or epoch == LATENT_TDA_PREDICTOR_EPOCHS:
+            print(f"Epoch {epoch:02d}/{LATENT_TDA_PREDICTOR_EPOCHS:02d} | {mode} train MSE: {loss.item():.6f}")
     torch.save(model.state_dict(), model_path)
     return model
 
