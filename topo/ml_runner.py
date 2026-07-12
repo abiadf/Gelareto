@@ -456,14 +456,15 @@ def _set_all_seeds(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _geo_predictor_path(
+def _ae_real_tda_predictor_path(
     model_namespace: str,
+    predictor_dir: str,
     seed: int,
     mode: str,
     context: VideoContext,
     input_dim: int,
 ) -> Path:
-    model_dir = Path("models") / model_namespace / "geo_real_tda_predictors"
+    model_dir = Path("models") / model_namespace / predictor_dir
     model_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_mode{mode}_pred{context.horizon}_"
@@ -593,7 +594,14 @@ def _train_or_load_geo_real_tda_predictor(
 ) -> tuple[TopologicalPredictor, Path]:
     use_tda, input_dim = _geo_feature_dim(mode, context)
     model = TopologicalPredictor(input_dim=input_dim, hidden_dim=context.hidden_dim)
-    model_path = _geo_predictor_path(model_namespace, seed, mode, context, input_dim)
+    model_path = _ae_real_tda_predictor_path(
+        model_namespace,
+        "geo_real_tda_predictors",
+        seed,
+        mode,
+        context,
+        input_dim,
+    )
     device = ml_tda.get_runtime_device()
 
     if model_path.exists() and not cfg.retrain_predictor:
@@ -759,7 +767,14 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
             use_tda, input_dim = _geo_feature_dim(mode, context)
             print(f"\n-------- DATASET={cfg.dataset} seed={seed} TOPO_TDA_MODE={mode} --------")
             model = TopologicalPredictor(input_dim=input_dim, hidden_dim=context.hidden_dim)
-            model_path = _geo_predictor_path(model_namespace, seed, mode, context, input_dim)
+            model_path = _ae_real_tda_predictor_path(
+                model_namespace,
+                "topo_real_tda_predictors",
+                seed,
+                mode,
+                context,
+                input_dim,
+            )
             device = ml_tda.get_runtime_device()
             if model_path.exists() and not cfg.retrain_predictor:
                 print(f"Loading topo-real-tda predictor: {model_path}")
