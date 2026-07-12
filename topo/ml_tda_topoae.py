@@ -209,6 +209,7 @@ def load_or_train_topo_autoencoder(
     pair_batch_size: int = 64,
     retrain: bool = False,
     learning_rate: float = 1e-3,
+    decoder_type: str = "mlp",
 ):
     """Load or train a persistence-regularized spatial autoencoder."""
     topo_distance = _validate_topo_distance(topo_distance)
