@@ -15,7 +15,12 @@ import torch.nn as nn
 import torch.optim as optim
 
 from topo import ml_tda
-from topo.ml_tda import SpatialDecoder, SpatialEncoder
+from topo.ml_tda import SpatialDecoder, SpatialEncoder, make_spatial_decoder
+
+
+def _decoder_suffix(decoder_type: str = "mlp") -> str:
+    decoder_type = str(decoder_type).lower().strip()
+    return "" if decoder_type == "mlp" else f"_dec{decoder_type}"
 
 
 def geo_encoder_path(
@@ -24,13 +29,14 @@ def geo_encoder_path(
     x_train,
     latent_dim: int,
     geo_lambda: float,
+    decoder_type: str = "mlp",
 ) -> Path:
     encoder_dir = Path("models") / model_namespace / "geoae_encoders"
     encoder_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_T{x_train.shape[0]}_B{x_train.shape[1]}_"
         f"H{x_train.shape[-2]}_W{x_train.shape[-1]}_latent{latent_dim}_"
-        f"lambda{geo_lambda:g}"
+        f"lambda{geo_lambda:g}{_decoder_suffix(decoder_type)}"
     )
     return encoder_dir / f"encoder_{tag}.pt"
 
@@ -41,13 +47,14 @@ def geo_decoder_path(
     x_train,
     latent_dim: int,
     geo_lambda: float,
+    decoder_type: str = "mlp",
 ) -> Path:
     decoder_dir = Path("models") / model_namespace / "geoae_decoders"
     decoder_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_T{x_train.shape[0]}_B{x_train.shape[1]}_"
         f"H{x_train.shape[-2]}_W{x_train.shape[-1]}_latent{latent_dim}_"
-        f"lambda{geo_lambda:g}"
+        f"lambda{geo_lambda:g}{_decoder_suffix(decoder_type)}"
     )
     return decoder_dir / f"decoder_{tag}.pt"
 
@@ -113,12 +120,13 @@ def load_or_train_geo_autoencoder(
     pair_batch_size: int = 64,
     retrain: bool = False,
     learning_rate: float = 1e-3,
+    decoder_type: str = "mlp",
 ):
     """Load or train a geometry-regularized spatial autoencoder."""
     encoder = SpatialEncoder(latent_dim=latent_dim)
-    decoder = SpatialDecoder(latent_dim=latent_dim, output_size=x_train.shape[-2:])
-    encoder_path = geo_encoder_path(model_namespace, seed, x_train, latent_dim, geo_lambda)
-    decoder_path = geo_decoder_path(model_namespace, seed, x_train, latent_dim, geo_lambda)
+    decoder = make_spatial_decoder(decoder_type, latent_dim=latent_dim, output_size=x_train.shape[-2:])
+    encoder_path = geo_encoder_path(model_namespace, seed, x_train, latent_dim, geo_lambda, decoder_type)
+    decoder_path = geo_decoder_path(model_namespace, seed, x_train, latent_dim, geo_lambda, decoder_type)
 
     if encoder_path.exists() and decoder_path.exists() and not retrain:
         print(f"Loading geo-AE encoder: {encoder_path}")

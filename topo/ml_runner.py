@@ -33,6 +33,7 @@ from topo.ml_tda import (
     SpatialDecoder,
     SpatialEncoder,
     TopologicalPredictor,
+    make_spatial_decoder,
     load_or_train_model,
     load_video_dataset,
     parse_tda_control_mode,
@@ -107,6 +108,7 @@ class RunConfig:
     topo_ae_epochs: int | None
     topo_ae_pair_batch_size: int
     topo_ae_distance: str
+    decoder_type: str
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
@@ -338,7 +340,8 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
 
             print(f"\n-------- DATASET={cfg.dataset} seed={seed} TDA_MODE={mode} --------")
             encoder = SpatialEncoder(latent_dim=context.latent_dim)
-            decoder = SpatialDecoder(
+            decoder = make_spatial_decoder(
+                cfg.decoder_type,
                 latent_dim=context.latent_dim,
                 output_size=context.x_train.shape[-2:],
             )
@@ -405,8 +408,18 @@ def _autoencoder_tag(seed: int, x_train: torch.Tensor, latent_dim: int) -> str:
     )
 
 
-def _baseline_autoencoder_paths(dataset: str, seed: int, context: VideoContext) -> tuple[Path, Path]:
-    tag = _autoencoder_tag(seed, context.x_train, context.latent_dim)
+def _decoder_suffix(decoder_type: str) -> str:
+    decoder_type = str(decoder_type).lower().strip()
+    return "" if decoder_type == "mlp" else f"_dec{decoder_type}"
+
+
+def _baseline_autoencoder_paths(
+    dataset: str,
+    seed: int,
+    context: VideoContext,
+    decoder_type: str = "mlp",
+) -> tuple[Path, Path]:
+    tag = f"{_autoencoder_tag(seed, context.x_train, context.latent_dim)}{_decoder_suffix(decoder_type)}"
     model_dir = Path("models") / dataset
     encoder_dir = model_dir / "encoders"
     decoder_dir = model_dir / "decoders"
@@ -421,8 +434,8 @@ def _load_or_train_baseline_autoencoder(
     seed: int,
 ) -> tuple[SpatialEncoder, SpatialDecoder, Path, Path]:
     encoder = SpatialEncoder(latent_dim=context.latent_dim)
-    decoder = SpatialDecoder(latent_dim=context.latent_dim, output_size=context.x_train.shape[-2:])
-    encoder_path, decoder_path = _baseline_autoencoder_paths(cfg.dataset, seed, context)
+    decoder = make_spatial_decoder(cfg.decoder_type, latent_dim=context.latent_dim, output_size=context.x_train.shape[-2:])
+    encoder_path, decoder_path = _baseline_autoencoder_paths(cfg.dataset, seed, context, cfg.decoder_type)
     device = ml_tda.get_runtime_device()
 
     if encoder_path.exists() and decoder_path.exists() and not cfg.retrain_encoder:
@@ -478,13 +491,14 @@ def _decode_z_predictor_path(
     model_namespace: str,
     seed: int,
     context: VideoContext,
+    decoder_type: str = "mlp",
 ) -> Path:
     model_dir = Path("models") / model_namespace / "decode_z_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_pred{context.horizon}_"
         f"T{context.x_train.shape[0]}_B{context.x_train.shape[1]}_"
-        f"latent{context.latent_dim}"
+        f"latent{context.latent_dim}{_decoder_suffix(decoder_type)}"
     )
     return model_dir / f"model_{tag}.pt"
 
@@ -498,7 +512,7 @@ def _train_or_load_decode_z_predictor(
 ) -> tuple[TopologicalPredictor, Path]:
     device = ml_tda.get_runtime_device()
     model = TopologicalPredictor(input_dim=context.latent_dim, hidden_dim=context.hidden_dim).to(device)
-    model_path = _decode_z_predictor_path(model_namespace, seed, context)
+    model_path = _decode_z_predictor_path(model_namespace, seed, context, cfg.decoder_type)
 
     if model_path.exists() and not cfg.retrain_predictor:
         print(f"Loading decode-z predictor: {model_path}")
@@ -645,6 +659,7 @@ def _load_geo_encoder_for_seed(
         max_frames_per_epoch=context.ae_max_frames_per_epoch,
         pair_batch_size=cfg.geo_ae_pair_batch_size,
         retrain=cfg.retrain_encoder,
+        decoder_type=cfg.decoder_type,
     )
     return encoder, encoder_path, model_namespace
 
@@ -669,6 +684,7 @@ def _load_topo_encoder_for_seed(
         max_frames_per_epoch=context.ae_max_frames_per_epoch,
         pair_batch_size=cfg.topo_ae_pair_batch_size,
         retrain=cfg.retrain_encoder,
+        decoder_type=cfg.decoder_type,
     )
     return encoder, encoder_path, model_namespace
 
@@ -1283,7 +1299,8 @@ def _run_decode_z(
     print(
         f"{scenario_name} config: dataset={cfg.dataset}, namespace={model_namespace}, "
         f"seeds={seeds}, horizon={context.horizon}, "
-        f"predictor_epochs={context.predictor_epochs}, ae_lambda={ae_lambda}, ae_distance={ae_distance or 'n/a'}"
+        f"predictor_epochs={context.predictor_epochs}, decoder_type={cfg.decoder_type}, "
+        f"ae_lambda={ae_lambda}, ae_distance={ae_distance or 'n/a'}"
     )
 
     rows = []
@@ -1736,6 +1753,12 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         choices=sorted(ml_tda_topoae.TOPO_AE_DISTANCES),
         default="signature",
     )
+    parser.add_argument(
+        "--decoder-type",
+        choices=sorted(ml_tda.DECODER_TYPES),
+        default="mlp",
+        help="Autoencoder decoder architecture: mlp keeps old flat decoder; conv uses a convolutional upsampling decoder.",
+    )
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
@@ -1776,6 +1799,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         topo_ae_epochs=args.topo_ae_epochs,
         topo_ae_pair_batch_size=args.topo_ae_pair_batch_size,
         topo_ae_distance=args.topo_ae_distance,
+        decoder_type=args.decoder_type,
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,

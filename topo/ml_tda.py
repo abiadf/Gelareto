@@ -94,6 +94,49 @@ class SpatialDecoder(nn.Module):
         # Reshape cleanly back to matching frame format (B, 1, H, W)
         return x.reshape(-1, 1, self.output_size[0], self.output_size[1])
 
+
+class ConvSpatialDecoder(nn.Module):
+    """Convolutional latent-to-image decoder with spatial upsampling bias."""
+
+    def __init__(self, latent_dim=128, output_size=(64, 64)):
+        super().__init__()
+        self.output_size = tuple(output_size)
+        self.fc = nn.Sequential(
+            nn.Linear(latent_dim, 32 * 4 * 4),
+            nn.ReLU(),
+        )
+        self.deconv = nn.Sequential(
+            nn.ConvTranspose2d(32, 32, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(16, 8, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(8, 1, kernel_size=4, stride=2, padding=1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x):
+        x = self.fc(x).reshape(-1, 32, 4, 4)
+        x = self.deconv(x)
+        if x.shape[-2:] != self.output_size:
+            x = nn.functional.interpolate(x, size=self.output_size, mode="bilinear", align_corners=False)
+        return x
+
+
+DECODER_TYPES = {"mlp", "conv"}
+
+
+def make_spatial_decoder(decoder_type="mlp", latent_dim=128, output_size=(64, 64)):
+    decoder_type = str(decoder_type).lower().strip()
+    if decoder_type == "mlp":
+        return SpatialDecoder(latent_dim=latent_dim, output_size=output_size)
+    if decoder_type == "conv":
+        return ConvSpatialDecoder(latent_dim=latent_dim, output_size=output_size)
+    valid = ", ".join(sorted(DECODER_TYPES))
+    raise ValueError(f"Unknown decoder_type={decoder_type!r}. Valid: {valid}")
+
+
 class TopologicalPredictor(nn.Module):
     def __init__(self, input_dim, hidden_dim=128):
         super().__init__()

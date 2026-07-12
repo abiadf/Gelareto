@@ -38,6 +38,7 @@ set -euo pipefail
 #   The encoder is refreshed once per seed, frozen, then reused for every mode including none/z.
 #   Later reruns: remove --include-retrain-encoder to reuse the existing frozen encoder checkpoint.
 # Stacked runs print each scenario/dataset as they finish, then print combined tables at the end.
+# Use --decoder-type conv for new paper-quality decoded-image runs; default mlp preserves old results/checkpoints.
 
 args=(
   --scenario real_tda,geo_real_tda  # comma-separated allowed; options: aux_tda | real_tda | geo_real_tda | topo_real_tda | latent_tda | geo_latent_tda | topo_latent_tda | pixel_tda | geo_pixel_tda | topo_pixel_tda | decode_z | geo_decode_z | topo_decode_z
@@ -54,6 +55,7 @@ args=(
   --geo-ae-pair-batch-size 64
   --topo-ae-pair-batch-size 64
   --topo-ae-distance signature         # signature | wasserstein
+  --decoder-type mlp                   # mlp: old flat decoder | conv: convolutional upsampling decoder
   --latent-tda-window 15
   --recompute-latent-tda-features
   # --latent-tda-bins 16

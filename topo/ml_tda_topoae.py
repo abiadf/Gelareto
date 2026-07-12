@@ -21,10 +21,15 @@ import torch.nn as nn
 import torch.optim as optim
 
 from topo import ml_tda
-from topo.ml_tda import SpatialDecoder, SpatialEncoder
+from topo.ml_tda import SpatialDecoder, SpatialEncoder, make_spatial_decoder
 
 
 TOPO_AE_DISTANCES = {"signature", "wasserstein"}
+
+
+def _decoder_suffix(decoder_type: str = "mlp") -> str:
+    decoder_type = str(decoder_type).lower().strip()
+    return "" if decoder_type == "mlp" else f"_dec{decoder_type}"
 
 
 def topo_encoder_path(
@@ -34,13 +39,14 @@ def topo_encoder_path(
     latent_dim: int,
     topo_lambda: float,
     topo_distance: str,
+    decoder_type: str = "mlp",
 ) -> Path:
     encoder_dir = Path("models") / model_namespace / "topoae_encoders"
     encoder_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_T{x_train.shape[0]}_B{x_train.shape[1]}_"
         f"H{x_train.shape[-2]}_W{x_train.shape[-1]}_latent{latent_dim}_"
-        f"lambda{topo_lambda:g}_dist{topo_distance}"
+        f"lambda{topo_lambda:g}_dist{topo_distance}{_decoder_suffix(decoder_type)}"
     )
     return encoder_dir / f"encoder_{tag}.pt"
 
@@ -52,13 +58,14 @@ def topo_decoder_path(
     latent_dim: int,
     topo_lambda: float,
     topo_distance: str,
+    decoder_type: str = "mlp",
 ) -> Path:
     decoder_dir = Path("models") / model_namespace / "topoae_decoders"
     decoder_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_T{x_train.shape[0]}_B{x_train.shape[1]}_"
         f"H{x_train.shape[-2]}_W{x_train.shape[-1]}_latent{latent_dim}_"
-        f"lambda{topo_lambda:g}_dist{topo_distance}"
+        f"lambda{topo_lambda:g}_dist{topo_distance}{_decoder_suffix(decoder_type)}"
     )
     return decoder_dir / f"decoder_{tag}.pt"
 
@@ -165,6 +172,7 @@ def load_or_train_topo_encoder(
     pair_batch_size: int = 64,
     retrain: bool = False,
     learning_rate: float = 1e-3,
+    decoder_type: str = "mlp",
 ):
     """Load or train a persistence-regularized spatial encoder."""
     encoder, _, encoder_path, _ = load_or_train_topo_autoencoder(
@@ -204,9 +212,25 @@ def load_or_train_topo_autoencoder(
     """Load or train a persistence-regularized spatial autoencoder."""
     topo_distance = _validate_topo_distance(topo_distance)
     encoder = SpatialEncoder(latent_dim=latent_dim)
-    decoder = SpatialDecoder(latent_dim=latent_dim, output_size=x_train.shape[-2:])
-    encoder_path = topo_encoder_path(model_namespace, seed, x_train, latent_dim, topo_lambda, topo_distance)
-    decoder_path = topo_decoder_path(model_namespace, seed, x_train, latent_dim, topo_lambda, topo_distance)
+    decoder = make_spatial_decoder(decoder_type, latent_dim=latent_dim, output_size=x_train.shape[-2:])
+    encoder_path = topo_encoder_path(
+        model_namespace,
+        seed,
+        x_train,
+        latent_dim,
+        topo_lambda,
+        topo_distance,
+        decoder_type,
+    )
+    decoder_path = topo_decoder_path(
+        model_namespace,
+        seed,
+        x_train,
+        latent_dim,
+        topo_lambda,
+        topo_distance,
+        decoder_type,
+    )
 
     if encoder_path.exists() and decoder_path.exists() and not retrain:
         print(f"Loading topo-AE encoder: {encoder_path}")
