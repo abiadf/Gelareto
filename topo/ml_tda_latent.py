@@ -162,10 +162,34 @@ def load_or_compute_latent_tda_features(seed, split_name, X_subset, encoder):
     return payload
 
 
+def latent_window_temporal_stats(z, window=6):
+    """Simple non-TDA trajectory summaries for each latent time point."""
+    T, B, D = z.shape
+    rolling_mean = torch.zeros_like(z)
+    rolling_std = torch.zeros_like(z)
+    velocity = torch.zeros_like(z)
+    acceleration = torch.zeros_like(z)
+
+    for t in range(T):
+        start = max(0, t - window + 1)
+        window_z = z[start:t + 1]
+        rolling_mean[t] = window_z.mean(dim=0)
+        rolling_std[t] = window_z.std(dim=0, unbiased=False) if window_z.shape[0] > 1 else 0.0
+        if t >= 1:
+            velocity[t] = z[t] - z[t - 1]
+        if t >= 2:
+            acceleration[t] = z[t] - 2 * z[t - 1] + z[t - 2]
+
+    return torch.cat([rolling_mean, rolling_std, velocity, acceleration], dim=-1)
+
+
 def features_for_latent_tda_mode(payload, mode):
     z = payload["z"]
     if mode == "z":
         return z
+    if mode == "z_temporal_stats":
+        temporal_stats = latent_window_temporal_stats(z, window=LATENT_TDA_WINDOW)
+        return torch.cat([z, temporal_stats], dim=-1)
 
     control_names = {"zero", "shuffle", "noise", "shift"}
     parts = mode.rsplit("_", 1)

@@ -20,7 +20,7 @@ set -euo pipefail
 # Modes:
 #   real_tda:      none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_real_tda/topo_real_tda: same as real_tda
-#   latent_tda: z,z_latent_h0,z_latent_h1,z_latent_both,z_latent_h0_zero,z_latent_h0_shuffle,z_latent_h0_noise,z_latent_h0_shift,z_latent_h1_zero,z_latent_h1_shuffle,z_latent_h1_noise,z_latent_h1_shift,z_latent_both_zero,z_latent_both_shuffle,z_latent_both_noise,z_latent_both_shift
+#   latent_tda: z,z_temporal_stats,z_latent_h0,z_latent_h1,z_latent_both,z_latent_h0_zero,z_latent_h0_shuffle,z_latent_h0_noise,z_latent_h0_shift,z_latent_h1_zero,z_latent_h1_shuffle,z_latent_h1_noise,z_latent_h1_shift,z_latent_both_zero,z_latent_both_shuffle,z_latent_both_noise,z_latent_both_shift
 #   geo_latent_tda/topo_latent_tda: same as latent_tda
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_pixel_tda/topo_pixel_tda: same as pixel_tda; none is AE z-only -> future X
