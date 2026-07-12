@@ -189,8 +189,9 @@ def features_for_latent_tda_mode(payload, mode):
 
 
 def _fit_standardizer(x, eps=1e-6):
-    mean = x.mean(dim=(0, 1), keepdim=True)
-    std = x.std(dim=(0, 1), keepdim=True).clamp_min(eps)
+    """Fit one scalar standardizer to remove arbitrary encoder-level scale."""
+    mean = x.mean().reshape(1, 1, 1)
+    std = x.std().clamp_min(eps).reshape(1, 1, 1)
     return mean, std
 
 
@@ -214,7 +215,7 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
         )
     model_dir = Path("models") / DATASET / "latent_tda_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
-    standardizer_tag = "stdz" if STANDARDIZE_LATENT_PREDICTOR else "raw"
+    standardizer_tag = "gstdz" if STANDARDIZE_LATENT_PREDICTOR else "raw"
     model_path = model_dir / (
         f"model_seed{seed}_pred{HORIZON}_{mode}_{standardizer_tag}_"
         f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}.pt"
