@@ -1,0 +1,23 @@
+\begin{table}[ht]
+\centering
+\begin{tabular}{l|l|c|c|c|c}
+\textbf{Dataset} & \textbf{Encoder} & \textbf{Pixel MSE} & \textbf{Weighted MSE} & \textbf{Foreground MSE} & \textbf{Background MSE} \\ \hline
+Bouncing disks & AE & $\mathbf{0.0602 \pm 0.0043}$ & $0.3529 \pm 0.0085$ & $0.4557 \pm 0.0196$ & $\mathbf{0.0331 \pm 0.0059}$ \\
+& GeoAE & $0.0825 \pm 0.0112$ & $\mathbf{0.3315 \pm 0.0036}$ & $\mathbf{0.3877 \pm 0.0224}$ & $0.0615 \pm 0.0135$ \\
+& TopoAE & $0.0649 \pm 0.0056$ & $0.3525 \pm 0.0036$ & $0.4478 \pm 0.0140$ & $0.0386 \pm 0.0069$ \\ \hline
+
+Bouncing rings & AE & $\mathbf{0.0512 \pm 0.0035}$ & $0.3264 \pm 0.0091$ & $0.5397 \pm 0.0245$ & $\mathbf{0.0249 \pm 0.0049}$ \\
+& GeoAE & $0.0805 \pm 0.0139$ & $\mathbf{0.2937 \pm 0.0027}$ & $\mathbf{0.4181 \pm 0.0289}$ & $0.0623 \pm 0.0162$ \\
+& TopoAE & $0.0562 \pm 0.0061$ & $0.3212 \pm 0.0074$ & $0.5198 \pm 0.0262$ & $0.0313 \pm 0.0078$ \\ \hline
+
+Orbiting disks & AE & $\mathbf{0.0349 \pm 0.0009}$ & $0.3169 \pm 0.0063$ & $0.8164 \pm 0.0208$ & $\mathbf{0.0069 \pm 0.0017}$ \\
+& GeoAE & $0.0391 \pm 0.0035$ & $\mathbf{0.3008 \pm 0.0147}$ & $\mathbf{0.7574 \pm 0.0525}$ & $0.0135 \pm 0.0055$ \\
+& TopoAE & $0.0366 \pm 0.0026$ & $0.3134 \pm 0.0114$ & $0.8014 \pm 0.0400$ & $0.0092 \pm 0.0041$ \\ \hline
+
+Orbiting rings & AE & $\mathbf{0.0266 \pm 0.0011}$ & $0.2342 \pm 0.0047$ & $0.8428 \pm 0.0235$ & $\mathbf{0.0059 \pm 0.0017}$ \\
+& GeoAE & $0.0342 \pm 0.0066$ & $\mathbf{0.2215 \pm 0.0091}$ & $\mathbf{0.7602 \pm 0.0626}$ & $0.0159 \pm 0.0083$ \\
+& TopoAE & $0.0275 \pm 0.0023$ & $0.2344 \pm 0.0065$ & $0.8398 \pm 0.0351$ & $0.0069 \pm 0.0032$ \\ \hline
+\end{tabular}
+\caption{Decoded future-frame prediction from latent forecasts. GeoAE consistently improves foreground and weighted MSE, but worsens global pixel and background MSE, indicating a foreground-object reconstruction tradeoff. Values are mean $\pm$ standard deviation over five seeds.}
+\label{tab:decode-z-foreground}
+\end{table}

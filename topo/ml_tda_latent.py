@@ -1,6 +1,7 @@
 """Latent-trajectory TDA helpers for video forecasting experiments."""
 
 from pathlib import Path
+import hashlib
 import random
 
 import numpy as np
@@ -237,12 +238,28 @@ def _attach_latent_standardizers(model, feature_mean, feature_std, target_mean, 
     return model
 
 
+def _stable_int_seed(*parts):
+    key = "|".join(str(part) for part in parts)
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16)
+
+
+def _set_predictor_seed(seed, mode):
+    stable_seed = _stable_int_seed(DATASET, seed, mode, HORIZON, LATENT_TDA_WINDOW, LATENT_TDA_BINS)
+    random.seed(stable_seed)
+    np.random.seed(stable_seed % (2**32))
+    torch.manual_seed(stable_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(stable_seed)
+
+
 def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
     if HORIZON >= train_features.shape[0]:
         raise ValueError(
             f"HORIZON={HORIZON} must be smaller than sequence length "
             f"{train_features.shape[0]}"
         )
+    _set_predictor_seed(seed, mode)
     model_dir = Path("models") / DATASET / "latent_tda_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
     standardizer_tag = "gstdz" if STANDARDIZE_LATENT_PREDICTOR else "raw"

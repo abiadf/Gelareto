@@ -1,0 +1,27 @@
+\begin{table}[ht]
+\centering
+\begin{tabular}{l|l|c|c}
+\textbf{Dataset} & \textbf{Features} & \textbf{MSE} & \textbf{$R^2$} \\ \hline
+Bouncing disks & $z$ & $0.7696 \pm 0.0281$ & $0.2344 \pm 0.0279$ \\
+& $z + \mathrm{Betti}(H_0,H_1)$ & $0.7700 \pm 0.0197$ & $0.2340 \pm 0.0195$ \\
+& $z + \mathrm{TempStats}$ & $0.6660 \pm 0.0451$ & $0.3375 \pm 0.0440$ \\
+& $z + \mathrm{TempStats} + \mathrm{Betti}(H_0,H_1)$ & $\mathbf{0.6112 \pm 0.0411}$ & $\mathbf{0.3920 \pm 0.0412}$ \\ \hline
+
+Bouncing rings & $z$ & $0.7727 \pm 0.0195$ & $0.2320 \pm 0.0195$ \\
+& $z + \mathrm{Betti}(H_0,H_1)$ & $0.7622 \pm 0.0214$ & $0.2424 \pm 0.0209$ \\
+& $z + \mathrm{TempStats}$ & $0.6663 \pm 0.0387$ & $0.3378 \pm 0.0374$ \\
+& $z + \mathrm{TempStats} + \mathrm{Betti}(H_0,H_1)$ & $\mathbf{0.6072 \pm 0.0466}$ & $\mathbf{0.3964 \pm 0.0466}$ \\ \hline
+
+Orbiting disks & $z$ & $0.7821 \pm 0.0194$ & $0.2301 \pm 0.0187$ \\
+& $z + \mathrm{Betti}(H_0,H_1)$ & $0.7648 \pm 0.0232$ & $0.2472 \pm 0.0209$ \\
+& $z + \mathrm{TempStats}$ & $0.6669 \pm 0.0333$ & $0.3436 \pm 0.0303$ \\
+& $z + \mathrm{TempStats} + \mathrm{Betti}(H_0,H_1)$ & $\mathbf{0.6150 \pm 0.0460}$ & $\mathbf{0.3946 \pm 0.0455}$ \\ \hline
+
+Orbiting rings & $z$ & $0.7738 \pm 0.0206$ & $0.2381 \pm 0.0204$ \\
+& $z + \mathrm{Betti}(H_0,H_1)$ & $0.7624 \pm 0.0266$ & $0.2494 \pm 0.0243$ \\
+& $z + \mathrm{TempStats}$ & $0.6665 \pm 0.0441$ & $0.3439 \pm 0.0408$ \\
+& $z + \mathrm{TempStats} + \mathrm{Betti}(H_0,H_1)$ & $\mathbf{0.6175 \pm 0.0429}$ & $\mathbf{0.3920 \pm 0.0428}$ \\ \hline
+\end{tabular}
+\caption{Latent forecasting performance on synthetic video datasets using regular AE latents. Temporal statistics use rolling latent mean, standard deviation, velocity, and acceleration. Betti features are computed from latent trajectory windows. Values are mean $\pm$ standard deviation over five seeds.}
+\label{tab:latent-feature-main}
+\end{table}

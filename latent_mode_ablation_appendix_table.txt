@@ -1,0 +1,92 @@
+\begin{longtable}{l|l|c|c}
+\caption{Full latent feature and control-mode ablation for regular AE latent forecasting on synthetic datasets. Values are mean $\pm$ standard deviation over five seeds. Lower MSE and higher $R^2$ are better.}
+\label{tab:latent-mode-ablation-appendix} \\
+\textbf{Dataset} & \textbf{Mode} & \textbf{MSE} & \textbf{$R^2$} \\ \hline
+\endfirsthead
+\textbf{Dataset} & \textbf{Mode} & \textbf{MSE} & \textbf{$R^2$} \\ \hline
+\endhead
+
+Bouncing disks & $z+\mathrm{TempStats}+H_0+H_1$ & $\mathbf{0.6112 \pm 0.0411}$ & $\mathbf{0.3920 \pm 0.0412}$ \\
+Bouncing disks & $z+\mathrm{TempStats}+H_0$ & $0.6406 \pm 0.0407$ & $0.3627 \pm 0.0409$ \\
+Bouncing disks & $z+\mathrm{TempStats}$ & $0.6660 \pm 0.0451$ & $0.3375 \pm 0.0440$ \\
+Bouncing disks & $z+\mathrm{TempStats}+H_1$ & $0.6749 \pm 0.0528$ & $0.3285 \pm 0.0531$ \\
+Bouncing disks & $z+(H_0+H_1)_{\mathrm{shift}}$ & $0.7230 \pm 0.0194$ & $0.2808 \pm 0.0193$ \\
+Bouncing disks & $z+(H_0+H_1)_{\mathrm{shuffle}}$ & $0.7407 \pm 0.0321$ & $0.2631 \pm 0.0321$ \\
+Bouncing disks & $z+H_1^{\mathrm{noise}}$ & $0.7458 \pm 0.0368$ & $0.2581 \pm 0.0366$ \\
+Bouncing disks & $z+H_1^{\mathrm{shift}}$ & $0.7553 \pm 0.0208$ & $0.2486 \pm 0.0212$ \\
+Bouncing disks & $z+H_1^{\mathrm{zero}}$ & $0.7635 \pm 0.0447$ & $0.2405 \pm 0.0440$ \\
+Bouncing disks & $z+H_0^{\mathrm{shuffle}}$ & $0.7674 \pm 0.0351$ & $0.2366 \pm 0.0349$ \\
+Bouncing disks & $z+H_1$ & $0.7682 \pm 0.0535$ & $0.2358 \pm 0.0533$ \\
+Bouncing disks & $z$ & $0.7696 \pm 0.0281$ & $0.2344 \pm 0.0279$ \\
+Bouncing disks & $z+H_0+H_1$ & $0.7700 \pm 0.0197$ & $0.2340 \pm 0.0195$ \\
+Bouncing disks & $z+H_0^{\mathrm{zero}}$ & $0.7751 \pm 0.0250$ & $0.2289 \pm 0.0241$ \\
+Bouncing disks & $z+H_0$ & $0.7803 \pm 0.0352$ & $0.2237 \pm 0.0348$ \\
+Bouncing disks & $z+H_0^{\mathrm{shift}}$ & $0.7829 \pm 0.0335$ & $0.2212 \pm 0.0324$ \\
+Bouncing disks & $z+H_0^{\mathrm{noise}}$ & $0.7840 \pm 0.0340$ & $0.2201 \pm 0.0337$ \\
+Bouncing disks & $z+(H_0+H_1)_{\mathrm{zero}}$ & $0.7863 \pm 0.0273$ & $0.2178 \pm 0.0275$ \\
+Bouncing disks & $z+H_1^{\mathrm{shuffle}}$ & $0.7993 \pm 0.0307$ & $0.2049 \pm 0.0301$ \\
+Bouncing disks & $z+(H_0+H_1)_{\mathrm{noise}}$ & $0.8057 \pm 0.0407$ & $0.1984 \pm 0.0414$ \\ \hline
+
+Bouncing rings & $z+\mathrm{TempStats}+H_0+H_1$ & $\mathbf{0.6072 \pm 0.0466}$ & $\mathbf{0.3965 \pm 0.0466}$ \\
+Bouncing rings & $z+\mathrm{TempStats}+H_0$ & $0.6391 \pm 0.0470$ & $0.3647 \pm 0.0472$ \\
+Bouncing rings & $z+\mathrm{TempStats}$ & $0.6663 \pm 0.0387$ & $0.3378 \pm 0.0374$ \\
+Bouncing rings & $z+\mathrm{TempStats}+H_1$ & $0.6693 \pm 0.0530$ & $0.3347 \pm 0.0533$ \\
+Bouncing rings & $z+(H_0+H_1)_{\mathrm{shift}}$ & $0.7157 \pm 0.0131$ & $0.2886 \pm 0.0132$ \\
+Bouncing rings & $z+(H_0+H_1)_{\mathrm{shuffle}}$ & $0.7302 \pm 0.0322$ & $0.2742 \pm 0.0324$ \\
+Bouncing rings & $z+H_1^{\mathrm{noise}}$ & $0.7465 \pm 0.0324$ & $0.2580 \pm 0.0319$ \\
+Bouncing rings & $z+H_1$ & $0.7529 \pm 0.0516$ & $0.2516 \pm 0.0516$ \\
+Bouncing rings & $z+H_1^{\mathrm{shift}}$ & $0.7547 \pm 0.0200$ & $0.2499 \pm 0.0206$ \\
+Bouncing rings & $z+H_1^{\mathrm{zero}}$ & $0.7587 \pm 0.0409$ & $0.2459 \pm 0.0403$ \\
+Bouncing rings & $z+H_0+H_1$ & $0.7622 \pm 0.0214$ & $0.2424 \pm 0.0209$ \\
+Bouncing rings & $z+H_0^{\mathrm{shuffle}}$ & $0.7654 \pm 0.0301$ & $0.2393 \pm 0.0297$ \\
+Bouncing rings & $z$ & $0.7727 \pm 0.0195$ & $0.2320 \pm 0.0195$ \\
+Bouncing rings & $z+(H_0+H_1)_{\mathrm{zero}}$ & $0.7735 \pm 0.0324$ & $0.2311 \pm 0.0326$ \\
+Bouncing rings & $z+H_0^{\mathrm{zero}}$ & $0.7741 \pm 0.0225$ & $0.2306 \pm 0.0213$ \\
+Bouncing rings & $z+H_0$ & $0.7754 \pm 0.0340$ & $0.2292 \pm 0.0337$ \\
+Bouncing rings & $z+H_0^{\mathrm{shift}}$ & $0.7783 \pm 0.0341$ & $0.2264 \pm 0.0330$ \\
+Bouncing rings & $z+H_0^{\mathrm{noise}}$ & $0.7806 \pm 0.0331$ & $0.2241 \pm 0.0324$ \\
+Bouncing rings & $z+(H_0+H_1)_{\mathrm{noise}}$ & $0.7956 \pm 0.0515$ & $0.2091 \pm 0.0524$ \\
+Bouncing rings & $z+H_1^{\mathrm{shuffle}}$ & $0.8005 \pm 0.0248$ & $0.2043 \pm 0.0245$ \\ \hline
+
+Orbiting disks & $z+\mathrm{TempStats}+H_0+H_1$ & $\mathbf{0.6150 \pm 0.0460}$ & $\mathbf{0.3946 \pm 0.0455}$ \\
+Orbiting disks & $z+\mathrm{TempStats}+H_0$ & $0.6486 \pm 0.0436$ & $0.3614 \pm 0.0436$ \\
+Orbiting disks & $z+\mathrm{TempStats}$ & $0.6669 \pm 0.0333$ & $0.3436 \pm 0.0303$ \\
+Orbiting disks & $z+\mathrm{TempStats}+H_1$ & $0.6845 \pm 0.0339$ & $0.3260 \pm 0.0356$ \\
+Orbiting disks & $z+(H_0+H_1)_{\mathrm{shift}}$ & $0.7180 \pm 0.0135$ & $0.2932 \pm 0.0115$ \\
+Orbiting disks & $z+(H_0+H_1)_{\mathrm{shuffle}}$ & $0.7242 \pm 0.0266$ & $0.2871 \pm 0.0262$ \\
+Orbiting disks & $z+H_1$ & $0.7517 \pm 0.0627$ & $0.2599 \pm 0.0628$ \\
+Orbiting disks & $z+H_1^{\mathrm{noise}}$ & $0.7580 \pm 0.0387$ & $0.2539 \pm 0.0372$ \\
+Orbiting disks & $z+H_0^{\mathrm{shuffle}}$ & $0.7628 \pm 0.0366$ & $0.2491 \pm 0.0365$ \\
+Orbiting disks & $z+H_1^{\mathrm{shift}}$ & $0.7629 \pm 0.0196$ & $0.2489 \pm 0.0213$ \\
+Orbiting disks & $z+H_0+H_1$ & $0.7648 \pm 0.0232$ & $0.2472 \pm 0.0209$ \\
+Orbiting disks & $z+(H_0+H_1)_{\mathrm{zero}}$ & $0.7684 \pm 0.0350$ & $0.2435 \pm 0.0355$ \\
+Orbiting disks & $z+H_1^{\mathrm{zero}}$ & $0.7706 \pm 0.0306$ & $0.2414 \pm 0.0291$ \\
+Orbiting disks & $z+H_0$ & $0.7746 \pm 0.0378$ & $0.2375 \pm 0.0374$ \\
+Orbiting disks & $z+H_0^{\mathrm{noise}}$ & $0.7772 \pm 0.0334$ & $0.2350 \pm 0.0319$ \\
+Orbiting disks & $z$ & $0.7821 \pm 0.0194$ & $0.2301 \pm 0.0187$ \\
+Orbiting disks & $z+H_0^{\mathrm{shift}}$ & $0.7822 \pm 0.0339$ & $0.2300 \pm 0.0318$ \\
+Orbiting disks & $z+H_0^{\mathrm{zero}}$ & $0.7890 \pm 0.0378$ & $0.2234 \pm 0.0343$ \\
+Orbiting disks & $z+(H_0+H_1)_{\mathrm{noise}}$ & $0.8021 \pm 0.0465$ & $0.2102 \pm 0.0487$ \\
+Orbiting disks & $z+H_1^{\mathrm{shuffle}}$ & $0.8155 \pm 0.0302$ & $0.1972 \pm 0.0302$ \\ \hline
+
+Orbiting rings & $z+\mathrm{TempStats}+H_0+H_1$ & $\mathbf{0.6175 \pm 0.0429}$ & $\mathbf{0.3920 \pm 0.0428}$ \\
+Orbiting rings & $z+\mathrm{TempStats}+H_0$ & $0.6480 \pm 0.0519$ & $0.3620 \pm 0.0513$ \\
+Orbiting rings & $z+\mathrm{TempStats}$ & $0.6665 \pm 0.0441$ & $0.3439 \pm 0.0408$ \\
+Orbiting rings & $z+\mathrm{TempStats}+H_1$ & $0.6837 \pm 0.0391$ & $0.3266 \pm 0.0408$ \\
+Orbiting rings & $z+(H_0+H_1)_{\mathrm{shift}}$ & $0.7151 \pm 0.0213$ & $0.2959 \pm 0.0192$ \\
+Orbiting rings & $z+(H_0+H_1)_{\mathrm{shuffle}}$ & $0.7211 \pm 0.0251$ & $0.2900 \pm 0.0241$ \\
+Orbiting rings & $z+H_1$ & $0.7495 \pm 0.0583$ & $0.2619 \pm 0.0584$ \\
+Orbiting rings & $z+H_1^{\mathrm{noise}}$ & $0.7525 \pm 0.0374$ & $0.2591 \pm 0.0358$ \\
+Orbiting rings & $z+H_0+H_1$ & $0.7624 \pm 0.0266$ & $0.2494 \pm 0.0243$ \\
+Orbiting rings & $z+H_0^{\mathrm{shuffle}}$ & $0.7635 \pm 0.0378$ & $0.2483 \pm 0.0372$ \\
+Orbiting rings & $z+(H_0+H_1)_{\mathrm{zero}}$ & $0.7661 \pm 0.0293$ & $0.2456 \pm 0.0299$ \\
+Orbiting rings & $z+H_1^{\mathrm{shift}}$ & $0.7675 \pm 0.0166$ & $0.2443 \pm 0.0167$ \\
+Orbiting rings & $z+H_0$ & $0.7715 \pm 0.0360$ & $0.2403 \pm 0.0358$ \\
+Orbiting rings & $z+H_1^{\mathrm{zero}}$ & $0.7718 \pm 0.0328$ & $0.2401 \pm 0.0308$ \\
+Orbiting rings & $z+H_0^{\mathrm{noise}}$ & $0.7737 \pm 0.0389$ & $0.2383 \pm 0.0372$ \\
+Orbiting rings & $z$ & $0.7738 \pm 0.0206$ & $0.2381 \pm 0.0204$ \\
+Orbiting rings & $z+H_0^{\mathrm{shift}}$ & $0.7819 \pm 0.0335$ & $0.2302 \pm 0.0311$ \\
+Orbiting rings & $z+H_0^{\mathrm{zero}}$ & $0.7897 \pm 0.0391$ & $0.2226 \pm 0.0353$ \\
+Orbiting rings & $z+(H_0+H_1)_{\mathrm{noise}}$ & $0.7991 \pm 0.0411$ & $0.2130 \pm 0.0433$ \\
+Orbiting rings & $z+H_1^{\mathrm{shuffle}}$ & $0.8127 \pm 0.0320$ & $0.1998 \pm 0.0327$ \\
+\end{longtable}

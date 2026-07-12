@@ -1,0 +1,12 @@
+\begin{table}[ht]
+\centering
+\begin{tabular}{l|c|c|c|c|c|c|c|c}
+\textbf{Dataset} & \textbf{$z$} & \textbf{Betti} & \textbf{Zero} & \textbf{Shuffle} & \textbf{Noise} & \textbf{Shift} & \textbf{TempStats} & \textbf{TempStats+Betti} \\ \hline
+Bouncing disks & $0.7696$ & $0.7700$ & $0.7863$ & $0.7407$ & $0.8057$ & $0.7230$ & $0.6660$ & $\mathbf{0.6112}$ \\
+Bouncing rings & $0.7727$ & $0.7622$ & $0.7735$ & $0.7302$ & $0.7956$ & $0.7157$ & $0.6663$ & $\mathbf{0.6072}$ \\
+Orbiting disks & $0.7821$ & $0.7648$ & $0.7684$ & $0.7242$ & $0.8021$ & $0.7180$ & $0.6669$ & $\mathbf{0.6150}$ \\
+Orbiting rings & $0.7738$ & $0.7624$ & $0.7661$ & $0.7211$ & $0.7991$ & $0.7151$ & $0.6665$ & $\mathbf{0.6175}$ \\ \hline
+\end{tabular}
+\caption{Control ablation for regular AE latent forecasting on synthetic datasets. Values are mean standardized latent MSE over five seeds. Betti denotes $z+\mathrm{Betti}(H_0,H_1)$; Zero, Shuffle, Noise, and Shift are perturbations of the $H_0,H_1$ Betti features. TempStats denotes rolling latent mean, standard deviation, velocity, and acceleration.}
+\label{tab:latent-control-ablation}
+\end{table}

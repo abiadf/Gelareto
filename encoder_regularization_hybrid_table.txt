@@ -1,0 +1,12 @@
+\begin{table}[ht]
+\centering
+\begin{tabular}{l|c|c|c}
+\textbf{Dataset} & \textbf{AE} & \textbf{GeoAE} & \textbf{TopoAE} \\ \hline
+Bouncing disks & $\mathbf{0.6112 \pm 0.0411}$ & $0.7044 \pm 0.0545$ & TBD \\
+Bouncing rings & $\mathbf{0.6072 \pm 0.0466}$ & $0.7037 \pm 0.0567$ & TBD \\
+Orbiting disks & $\mathbf{0.6150 \pm 0.0460}$ & $0.6613 \pm 0.0509$ & TBD \\
+Orbiting rings & $\mathbf{0.6175 \pm 0.0429}$ & $0.6820 \pm 0.0524$ & TBD \\ \hline
+\end{tabular}
+\caption{Encoder regularization comparison using the hybrid latent feature set $z+\mathrm{TempStats}+\mathrm{Betti}(H_0,H_1)$. Values are mean standardized latent MSE $\pm$ standard deviation over five seeds. TopoAE entries are marked TBD because the provided results did not include the hybrid temporal-statistics-plus-Betti mode for \texttt{topo\_latent\_tda}.}
+\label{tab:encoder-regularization-hybrid}
+\end{table}

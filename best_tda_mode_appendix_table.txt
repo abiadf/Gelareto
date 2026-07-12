@@ -1,0 +1,12 @@
+\begin{table}[ht]
+\centering
+\begin{tabular}{l|l|c|c|l|c|c}
+\textbf{Dataset} & \textbf{Best Betti-only mode} & \textbf{MSE} & \textbf{$R^2$} & \textbf{Best TempStats+Betti mode} & \textbf{MSE} & \textbf{$R^2$} \\ \hline
+Bouncing disks & $z+H_1$ & $0.7682 \pm 0.0535$ & $0.2358 \pm 0.0533$ & $z+\mathrm{TempStats}+H_0+H_1$ & $\mathbf{0.6112 \pm 0.0411}$ & $\mathbf{0.3920 \pm 0.0412}$ \\
+Bouncing rings & $z+H_1$ & $0.7529 \pm 0.0516$ & $0.2516 \pm 0.0516$ & $z+\mathrm{TempStats}+H_0+H_1$ & $\mathbf{0.6072 \pm 0.0466}$ & $\mathbf{0.3965 \pm 0.0466}$ \\
+Orbiting disks & $z+H_1$ & $0.7517 \pm 0.0627$ & $0.2599 \pm 0.0628$ & $z+\mathrm{TempStats}+H_0+H_1$ & $\mathbf{0.6150 \pm 0.0460}$ & $\mathbf{0.3946 \pm 0.0455}$ \\
+Orbiting rings & $z+H_1$ & $0.7495 \pm 0.0583$ & $0.2619 \pm 0.0584$ & $z+\mathrm{TempStats}+H_0+H_1$ & $\mathbf{0.6175 \pm 0.0429}$ & $\mathbf{0.3920 \pm 0.0428}$ \\ \hline
+\end{tabular}
+\caption{Best topological feature modes for regular AE latent forecasting on synthetic datasets. The Betti-only comparison selects the best among $z+H_0$, $z+H_1$, and $z+H_0+H_1$. The hybrid comparison selects the best among $z+\mathrm{TempStats}+H_0$, $z+\mathrm{TempStats}+H_1$, and $z+\mathrm{TempStats}+H_0+H_1$. Values are mean $\pm$ standard deviation over five seeds.}
+\label{tab:best-tda-mode-appendix}
+\end{table}
