@@ -189,6 +189,7 @@ def load_or_train_topo_encoder(
         pair_batch_size=pair_batch_size,
         retrain=retrain,
         learning_rate=learning_rate,
+        decoder_type=decoder_type,
     )
     return encoder, encoder_path
 
