@@ -41,14 +41,14 @@ set -euo pipefail
 # Use --decoder-type conv for new paper-quality decoded-image runs; default mlp preserves old results/checkpoints.
 
 args=(
-  --scenario real_tda,geo_real_tda  # comma-separated allowed; options: aux_tda | real_tda | geo_real_tda | topo_real_tda | latent_tda | geo_latent_tda | topo_latent_tda | pixel_tda | geo_pixel_tda | topo_pixel_tda | decode_z | geo_decode_z | topo_decode_z
-  --dataset moving_mnist,celltracking_fluo #bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings # comma-separated allowed; moving_mnist | davis_images | celltracking_fluo | bouncing_rings | bouncing_disks | orbiting_rings | orbiting_disks
+  --scenario decode_z,geo_decode_z,topo_decode_z  # comma-separated allowed; options: aux_tda | real_tda | geo_real_tda | topo_real_tda | latent_tda | geo_latent_tda | topo_latent_tda | pixel_tda | geo_pixel_tda | topo_pixel_tda | decode_z | geo_decode_z | topo_decode_z
+  --dataset bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist #,celltracking_fluo # comma-separated allowed; moving_mnist | davis_images | celltracking_fluo | bouncing_rings | bouncing_disks | orbiting_rings | orbiting_disks
   --seeds 0,1,2,3,4                  # comma-separated seeds
-  --modes none,h0,h1,both #,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #z,z_latent_h0,z_latent_h1,z_latent_both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
+  --modes z,z_latent_h0,z_latent_h1,z_latent_both #,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #z,z_latent_h0,z_latent_h1,z_latent_both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
   --horizon 5
   --include-retrain-encoder        # train encoder once per seed, freeze it, then run all modes fairly
-  --ae-epochs 3                    # baseline AE pretraining epochs
-  --predictor-epochs 10
+  --ae-epochs 10                    # baseline AE pretraining epochs
+  --predictor-epochs 40 #10
   --geo-ae-lambda 0.1
   --topo-ae-lambda 0.1
   --geo-ae-epochs 3
