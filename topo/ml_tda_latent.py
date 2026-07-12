@@ -31,6 +31,7 @@ LATENT_TDA_PREDICTOR_EPOCHS = 10
 LATENT_TDA_LR = 3e-4
 RETRAIN_LATENT_TDA_PREDICTOR = True
 RECOMPUTE_LATENT_TDA_FEATURES = True
+STANDARDIZE_LATENT_PREDICTOR = True
 
 
 def configure_runtime(**kwargs):
@@ -187,6 +188,24 @@ def features_for_latent_tda_mode(payload, mode):
     return torch.cat([z, tda], dim=-1)
 
 
+def _fit_standardizer(x, eps=1e-6):
+    mean = x.mean(dim=(0, 1), keepdim=True)
+    std = x.std(dim=(0, 1), keepdim=True).clamp_min(eps)
+    return mean, std
+
+
+def _standardize(x, mean, std):
+    return (x - mean) / std
+
+
+def _attach_latent_standardizers(model, feature_mean, feature_std, target_mean, target_std):
+    model.feature_mean = feature_mean.detach().cpu()
+    model.feature_std = feature_std.detach().cpu()
+    model.target_mean = target_mean.detach().cpu()
+    model.target_std = target_std.detach().cpu()
+    return model
+
+
 def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
     if HORIZON >= train_features.shape[0]:
         raise ValueError(
@@ -195,33 +214,70 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
         )
     model_dir = Path("models") / DATASET / "latent_tda_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
+    standardizer_tag = "stdz" if STANDARDIZE_LATENT_PREDICTOR else "raw"
     model_path = model_dir / (
-        f"model_seed{seed}_pred{HORIZON}_{mode}_"
+        f"model_seed{seed}_pred{HORIZON}_{mode}_{standardizer_tag}_"
         f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}.pt"
     )
     device = ml_tda.get_runtime_device()
     model = TopologicalPredictor(input_dim=train_features.shape[-1], hidden_dim=HIDDEN_DIM).to(device)
+    source_features = train_features[:-HORIZON]
+    source_targets = train_z[HORIZON:]
+    if STANDARDIZE_LATENT_PREDICTOR:
+        feature_mean, feature_std = _fit_standardizer(source_features)
+        target_mean, target_std = _fit_standardizer(source_targets)
+    else:
+        feature_mean = torch.zeros((1, 1, source_features.shape[-1]), dtype=source_features.dtype)
+        feature_std = torch.ones((1, 1, source_features.shape[-1]), dtype=source_features.dtype)
+        target_mean = torch.zeros((1, 1, source_targets.shape[-1]), dtype=source_targets.dtype)
+        target_std = torch.ones((1, 1, source_targets.shape[-1]), dtype=source_targets.dtype)
+    _attach_latent_standardizers(model, feature_mean, feature_std, target_mean, target_std)
 
     if model_path.exists() and not RETRAIN_LATENT_TDA_PREDICTOR:
         print(f"Loading latent TDA predictor: {model_path}")
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        checkpoint = torch.load(model_path, map_location=device)
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
+            _attach_latent_standardizers(
+                model,
+                checkpoint["feature_mean"],
+                checkpoint["feature_std"],
+                checkpoint["target_mean"],
+                checkpoint["target_std"],
+            )
+        else:
+            model.load_state_dict(checkpoint)
         return model
 
     reason = "retraining" if model_path.exists() else "missing; training once"
     print(f"Latent TDA predictor {reason}: {model_path}")
     optimizer = optim.AdamW(model.parameters(), lr=LATENT_TDA_LR)
     criterion = nn.MSELoss()
+    train_x = _standardize(source_features, feature_mean, feature_std).to(device)
+    train_y = _standardize(source_targets, target_mean, target_std).to(device)
     for epoch in range(1, LATENT_TDA_PREDICTOR_EPOCHS + 1):
         model.train()
         optimizer.zero_grad()
-        pred = model(train_features[:-HORIZON].to(device))
-        target = train_z[HORIZON:].to(device)
-        loss = criterion(pred, target)
+        pred = model(train_x)
+        loss = criterion(pred, train_y)
         loss.backward()
         optimizer.step()
         if epoch % 5 == 0 or epoch == LATENT_TDA_PREDICTOR_EPOCHS:
-            print(f"Epoch {epoch:02d}/{LATENT_TDA_PREDICTOR_EPOCHS:02d} | {mode} train MSE: {loss.item():.6f}")
-    torch.save(model.state_dict(), model_path)
+            print(
+                f"Epoch {epoch:02d}/{LATENT_TDA_PREDICTOR_EPOCHS:02d} | "
+                f"{mode} standardized train MSE: {loss.item():.6f}"
+            )
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "feature_mean": model.feature_mean,
+            "feature_std": model.feature_std,
+            "target_mean": model.target_mean,
+            "target_std": model.target_std,
+            "standardized": bool(STANDARDIZE_LATENT_PREDICTOR),
+        },
+        model_path,
+    )
     return model
 
 
@@ -236,11 +292,17 @@ def eval_latent_tda_predictor(model, test_features, test_z):
     device = ml_tda.get_runtime_device()
     model.to(device)
     with torch.no_grad():
-        pred = model(test_features[:-HORIZON].to(device))
         target = test_z[HORIZON:].to(device)
-        mse = criterion(pred, target).item()
-        per_frame = ((pred - target) ** 2).mean(dim=(1, 2)).cpu()
-    target_cpu = target.detach().float().cpu()
+        feature_mean = model.feature_mean.to(device)
+        feature_std = model.feature_std.to(device)
+        target_mean = model.target_mean.to(device)
+        target_std = model.target_std.to(device)
+        features = _standardize(test_features[:-HORIZON].to(device), feature_mean, feature_std)
+        target_standardized = _standardize(target, target_mean, target_std)
+        pred_standardized = model(features)
+        mse = criterion(pred_standardized, target_standardized).item()
+        per_frame = ((pred_standardized - target_standardized) ** 2).mean(dim=(1, 2)).cpu()
+    target_cpu = target_standardized.detach().float().cpu()
     target_var = torch.mean((target_cpu - target_cpu.mean()) ** 2).item()
     r2 = float(1.0 - (mse / max(target_var, 1e-12)))
     return mse, per_frame, r2
