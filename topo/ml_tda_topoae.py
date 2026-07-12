@@ -246,6 +246,21 @@ def load_or_train_topo_autoencoder(
             param.requires_grad = False
         return encoder, decoder, encoder_path, decoder_path
 
+    if encoder_path.exists() and not decoder_path.exists() and not retrain:
+        print(f"Loading topo-AE encoder: {encoder_path}")
+        print(f"Topo-AE decoder missing; training decoder only: {decoder_path}")
+        encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
+        ml_tda.train_decoder_for_encoder(encoder, decoder, x_train, ae_epochs=ae_epochs, learning_rate=learning_rate)
+        torch.save(decoder.state_dict(), decoder_path)
+        device = ml_tda.get_runtime_device()
+        encoder.to(device).eval()
+        decoder.to(device).eval()
+        for param in encoder.parameters():
+            param.requires_grad = False
+        for param in decoder.parameters():
+            param.requires_grad = False
+        return encoder, decoder, encoder_path, decoder_path
+
     reason = "retraining" if encoder_path.exists() or decoder_path.exists() else "missing; training once"
     print(f"Topo-AE autoencoder {reason}: {encoder_path} | {decoder_path}")
     device = ml_tda.get_runtime_device()

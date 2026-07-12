@@ -70,6 +70,7 @@ class VideoContext:
     real_tda_scale: int | float
     real_tda_bins: int
     horizon: int
+    ae_epochs: int
     ae_frame_batch_size: int | None
     ae_max_frames_per_epoch: int | None
 
@@ -87,6 +88,7 @@ class RunConfig:
     learning_rate: float | None
     real_tda_scale: float | None
     real_tda_bins: int | None
+    ae_epochs: int | None
     ae_frame_batch_size: int | None
     ae_max_frames_per_epoch: int | None
     force_rebuild_data_cache: bool
@@ -197,6 +199,7 @@ def _save_results(
         "real_tda_scale": context.real_tda_scale,
         "real_tda_bins": context.real_tda_bins,
         "horizon": context.horizon,
+        "ae_epochs": context.ae_epochs,
         "ae_frame_batch_size": context.ae_frame_batch_size,
         "ae_max_frames_per_epoch": context.ae_max_frames_per_epoch,
     }
@@ -256,6 +259,7 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         cfg.ae_frame_batch_size,
         run_config.get("AE_FRAME_BATCH_SIZE", 256),
     )
+    ae_epochs = int(_override(cfg.ae_epochs, run_config.get("AE_EPOCHS", 3)))
     ae_max_frames_per_epoch = _override(
         cfg.ae_max_frames_per_epoch,
         run_config.get("AE_MAX_FRAMES_PER_EPOCH", 8192),
@@ -280,6 +284,7 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         HORIZON=horizon,
         PREDICTOR_EPOCHS=predictor_epochs,
         DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=ae_epochs,
         AE_FRAME_BATCH_SIZE=ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=ae_max_frames_per_epoch,
     )
@@ -296,6 +301,7 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         real_tda_scale=real_tda_scale,
         real_tda_bins=real_tda_bins,
         horizon=horizon,
+        ae_epochs=ae_epochs,
         ae_frame_batch_size=ae_frame_batch_size,
         ae_max_frames_per_epoch=ae_max_frames_per_epoch,
     )
@@ -443,10 +449,17 @@ def _load_or_train_baseline_autoencoder(
         print(f"Loading baseline AE decoder: {decoder_path}")
         encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
         decoder.load_state_dict(torch.load(decoder_path, map_location="cpu"))
+    elif encoder_path.exists() and not decoder_path.exists() and not cfg.retrain_encoder:
+        print(f"Loading baseline AE encoder: {encoder_path}")
+        print(f"Baseline AE decoder missing; training decoder only: {decoder_path}")
+        encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
+        ml_tda.train_decoder_for_encoder(encoder, decoder, context.x_train, ae_epochs=context.ae_epochs)
+        torch.save(decoder.state_dict(), decoder_path)
+        print(f"Saved baseline AE decoder: {decoder_path}")
     else:
         reason = "retraining" if encoder_path.exists() or decoder_path.exists() else "missing; training once"
         print(f"Baseline AE {reason}: {encoder_path} | {decoder_path}")
-        ml_tda.pretrain_spatial_encoder(encoder, decoder, context.x_train, ae_epochs=3)
+        ml_tda.pretrain_spatial_encoder(encoder, decoder, context.x_train, ae_epochs=context.ae_epochs)
         torch.save(encoder.state_dict(), encoder_path)
         torch.save(decoder.state_dict(), decoder_path)
         print(f"Saved baseline AE encoder: {encoder_path}")
@@ -870,6 +883,7 @@ def run_aux_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd
         REAL_TDA_BINS=context.real_tda_bins,
         HORIZON=context.horizon,
         DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
     )
@@ -928,6 +942,7 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
         REAL_TDA_BINS=context.real_tda_bins,
         HORIZON=context.horizon,
         DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
     )
@@ -990,6 +1005,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
         REAL_TDA_BINS=context.real_tda_bins,
         HORIZON=context.horizon,
         DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
     )
@@ -1108,6 +1124,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
         REAL_TDA_BINS=context.real_tda_bins,
         HORIZON=context.horizon,
         DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
     )
@@ -1285,6 +1302,7 @@ def _run_decode_z(
         LATENT_DIM=context.latent_dim,
         HORIZON=context.horizon,
         DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
     )
@@ -1424,6 +1442,7 @@ def run_geo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
         REAL_TDA_BINS=context.real_tda_bins,
         HORIZON=context.horizon,
         DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
     )
@@ -1543,6 +1562,7 @@ def run_topo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
         REAL_TDA_BINS=context.real_tda_bins,
         HORIZON=context.horizon,
         DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
     )
@@ -1663,6 +1683,7 @@ def run_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, 
         REAL_TDA_BINS=context.real_tda_bins,
         HORIZON=context.horizon,
         DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
     )
@@ -1715,6 +1736,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--real-tda-scale", type=float, default=None)
     parser.add_argument("--real-tda-bins", type=int, default=None)
+    parser.add_argument("--ae-epochs", type=int, default=None, help="Baseline AE pretraining epochs.")
     parser.add_argument("--ae-frame-batch-size", type=int, default=None)
     parser.add_argument("--ae-max-frames-per-epoch", type=int, default=None)
     parser.add_argument("--force-rebuild-data-cache", action="store_true")
@@ -1778,6 +1800,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         learning_rate=args.learning_rate,
         real_tda_scale=args.real_tda_scale,
         real_tda_bins=args.real_tda_bins,
+        ae_epochs=args.ae_epochs,
         ae_frame_batch_size=args.ae_frame_batch_size,
         ae_max_frames_per_epoch=args.ae_max_frames_per_epoch,
         force_rebuild_data_cache=args.force_rebuild_data_cache,

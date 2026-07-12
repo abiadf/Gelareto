@@ -71,7 +71,7 @@ def load_or_train_shared_encoder_for_latent_tda(seed, X_train_subset, X_train_fo
     else:
         reason = "retraining" if encoder_path.exists() else "missing; training once"
         print(f"Shared encoder {reason}: {encoder_path}")
-        pretrain_spatial_encoder(encoder, decoder, X_train_subset, ae_epochs=3)
+        pretrain_spatial_encoder(encoder, decoder, X_train_subset, ae_epochs=int(getattr(ml_tda, "AE_EPOCHS", 3)))
         torch.save(encoder.state_dict(), encoder_path)
 
     encoder.to(ml_tda.get_runtime_device())

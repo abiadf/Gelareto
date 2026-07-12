@@ -286,6 +286,43 @@ def pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=3):
             total_seen += len(frames)
         print(f"AE Pretrain Epoch {ae_epoch+1}/{ae_epochs} | Reconstr MSE: {total_loss / total_seen:.4f}")
 
+
+def train_decoder_for_encoder(encoder, decoder, X_train, ae_epochs=3, learning_rate=1e-3):
+    """Train a missing decoder against an existing frozen encoder."""
+    print("\n--- Training Decoder For Existing Encoder ---")
+    device = get_runtime_device()
+    encoder.to(device).eval()
+    decoder.to(device)
+    for param in encoder.parameters():
+        param.requires_grad = False
+    optimizer = optim.AdamW(decoder.parameters(), lr=learning_rate)
+    all_frames = X_train.reshape(-1, *X_train.shape[2:])
+    frame_batch_size = globals().get("AE_FRAME_BATCH_SIZE", 256)
+    max_frames_per_epoch = globals().get("AE_MAX_FRAMES_PER_EPOCH", min(len(all_frames), 8192))
+    for ae_epoch in range(int(ae_epochs)):
+        decoder.train()
+        generator = torch.Generator().manual_seed(2000 + ae_epoch)
+        if max_frames_per_epoch is None or max_frames_per_epoch >= len(all_frames):
+            frame_idx = torch.randperm(len(all_frames), generator=generator)
+        else:
+            frame_idx = torch.randperm(len(all_frames), generator=generator)[:max_frames_per_epoch]
+        total_loss, total_seen = 0.0, 0
+        for start in range(0, len(frame_idx), frame_batch_size):
+            idx = frame_idx[start:start + frame_batch_size]
+            frames = tensor_to_model_float(all_frames[idx]).to(device, non_blocking=True)
+            optimizer.zero_grad()
+            with torch.no_grad():
+                latents = encoder(frames)
+            reconstructions = decoder(latents)
+            loss = criterion(reconstructions, frames)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item() * len(frames)
+            total_seen += len(frames)
+        print(f"Decoder Epoch {ae_epoch + 1}/{ae_epochs} | Reconstr MSE: {total_loss / total_seen:.4f}")
+    decoder.eval()
+
+
 def build_real_tda_features(video_tensor, encoder, use_tda, split_name="Train"):
     device = get_runtime_device()
     encoder.to(device)
@@ -362,7 +399,7 @@ def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retra
     else:
         reason = "retraining" if encoder_path.exists() else "missing; training once"
         print(f"Shared encoder {reason}: {encoder_path}")
-        pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=3)
+        pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=int(globals().get("AE_EPOCHS", 3)))
         torch.save(encoder.state_dict(), encoder_path)
         print(f"Saved shared encoder: {encoder_path}")
     encoder.to(device)

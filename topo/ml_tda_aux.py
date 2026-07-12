@@ -102,7 +102,7 @@ def load_or_train_aux_encoder(X_train, seed, output_size):
     else:
         reason = "retraining" if encoder_path.exists() else "missing; training once"
         print(f"Auxiliary encoder {reason}: {encoder_path}")
-        ml_tda.pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=3)
+        ml_tda.pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=int(getattr(ml_tda, "AE_EPOCHS", 3)))
         torch.save(encoder.state_dict(), encoder_path)
         print(f"Saved auxiliary encoder: {encoder_path}")
 

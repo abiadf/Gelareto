@@ -47,6 +47,7 @@ args=(
   --modes none,h0,h1,both #,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #z,z_latent_h0,z_latent_h1,z_latent_both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
   --horizon 5
   --include-retrain-encoder        # train encoder once per seed, freeze it, then run all modes fairly
+  --ae-epochs 3                    # baseline AE pretraining epochs
   --predictor-epochs 10
   --geo-ae-lambda 0.1
   --topo-ae-lambda 0.1
@@ -69,6 +70,7 @@ args=(
   # --learning-rate 3e-4             # predictor learning rate
   # --real-tda-scale 15              # real/frame-space Betti curve normalization
   # --real-tda-bins 25               # real/frame-space Betti curve bins
+  # --ae-epochs 10                   # baseline AE pretraining epochs
   # --ae-frame-batch-size 256        # autoencoder frame batch size
   # --ae-max-frames-per-epoch 8192   # autoencoder frame subsample cap
   # --force-rebuild-data-cache       # synthetic datasets: rebuild cached clips
