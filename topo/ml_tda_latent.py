@@ -190,6 +190,12 @@ def features_for_latent_tda_mode(payload, mode):
     if mode == "z_temporal_stats":
         temporal_stats = latent_window_temporal_stats(z, window=LATENT_TDA_WINDOW)
         return torch.cat([z, temporal_stats], dim=-1)
+    if mode.startswith("z_temporal_stats_latent_"):
+        temporal_stats = latent_window_temporal_stats(z, window=LATENT_TDA_WINDOW)
+        latent_mode = "z_latent_" + mode.removeprefix("z_temporal_stats_latent_")
+        latent_features = features_for_latent_tda_mode(payload, latent_mode)
+        latent_tda = latent_features[..., z.shape[-1]:]
+        return torch.cat([z, temporal_stats, latent_tda], dim=-1)
 
     control_names = {"zero", "shuffle", "noise", "shift"}
     parts = mode.rsplit("_", 1)
