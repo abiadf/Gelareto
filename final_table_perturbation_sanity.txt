@@ -1,0 +1,21 @@
+\begin{table*}[t]
+\centering
+\small
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l|ccc}
+\hline
+\textbf{Dataset} & \textbf{Best interpretable mode} & \textbf{Best perturbation mode} & \textbf{Gap} \\
+\hline
+Bouncing disks & 0.0498 $\pm$ 0.0122 {\scriptsize (GeoAE, ts+H1)} & 0.0919 $\pm$ 0.0244 {\scriptsize (GeoAE, H0 zero)} & +0.0421 \\
+Bouncing rings & 0.0622 $\pm$ 0.0193 {\scriptsize (GeoAE, ts)} & 0.0885 $\pm$ 0.0174 {\scriptsize (GeoAE, H0+H1 zero)} & +0.0263 \\
+Orbiting disks & 0.0547 $\pm$ 0.0095 {\scriptsize (GeoAE, ts+H1)} & 0.0816 $\pm$ 0.0065 {\scriptsize (GeoAE, H0 zero)} & +0.0269 \\
+Orbiting rings & 0.0527 $\pm$ 0.0079 {\scriptsize (AE, ts)} & 0.0768 $\pm$ 0.0083 {\scriptsize (AE, H0+H1 noise)} & +0.0241 \\
+Moving MNIST & 0.2015 $\pm$ 0.0316 {\scriptsize (AE, ts+H1)} & 0.2765 $\pm$ 0.0385 {\scriptsize (AE, H1 noise)} & +0.0750 \\
+Lorenz-96 & 0.0624 $\pm$ 0.0147 {\scriptsize (GeoAE, ts+H1)} & 0.1017 $\pm$ 0.0218 {\scriptsize (GeoAE, H0+H1 shuffle)} & +0.0393 \\
+ElectricDevices & 0.0560 $\pm$ 0.0215 {\scriptsize (GeoAE, ts+H1)} & 0.0901 $\pm$ 0.0107 {\scriptsize (GeoAE, H0 zero)} & +0.0341 \\
+\hline
+\end{tabular}
+}
+\caption{Sanity check over perturbed TDA descriptors. The strongest mode is consistently an interpretable temporal/topological descriptor, while the best zero/noise/shift/shuffle variant remains worse. This supports that the gains do not come merely from adding arbitrary extra features. Values are test MSE $\pm$ std; lower is better.}
+\label{tab:perturbation_sanity}
+\end{table*}

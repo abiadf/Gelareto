@@ -1,0 +1,19 @@
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{l|lll}
+\hline
+\textbf{Dataset} & \textbf{AE + TDA best mode} & \textbf{GeoAE + TDA best mode} & \textbf{TopoAE + TDA best mode} \\
+\hline
+Bouncing disks & temporal stats + H1 & temporal stats + H1 & temporal stats + H0+H1 \\
+Bouncing rings & temporal stats + H1 & temporal stats & temporal stats \\
+Orbiting disks & temporal stats + H0+H1 & temporal stats + H1 & temporal stats + H0 \\
+Orbiting rings & temporal stats & temporal stats + H1 & temporal stats + H0+H1 \\
+Moving MNIST & temporal stats + H1 & temporal stats & temporal stats + H1 \\
+Lorenz-96 & temporal stats & temporal stats + H1 & temporal stats + H1 \\
+ElectricDevices & temporal stats + H0+H1 & temporal stats + H1 & temporal stats + H1 \\
+\hline
+\end{tabular}
+\caption{Winning TDA-enhanced mode used in Table~\ref{tab:main_forecasting}. The best topological descriptor is dataset- and encoder-dependent; H1 and temporal statistics are most frequently selected, while H0+H1 is not uniformly optimal.}
+\label{tab:best_tda_modes}
+\end{table}
