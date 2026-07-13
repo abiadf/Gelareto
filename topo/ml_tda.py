@@ -1194,6 +1194,76 @@ def load_lorenz96_timeseries(config):
     return train, test
 
 
+def noisy_video_cache_path(config, split_name, num_clips, seed_offset):
+    cache_dir = Path(config.get("cache_dir", "datasets/2D/noisy_frames/processed"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    image_size = tuple(config.get("image_size", (64, 64)))
+    tag = (
+        f"{split_name}_N{num_clips}_T{config.get('clip_len', 50)}_"
+        f"H{image_size[0]}_W{image_size[1]}_"
+        f"kind{config.get('noise_kind', 'iid')}_"
+        f"dtype{config.get('cache_dtype', 'uint8')}_seed{seed_offset}.pt"
+    )
+    return cache_dir / tag.replace("/", "-")
+
+
+def generate_noisy_video_split(config, split_name, num_clips, seed_offset):
+    clip_len = int(config.get("clip_len", 50))
+    image_size = tuple(config.get("image_size", (64, 64)))
+    noise_kind = str(config.get("noise_kind", "iid")).lower().strip()
+    rng = np.random.RandomState(seed_offset)
+    print(f"Generating {num_clips} noisy {split_name} clips: kind={noise_kind}, T={clip_len}, HxW={image_size}")
+
+    if noise_kind == "iid":
+        data = rng.rand(num_clips, clip_len, 1, image_size[0], image_size[1]).astype(np.float32)
+    elif noise_kind == "smooth":
+        data = rng.rand(num_clips, clip_len, 1, image_size[0], image_size[1]).astype(np.float32)
+        for n in range(num_clips):
+            for t in range(clip_len):
+                data[n, t, 0] = cv2.GaussianBlur(data[n, t, 0], ksize=(0, 0), sigmaX=2.0)
+        data = normalize_video_array(data)
+    elif noise_kind == "random_walk":
+        data = np.empty((num_clips, clip_len, 1, image_size[0], image_size[1]), dtype=np.float32)
+        data[:, 0] = rng.rand(num_clips, 1, image_size[0], image_size[1]).astype(np.float32)
+        step_std = float(config.get("noise_step_std", 0.1))
+        for t in range(1, clip_len):
+            data[:, t] = np.clip(data[:, t - 1] + step_std * rng.randn(num_clips, 1, image_size[0], image_size[1]), 0.0, 1.0)
+    else:
+        raise ValueError(f"Unknown noise_kind={noise_kind!r}. Valid: iid, smooth, random_walk")
+
+    if config.get("cache_dtype", "uint8") == "uint8":
+        return torch.from_numpy(np.clip(np.rint(data * 255.0), 0, 255).astype(np.uint8))
+    return torch.from_numpy(data)
+
+
+def load_or_generate_noisy_video_split(config, split_name, num_clips, seed_offset):
+    cache_path = noisy_video_cache_path(config, split_name, num_clips, seed_offset)
+    force_rebuild = config.get("force_rebuild_cache", False)
+    if cache_path.exists() and not force_rebuild:
+        print(f"Loading cached noisy video {split_name}: {cache_path}")
+        return torch.load(cache_path, map_location="cpu")
+
+    data = generate_noisy_video_split(config, split_name, num_clips, seed_offset)
+    torch.save(data, cache_path)
+    print(f"Saved noisy video {split_name} cache: {cache_path}")
+    return data
+
+
+def load_noisy_video(config):
+    train_n = config.get("num_train_clips", 512)
+    test_n = config.get("num_test_clips", 128)
+    train_seed = config.get("train_seed_offset", 0)
+    test_seed = config.get("test_seed_offset", 50000)
+    train = load_or_generate_noisy_video_split(config, "train", train_n, train_seed)
+    test = load_or_generate_noisy_video_split(config, "test", test_n, test_seed)
+    train = train.squeeze(2).permute(1, 0, 2, 3).numpy()
+    test = test.squeeze(2).permute(1, 0, 2, 3).numpy()
+    if config.get("normalize", "none") == "minmax" and train.dtype != np.uint8:
+        train = normalize_video_array(train)
+        test = normalize_video_array(test)
+    return train, test
+
+
 def load_video_dataset(config):
     if config["kind"] == "moving_mnist":
         arr = normalize_video_array(np.load(config["path"]))
@@ -1214,6 +1284,9 @@ def load_video_dataset(config):
         return train, test
     elif config["kind"] == "lorenz96_timeseries":
         train, test = load_lorenz96_timeseries(config)
+        return train, test
+    elif config["kind"] == "noisy_video":
+        train, test = load_noisy_video(config)
         return train, test
     elif config["kind"] == "ctc_tif_clips":
         from topo.ml_tda_celltracking import load_or_build_celltracking_tensors

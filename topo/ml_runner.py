@@ -236,7 +236,7 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         raise ValueError(f"Unknown dataset {cfg.dataset!r}. Valid datasets: {valid}")
 
     run_config = dict(dataset_configs[cfg.dataset])
-    if run_config.get("kind") in {"lorenz_moving_shapes", "orbiting_shapes", "lorenz96_timeseries"}:
+    if run_config.get("kind") in {"lorenz_moving_shapes", "orbiting_shapes", "lorenz96_timeseries", "noisy_video"}:
         if cfg.num_train_clips is not None:
             run_config["num_train_clips"] = cfg.num_train_clips
         if cfg.num_test_clips is not None:
