@@ -242,6 +242,8 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         if cfg.num_test_clips is not None:
             run_config["num_test_clips"] = cfg.num_test_clips
         run_config["force_rebuild_cache"] = cfg.force_rebuild_data_cache
+    elif run_config.get("kind") == "aeon_classification":
+        run_config["force_rebuild_cache"] = cfg.force_rebuild_data_cache
     elif run_config.get("kind") == "ctc_tif_clips":
         if cfg.num_train_clips is not None:
             run_config["max_train_clips"] = cfg.num_train_clips

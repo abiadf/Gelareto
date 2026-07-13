@@ -36,6 +36,7 @@ set -euo pipefail
 #   orbiting_rings: hollow/ring objects with periodic circular/elliptical orbit motion
 #   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
 #   lorenz96: synthetic multivariate Lorenz-96 trajectories rasterized as heatmap frames
+#   electric_devices: UCR/Aeon ElectricDevices time-series samples rendered as sparkline clips
 #   noisy_frames: iid random-frame negative control; topology should not reliably help
 #   glioblastoma/hela: CTC TIFF sequences windowed as full-frame clips by default
 #
@@ -48,7 +49,7 @@ set -euo pipefail
 
 args=(
   --scenario latent_tda,geo_latent_tda,topo_latent_tda,vae_latent_tda,byol_latent_tda # options: aux_tda | real_tda | geo_real_tda | topo_real_tda | latent_tda | geo_latent_tda | topo_latent_tda | vae_latent_tda | byol_latent_tda | pixel_tda | geo_pixel_tda | topo_pixel_tda | decode_z | geo_decode_z | topo_decode_z
-  --dataset bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist,lorenz96 #lorenz96,noisy_frames,celltracking_fluo,glioblastoma,hela,bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist
+  --dataset bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist,lorenz96 #electric_devices,lorenz96,noisy_frames,celltracking_fluo,glioblastoma,hela,bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist
   --seeds 0,1,2,3,4                  # comma-separated seeds
   --modes z,z_latent_h0,z_latent_h1,z_latent_both #,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #z,z_latent_h0,z_latent_h1,z_latent_both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
   --horizon 5

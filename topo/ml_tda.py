@@ -1264,6 +1264,121 @@ def load_noisy_video(config):
     return train, test
 
 
+def aeon_classification_cache_path(config, split_name):
+    dataset_name = config.get("aeon_name", config.get("name", "ElectricDevices"))
+    cache_dir = Path(config.get("cache_dir", f"datasets/timeseries/{dataset_name}/processed"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    image_size = tuple(config.get("image_size", (64, 64)))
+    tag = (
+        f"{split_name}_{dataset_name}_"
+        f"H{image_size[0]}_W{image_size[1]}_"
+        f"window{config.get('render_window', 16)}_"
+        f"dtype{config.get('cache_dtype', 'uint8')}.pt"
+    )
+    return cache_dir / tag.replace("/", "-")
+
+
+def _normalize_series_with_stats(x, mean=None, std=None):
+    x = np.asarray(x, dtype=np.float32)
+    if mean is None:
+        mean = float(x.mean())
+    if std is None:
+        std = float(x.std())
+    if std <= 1e-8:
+        std = 1.0
+    x = (x - mean) / std
+    return np.clip(0.5 + x / 6.0, 0.0, 1.0).astype(np.float32), mean, std
+
+
+def _render_univariate_series_frames(series, image_size=(64, 64), render_window=16):
+    series = np.asarray(series, dtype=np.float32)
+    H, W = tuple(image_size)
+    render_window = max(2, int(render_window))
+    frames = np.zeros((series.shape[0], 1, H, W), dtype=np.float32)
+    x_positions = np.linspace(0, W - 1, render_window).astype(np.int32)
+    for t in range(series.shape[0]):
+        start = max(0, t - render_window + 1)
+        values = series[start:t + 1]
+        if values.shape[0] < render_window:
+            values = np.pad(values, (render_window - values.shape[0], 0), mode="edge")
+        y_positions = np.clip(np.rint((1.0 - values) * (H - 1)), 0, H - 1).astype(np.int32)
+        frame = np.zeros((H, W), dtype=np.float32)
+        for idx in range(1, render_window):
+            cv2.line(
+                frame,
+                (int(x_positions[idx - 1]), int(y_positions[idx - 1])),
+                (int(x_positions[idx]), int(y_positions[idx])),
+                color=1.0,
+                thickness=1,
+            )
+        frame[y_positions[-1], x_positions[-1]] = 1.0
+        frames[t, 0] = frame
+    return frames
+
+
+def _aeon_array_to_clips(x, image_size=(64, 64), render_window=16, mean=None, std=None):
+    x = np.asarray(x, dtype=np.float32)
+    if x.ndim == 3:
+        if x.shape[1] == 1:
+            x = x[:, 0, :]
+        else:
+            x = x.mean(axis=1)
+    if x.ndim != 2:
+        raise ValueError(f"Expected aeon data shaped (N,T) or (N,C,T), got {x.shape}")
+    x_norm, mean, std = _normalize_series_with_stats(x, mean=mean, std=std)
+    clips = np.stack(
+        [_render_univariate_series_frames(series, image_size=image_size, render_window=render_window) for series in x_norm],
+        axis=0,
+    )
+    return clips, mean, std
+
+
+def load_or_build_aeon_classification_split(config, split_name, *, mean=None, std=None):
+    cache_path = aeon_classification_cache_path(config, split_name)
+    force_rebuild = config.get("force_rebuild_cache", False)
+    if cache_path.exists() and not force_rebuild:
+        payload = torch.load(cache_path, map_location="cpu")
+        if isinstance(payload, dict):
+            return payload["clips"], payload.get("mean", mean), payload.get("std", std)
+        return payload, mean, std
+
+    try:
+        from aeon.datasets import load_classification
+    except ImportError as exc:
+        raise ImportError(
+            "Install aeon to use aeon_classification datasets, e.g. `uv pip install aeon` "
+            "or add aeon to your environment."
+        ) from exc
+
+    dataset_name = config.get("aeon_name", "ElectricDevices")
+    extract_path = config.get("extract_path", "datasets/timeseries/aeon_data")
+    print(f"Loading aeon classification dataset {dataset_name} split={split_name}")
+    x, y = load_classification(dataset_name, split=split_name, extract_path=extract_path)
+    clips, mean, std = _aeon_array_to_clips(
+        x,
+        image_size=tuple(config.get("image_size", (64, 64))),
+        render_window=int(config.get("render_window", 16)),
+        mean=mean,
+        std=std,
+    )
+    if config.get("cache_dtype", "uint8") == "uint8":
+        clips_tensor = torch.from_numpy(np.clip(np.rint(clips * 255.0), 0, 255).astype(np.uint8))
+    else:
+        clips_tensor = torch.from_numpy(clips.astype(np.float32))
+    payload = {"clips": clips_tensor, "labels": np.asarray(y), "mean": mean, "std": std}
+    torch.save(payload, cache_path)
+    print(f"Saved aeon {dataset_name} {split_name} cache: {cache_path} shape={tuple(clips_tensor.shape)}")
+    return clips_tensor, mean, std
+
+
+def load_aeon_classification_video(config):
+    train_tensor, mean, std = load_or_build_aeon_classification_split(config, "train")
+    test_tensor, _, _ = load_or_build_aeon_classification_split(config, "test", mean=mean, std=std)
+    train = train_tensor.squeeze(2).permute(1, 0, 2, 3).numpy()
+    test = test_tensor.squeeze(2).permute(1, 0, 2, 3).numpy()
+    return train, test
+
+
 def load_video_dataset(config):
     if config["kind"] == "moving_mnist":
         arr = normalize_video_array(np.load(config["path"]))
@@ -1287,6 +1402,9 @@ def load_video_dataset(config):
         return train, test
     elif config["kind"] == "noisy_video":
         train, test = load_noisy_video(config)
+        return train, test
+    elif config["kind"] == "aeon_classification":
+        train, test = load_aeon_classification_video(config)
         return train, test
     elif config["kind"] == "ctc_tif_clips":
         from topo.ml_tda_celltracking import load_or_build_celltracking_tensors

@@ -59,5 +59,6 @@ POT # for Gudhi
 dionysus
 
 # Datasets:
+aeon
 ucimlrepo
 # momentfm

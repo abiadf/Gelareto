@@ -312,6 +312,35 @@ DATASET_CONFIGS["noisy_frames"] = {
     "REAL_TDA_MODES": ["none", "h0", "h1", "both"],
 }
 
+DATASET_CONFIGS["electric_devices"] = {
+    "kind": "aeon_classification",
+    "aeon_name": "ElectricDevices",
+    "extract_path": "datasets/timeseries/aeon_data",
+    "cache_dir": "datasets/timeseries/electric_devices/processed",
+    "cache_dtype": "uint8",
+    "image_size": (64, 64),
+    "render_window": 16,
+    "learning_rate": 3e-4,
+    "LATENT_DIM": 64,
+    "HIDDEN_DIM": 96,
+    "PREDICTOR_EPOCHS": 10,
+    "AE_FRAME_BATCH_SIZE": 256,
+    "AE_MAX_FRAMES_PER_EPOCH": 8192,
+    "REAL_TDA_SCALE": 5,
+    "REAL_TDA_BINS": 25,
+    "HORIZON": 5,
+    "RUN_SEEDS": list(range(5)),
+    "LATENT_TDA_WINDOW": 10,
+    "LATENT_TDA_BINS": 16,
+    "LATENT_TDA_PREDICTOR_EPOCHS": 10,
+    "PIXEL_TDA_MODES": ["none", "h0", "h1", "both"],
+    "PIXEL_TDA_PREDICTOR_EPOCHS": 10,
+    "PIXEL_TDA_BATCH_SIZE": 32,
+    "PIXEL_TDA_FG_WEIGHT": 1.0,
+    "PIXEL_TDA_FG_THRESHOLD": 0.05,
+    "REAL_TDA_MODES": ["none", "h0", "h1", "both"],
+}
+
 DATASET_CONFIGS["bouncing_disks"] = {
     **DATASET_CONFIGS["bouncing_rings"],
     "shape": "disk",
