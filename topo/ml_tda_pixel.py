@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from topo import ml_tda
+from topo.utils import tqdm_progress_bar
 
 
 DATASET = "default"
@@ -173,11 +174,14 @@ def train_or_load_predictor(seed, mode, train_features, X_train):
     opt = optim.AdamW(model.parameters(), lr=PIXEL_TDA_LR)
     generator = torch.Generator().manual_seed(seed + 1234)
 
-    for epoch in range(1, PIXEL_TDA_PREDICTOR_EPOCHS + 1):
+    epochs = range(1, PIXEL_TDA_PREDICTOR_EPOCHS + 1)
+    for epoch in tqdm_progress_bar(epochs, desc=f"Pixel predictor {mode}", total=PIXEL_TDA_PREDICTOR_EPOCHS):
         model.train()
         perm = torch.randperm(x_all.shape[1], generator=generator)
         total_weighted, total_pixel, total_seen = 0.0, 0.0, 0
-        for start in range(0, len(perm), batch_size):
+        batches = range(0, len(perm), batch_size)
+        n_batches = (len(perm) + batch_size - 1) // batch_size
+        for start in tqdm_progress_bar(batches, desc=f"Pixel epoch {epoch} batches", total=n_batches):
             idx = perm[start:start + batch_size]
             x_batch = x_all[:, idx].to(device, non_blocking=True)
             y_batch = y_all[:, idx].to(device, non_blocking=True)

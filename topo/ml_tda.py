@@ -11,6 +11,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from topo.utils import tqdm_progress_bar
+
 try:
     from PIL import Image
 except ImportError:  # pragma: no cover - notebook dependency fallback
@@ -24,6 +26,7 @@ REAL_TDA_SCALE = 15
 REAL_TDA_BINS = 25
 HORIZON = 1
 PREDICTOR_EPOCHS = 10
+PREDICTOR_TYPE = "lstm"
 DEVICE = "auto"
 criterion = nn.MSELoss()
 
@@ -147,6 +150,46 @@ class TopologicalPredictor(nn.Module):
         lstm_out, _ = self.lstm(x) 
         return self.predictor(lstm_out)
 
+
+class XLSTMPredictor(nn.Module):
+    """Lightweight xLSTM-style gated recurrent predictor.
+
+    This is a practical benchmark, not a full external xLSTM package: it adds
+    input normalization, multiplicative gating, and a residual MLP head around
+    a recurrent backbone while preserving the same sequence API.
+    """
+
+    def __init__(self, input_dim, hidden_dim=128):
+        super().__init__()
+        self.input_norm = nn.LayerNorm(input_dim)
+        self.lstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, batch_first=False)
+        self.gate = nn.Sequential(nn.Linear(input_dim, hidden_dim), nn.Sigmoid())
+        self.head = nn.Sequential(
+            nn.LayerNorm(hidden_dim),
+            nn.Linear(hidden_dim, 2 * hidden_dim),
+            nn.GELU(),
+            nn.Linear(2 * hidden_dim, LATENT_DIM),
+        )
+
+    def forward(self, x):
+        x_norm = self.input_norm(x)
+        recurrent, _ = self.lstm(x_norm)
+        gated = recurrent * self.gate(x_norm)
+        return self.head(gated)
+
+
+PREDICTOR_TYPES = {"lstm", "xlstm"}
+
+
+def make_predictor(input_dim, hidden_dim=128, predictor_type=None):
+    predictor_type = str(predictor_type or globals().get("PREDICTOR_TYPE", "lstm")).lower().strip()
+    if predictor_type == "lstm":
+        return TopologicalPredictor(input_dim=input_dim, hidden_dim=hidden_dim)
+    if predictor_type == "xlstm":
+        return XLSTMPredictor(input_dim=input_dim, hidden_dim=hidden_dim)
+    valid = ", ".join(sorted(PREDICTOR_TYPES))
+    raise ValueError(f"Unknown predictor_type={predictor_type!r}. Valid: {valid}")
+
 def diagrams_to_betti_curves(batch_diagrams, num_steps=25, min_v=0.0, max_v=1.0):
     thresholds = np.linspace(min_v, max_v, num_steps, dtype=np.float32)
     curves     = np.zeros((len(batch_diagrams), num_steps), dtype=np.float32)
@@ -264,7 +307,7 @@ def pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=3):
     all_frames = X_train.reshape(-1, *X_train.shape[2:])
     frame_batch_size = globals().get("AE_FRAME_BATCH_SIZE", 256)
     max_frames_per_epoch = globals().get("AE_MAX_FRAMES_PER_EPOCH", min(len(all_frames), 8192))
-    for ae_epoch in range(ae_epochs):
+    for ae_epoch in tqdm_progress_bar(range(ae_epochs), desc="AE epochs", total=ae_epochs):
         encoder.train()
         decoder.train()
         generator = torch.Generator().manual_seed(1000 + ae_epoch)
@@ -273,7 +316,9 @@ def pretrain_spatial_encoder(encoder, decoder, X_train, ae_epochs=3):
         else:
             frame_idx = torch.randperm(len(all_frames), generator=generator)[:max_frames_per_epoch]
         total_loss, total_seen = 0.0, 0
-        for start in range(0, len(frame_idx), frame_batch_size):
+        batches = range(0, len(frame_idx), frame_batch_size)
+        n_batches = (len(frame_idx) + frame_batch_size - 1) // frame_batch_size
+        for start in tqdm_progress_bar(batches, desc=f"AE epoch {ae_epoch + 1} batches", total=n_batches):
             idx = frame_idx[start:start + frame_batch_size]
             frames = tensor_to_model_float(all_frames[idx]).to(device, non_blocking=True)
             ae_optimizer.zero_grad()
@@ -299,7 +344,7 @@ def train_decoder_for_encoder(encoder, decoder, X_train, ae_epochs=3, learning_r
     all_frames = X_train.reshape(-1, *X_train.shape[2:])
     frame_batch_size = globals().get("AE_FRAME_BATCH_SIZE", 256)
     max_frames_per_epoch = globals().get("AE_MAX_FRAMES_PER_EPOCH", min(len(all_frames), 8192))
-    for ae_epoch in range(int(ae_epochs)):
+    for ae_epoch in tqdm_progress_bar(range(int(ae_epochs)), desc="Decoder epochs", total=int(ae_epochs)):
         decoder.train()
         generator = torch.Generator().manual_seed(2000 + ae_epoch)
         if max_frames_per_epoch is None or max_frames_per_epoch >= len(all_frames):
@@ -307,7 +352,9 @@ def train_decoder_for_encoder(encoder, decoder, X_train, ae_epochs=3, learning_r
         else:
             frame_idx = torch.randperm(len(all_frames), generator=generator)[:max_frames_per_epoch]
         total_loss, total_seen = 0.0, 0
-        for start in range(0, len(frame_idx), frame_batch_size):
+        batches = range(0, len(frame_idx), frame_batch_size)
+        n_batches = (len(frame_idx) + frame_batch_size - 1) // frame_batch_size
+        for start in tqdm_progress_bar(batches, desc=f"Decoder epoch {ae_epoch + 1} batches", total=n_batches):
             idx = frame_idx[start:start + frame_batch_size]
             frames = tensor_to_model_float(all_frames[idx]).to(device, non_blocking=True)
             optimizer.zero_grad()
@@ -330,7 +377,7 @@ def build_real_tda_features(video_tensor, encoder, use_tda, split_name="Train"):
     z_history = []
     tda_history = []
     with torch.no_grad():
-        for t in range(video_tensor.shape[0]):
+        for t in tqdm_progress_bar(range(video_tensor.shape[0]), desc=f"{split_name} frames", total=video_tensor.shape[0]):
             frame_t = tensor_to_model_float(video_tensor[t]).to(device, non_blocking=True)
             z_t     = encoder(frame_t)
             if use_tda:
@@ -359,7 +406,7 @@ def train_predictor(model, encoder, X_train, predictor_epochs, use_tda, learning
     model.to(device)
     print(f"Predictor device: {device}")
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
-    for epoch in range(predictor_epochs):
+    for epoch in tqdm_progress_bar(range(predictor_epochs), desc="Predictor epochs", total=predictor_epochs):
         model.train()
         optimizer.zero_grad()
         print(f"\n--- Epoch {epoch+1:02d}/{predictor_epochs:02d} ---")
@@ -384,7 +431,8 @@ def load_or_train_model(encoder, decoder, model, X_train, retrain_encoder, retra
     # The predictor remains variant-specific because its input dimension changes.
     seed_tag     = globals().get("EXPERIMENT_SEED", "default")
     encoder_tag  = f"seed{seed_tag}_T{X_train.shape[0]}_B{X_train.shape[1]}_H{X_train.shape[-2]}_W{X_train.shape[-1]}_latent{LATENT_DIM}"
-    predict_tag = f"pred{HORIZON}"
+    predictor_tag = str(globals().get("PREDICTOR_TYPE", "lstm")).lower().strip()
+    predict_tag = f"pred{HORIZON}_{predictor_tag}"
     model_suffix = (
         f"seed{seed_tag}_{predict_tag}_real_tda_{TDA_MODE}_realtdascale{REAL_TDA_SCALE}"
         if use_tda
@@ -1038,6 +1086,114 @@ def load_lorenz_moving_shapes(config):
         raise ValueError(f"Unknown Lorenz moving-shapes normalize mode: {normalize}")
     return train, test
 
+
+def _factor_grid_size(n_vars):
+    rows = int(np.floor(np.sqrt(n_vars)))
+    while rows > 1 and n_vars % rows != 0:
+        rows -= 1
+    cols = int(np.ceil(n_vars / rows))
+    return rows, cols
+
+
+def _lorenz96_rhs(x, forcing):
+    return (np.roll(x, -1) - np.roll(x, 2)) * np.roll(x, 1) - x + forcing
+
+
+def _rk4_lorenz96_step(x, dt, forcing):
+    k1 = _lorenz96_rhs(x, forcing)
+    k2 = _lorenz96_rhs(x + 0.5 * dt * k1, forcing)
+    k3 = _lorenz96_rhs(x + 0.5 * dt * k2, forcing)
+    k4 = _lorenz96_rhs(x + dt * k3, forcing)
+    return x + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+
+def _lorenz96_state_to_frame(state, image_size, forcing, value_scale):
+    rows, cols = _factor_grid_size(state.shape[0])
+    grid = np.zeros((rows * cols,), dtype=np.float32)
+    values = np.clip((state - (forcing - value_scale)) / (2.0 * value_scale), 0.0, 1.0)
+    grid[:state.shape[0]] = values.astype(np.float32)
+    grid = grid.reshape(rows, cols)
+    if grid.shape != tuple(image_size):
+        grid = cv2.resize(grid, tuple(image_size)[::-1], interpolation=cv2.INTER_CUBIC)
+    return np.clip(grid, 0.0, 1.0).astype(np.float32)
+
+
+def generate_lorenz96_split(config, split_name, num_clips, seed_offset):
+    clip_len = int(config.get("clip_len", 100))
+    n_vars = int(config.get("n_vars", 40))
+    dt = float(config.get("dt", 0.01))
+    sample_stride = int(config.get("sample_stride", 5))
+    transient_steps = int(config.get("transient_steps", 1000))
+    forcing = float(config.get("forcing", 8.0))
+    value_scale = float(config.get("value_scale", 10.0))
+    image_size = tuple(config.get("image_size", (64, 64)))
+    noise_std = float(config.get("init_noise_std", 0.01))
+    total_steps = transient_steps + clip_len * sample_stride
+    clips = np.empty((num_clips, clip_len, 1, image_size[0], image_size[1]), dtype=np.float32)
+
+    print(f"Generating {num_clips} Lorenz-96 {split_name} trajectories: T={clip_len}, vars={n_vars}, F={forcing}")
+    for clip_idx in range(num_clips):
+        rng = np.random.RandomState(seed_offset + clip_idx * 1009)
+        state = forcing * np.ones(n_vars, dtype=np.float32)
+        state += noise_std * rng.randn(n_vars).astype(np.float32)
+        # Make trajectories distinct without changing the dynamical system.
+        state[rng.randint(0, n_vars)] += rng.uniform(0.5, 1.5)
+        out_t = 0
+        for step in range(total_steps):
+            state = _rk4_lorenz96_step(state, dt, forcing).astype(np.float32)
+            if step >= transient_steps and (step - transient_steps) % sample_stride == 0:
+                clips[clip_idx, out_t, 0] = _lorenz96_state_to_frame(state, image_size, forcing, value_scale)
+                out_t += 1
+                if out_t >= clip_len:
+                    break
+
+    if config.get("cache_dtype", "float32") == "uint8":
+        return torch.from_numpy(np.clip(np.rint(clips * 255.0), 0, 255).astype(np.uint8))
+    return torch.from_numpy(clips)
+
+
+def lorenz96_cache_path(config, split_name, num_clips, seed_offset):
+    cache_dir = Path(config.get("cache_dir", "datasets/timeseries/lorenz96/processed"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    image_size = tuple(config.get("image_size", (64, 64)))
+    tag = (
+        f"{split_name}_N{num_clips}_T{config.get('clip_len', 100)}_"
+        f"K{config.get('n_vars', 40)}_F{config.get('forcing', 8.0)}_"
+        f"dt{config.get('dt', 0.01)}_stride{config.get('sample_stride', 5)}_"
+        f"H{image_size[0]}_W{image_size[1]}_"
+        f"dtype{config.get('cache_dtype', 'float32')}_seed{seed_offset}.pt"
+    )
+    return cache_dir / tag.replace("/", "-")
+
+
+def load_or_generate_lorenz96_split(config, split_name, num_clips, seed_offset):
+    cache_path = lorenz96_cache_path(config, split_name, num_clips, seed_offset)
+    force_rebuild = config.get("force_rebuild_cache", False)
+    if cache_path.exists() and not force_rebuild:
+        print(f"Loading cached Lorenz-96 {split_name}: {cache_path}")
+        return torch.load(cache_path, map_location="cpu")
+
+    data = generate_lorenz96_split(config, split_name, num_clips, seed_offset)
+    torch.save(data, cache_path)
+    print(f"Saved Lorenz-96 {split_name} cache: {cache_path}")
+    return data
+
+
+def load_lorenz96_timeseries(config):
+    train_n = config.get("num_train_clips", 512)
+    test_n = config.get("num_test_clips", 128)
+    train_seed = config.get("train_seed_offset", 0)
+    test_seed = config.get("test_seed_offset", 50000)
+    train = load_or_generate_lorenz96_split(config, "train", train_n, train_seed)
+    test = load_or_generate_lorenz96_split(config, "test", test_n, test_seed)
+    train = train.squeeze(2).permute(1, 0, 2, 3).numpy()
+    test = test.squeeze(2).permute(1, 0, 2, 3).numpy()
+    if config.get("normalize", "none") == "minmax" and train.dtype != np.uint8:
+        train = normalize_video_array(train)
+        test = normalize_video_array(test)
+    return train, test
+
+
 def load_video_dataset(config):
     if config["kind"] == "moving_mnist":
         arr = normalize_video_array(np.load(config["path"]))
@@ -1055,6 +1211,19 @@ def load_video_dataset(config):
         return train, test
     elif config["kind"] == "orbiting_shapes":
         train, test = load_orbiting_shapes(config)
+        return train, test
+    elif config["kind"] == "lorenz96_timeseries":
+        train, test = load_lorenz96_timeseries(config)
+        return train, test
+    elif config["kind"] == "ctc_tif_clips":
+        from topo.ml_tda_celltracking import load_or_build_celltracking_tensors
+
+        train_tensor, test_tensor = load_or_build_celltracking_tensors(
+            config,
+            force_rebuild=config.get("force_rebuild_cache", False),
+        )
+        train = train_tensor.squeeze(2).permute(1, 0, 2, 3).numpy()
+        test = test_tensor.squeeze(2).permute(1, 0, 2, 3).numpy()
         return train, test
     else:
         raise ValueError(f"Unknown dataset kind: {config['kind']}")

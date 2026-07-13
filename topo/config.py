@@ -149,19 +149,22 @@ DATASET_CONFIGS = {
         "REAL_TDA_SCALE": 15,
         "REAL_TDA_BINS": 25,
 
-        # CTC time-lapse preprocessing: raw stack -> spatial patch tracks -> temporal clips.
+        # CTC time-lapse preprocessing: raw stack -> full-frame temporal clips.
+        # Set full_frame=False to restore the old spatial patch tracks.
+        "full_frame": True,
+        "image_size": (64, 64),
         "patch_size": 256,
         "spatial_stride": 128,
         "win_len": 20,
         "temporal_stride": 5,
         "normalize": "minmax",
-        "empty_patch_filter": True,
+        "empty_patch_filter": False,
         "min_temporal_std": 0.03, #removes clips with low temporal var (e.g. empty background)
         "min_mean_intensity": 0.01,
         "max_train_clips": 128,
         "max_test_clips": 64,
-        "preprocessed_train_tensor": "datasets/2D/glioblastoma/processed/train_clips.pt",
-        "preprocessed_test_tensor": "datasets/2D/glioblastoma/processed/test_clips.pt",
+        "preprocessed_train_tensor": "datasets/2D/glioblastoma/processed/train_full_frame_clips.pt",
+        "preprocessed_test_tensor": "datasets/2D/glioblastoma/processed/test_full_frame_clips.pt",
 
         # Clip-tensor ablation runner params.
         "RUN_SEEDS": list(range(3)),
@@ -199,19 +202,22 @@ DATASET_CONFIGS = {
         "REAL_TDA_SCALE": 15,
         "REAL_TDA_BINS": 25,
 
-        # CTC time-lapse preprocessing: raw stack -> spatial patch tracks -> temporal clips.
+        # CTC time-lapse preprocessing: raw stack -> full-frame temporal clips.
+        # Set full_frame=False to restore the old spatial patch tracks.
+        "full_frame": True,
+        "image_size": (64, 64),
         "patch_size": 256,
         "spatial_stride": 128,
         "win_len": 20,
         "temporal_stride": 5,
         "normalize": "minmax",
-        "empty_patch_filter": True,
+        "empty_patch_filter": False,
         "min_temporal_std": 0.03,
         "min_mean_intensity": 0.01,
         "max_train_clips": 96,
         "max_test_clips": 48,
-        "preprocessed_train_tensor": "datasets/2D/hela/processed/train_clips.pt",
-        "preprocessed_test_tensor": "datasets/2D/hela/processed/test_clips.pt",
+        "preprocessed_train_tensor": "datasets/2D/hela/processed/train_full_frame_clips.pt",
+        "preprocessed_test_tensor": "datasets/2D/hela/processed/test_full_frame_clips.pt",
 
         # Clip-tensor ablation runner params.
         "RUN_SEEDS": list(range(3)),
@@ -233,6 +239,45 @@ DATASET_CONFIGS = {
         "LATENT_TDA_WINDOW": 20,
         "LATENT_TDA_BINS": 16,
     },}
+
+DATASET_CONFIGS["lorenz96"] = {
+    "kind": "lorenz96_timeseries",
+    "num_train_clips": 512,
+    "num_test_clips": 128,
+    "cache_dir": "datasets/timeseries/lorenz96/processed",
+    "cache_dtype": "float32",
+    "clip_len": 100,
+    "n_vars": 40,
+    "forcing": 8.0,
+    "dt": 0.01,
+    "sample_stride": 5,
+    "transient_steps": 1000,
+    "init_noise_std": 0.01,
+    "value_scale": 10.0,
+    "image_size": (64, 64),
+    "normalize": "none",
+    "train_seed_offset": 0,
+    "test_seed_offset": 50000,
+    "learning_rate": 3e-4,
+    "LATENT_DIM": 64,
+    "HIDDEN_DIM": 96,
+    "PREDICTOR_EPOCHS": 10,
+    "AE_FRAME_BATCH_SIZE": 256,
+    "AE_MAX_FRAMES_PER_EPOCH": 8192,
+    "REAL_TDA_SCALE": 5,
+    "REAL_TDA_BINS": 25,
+    "HORIZON": 5,
+    "RUN_SEEDS": list(range(5)),
+    "LATENT_TDA_WINDOW": 20,
+    "LATENT_TDA_BINS": 16,
+    "LATENT_TDA_PREDICTOR_EPOCHS": 10,
+    "PIXEL_TDA_MODES": ["none", "h0", "h1", "both"],
+    "PIXEL_TDA_PREDICTOR_EPOCHS": 10,
+    "PIXEL_TDA_BATCH_SIZE": 32,
+    "PIXEL_TDA_FG_WEIGHT": 1.0,
+    "PIXEL_TDA_FG_THRESHOLD": 0.05,
+    "REAL_TDA_MODES": ["none", "h0", "h1", "both"],
+}
 
 DATASET_CONFIGS["bouncing_disks"] = {
     **DATASET_CONFIGS["bouncing_rings"],

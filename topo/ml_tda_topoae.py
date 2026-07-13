@@ -22,6 +22,7 @@ import torch.optim as optim
 
 from topo import ml_tda
 from topo.ml_tda import SpatialDecoder, SpatialEncoder, make_spatial_decoder
+from topo.utils import tqdm_progress_bar
 
 
 TOPO_AE_DISTANCES = {"signature", "wasserstein"}
@@ -278,7 +279,8 @@ def load_or_train_topo_autoencoder(
         f"lambda={topo_lambda}, distance={topo_distance}, ae_epochs={ae_epochs}, device={device}"
     )
 
-    for epoch in range(1, int(ae_epochs) + 1):
+    epochs = range(1, int(ae_epochs) + 1)
+    for epoch in tqdm_progress_bar(epochs, desc="Topo-AE epochs", total=int(ae_epochs), leave=True):
         encoder.train()
         decoder.train()
         generator = torch.Generator().manual_seed(seed * 10_000 + epoch)
@@ -290,7 +292,9 @@ def load_or_train_topo_autoencoder(
         total_recon = 0.0
         total_topo = 0.0
         total_seen = 0
-        for start in range(0, len(frame_idx), frame_batch_size):
+        batches = range(0, len(frame_idx), frame_batch_size)
+        n_batches = (len(frame_idx) + frame_batch_size - 1) // frame_batch_size
+        for start in tqdm_progress_bar(batches, desc=f"Topo-AE epoch {epoch} batches", total=n_batches):
             idx = frame_idx[start:start + frame_batch_size]
             frames = ml_tda.tensor_to_model_float(all_frames[idx]).to(device, non_blocking=True)
             optimizer.zero_grad()

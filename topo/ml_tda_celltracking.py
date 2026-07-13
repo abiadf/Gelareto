@@ -28,6 +28,7 @@ from topo.ml_tda import (
     SpatialDecoder,
     prepare_clip_tensor_for_sequence_pipeline,
     pretrain_spatial_encoder_on_clips,
+    resize_video_array,
 )
 
 
@@ -150,11 +151,18 @@ def build_clips_from_sequence_dirs(sequence_dirs, cfg, split_name):
             mode=cfg.get("normalize", "minmax"),
             percentiles=cfg.get("normalize_percentiles", (1, 99.8)),
         )
-        timelines = slice_video_into_spatial_patches(
-            stack,
-            patch_size=cfg.get("patch_size", 128),
-            spatial_stride=cfg.get("spatial_stride", cfg.get("patch_size", 128)),
-        )
+        if cfg.get("full_frame", False):
+            image_size = cfg.get("image_size")
+            if image_size is not None:
+                stack = resize_video_array(stack, tuple(image_size))
+            timelines = [stack]
+            print(f"Full-frame timeline: 1 of size {stack.shape[-2]}x{stack.shape[-1]}")
+        else:
+            timelines = slice_video_into_spatial_patches(
+                stack,
+                patch_size=cfg.get("patch_size", 128),
+                spatial_stride=cfg.get("spatial_stride", cfg.get("patch_size", 128)),
+            )
         clips = generate_sliding_window_clips(
             timelines,
             win_len=cfg.get("win_len", 20),

@@ -29,10 +29,13 @@ import topo.ml_tda_latent as ml_tda_latent
 import topo.ml_tda_pixel as ml_tda_pixel
 import topo.ml_tda_geoae as ml_tda_geoae
 import topo.ml_tda_topoae as ml_tda_topoae
+import topo.ml_tda_repr as ml_tda_repr
+from topo.utils import tqdm_progress_bar
 from topo.ml_tda import (
     SpatialDecoder,
     SpatialEncoder,
     TopologicalPredictor,
+    make_predictor,
     make_spatial_decoder,
     load_or_train_model,
     load_video_dataset,
@@ -49,6 +52,8 @@ RUNNER_SCENARIOS = {
     "latent_tda",
     "geo_latent_tda",
     "topo_latent_tda",
+    "vae_latent_tda",
+    "byol_latent_tda",
     "aux_tda",
     "pixel_tda",
     "geo_pixel_tda",
@@ -111,6 +116,11 @@ class RunConfig:
     topo_ae_pair_batch_size: int
     topo_ae_distance: str
     decoder_type: str
+    predictor_type: str
+    vae_beta: float
+    vae_epochs: int | None
+    byol_epochs: int | None
+    byol_noise_std: float
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
@@ -226,17 +236,17 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         raise ValueError(f"Unknown dataset {cfg.dataset!r}. Valid datasets: {valid}")
 
     run_config = dict(dataset_configs[cfg.dataset])
-    if run_config.get("kind") == "ctc_tif_clips":
-        raise ValueError(
-            f"Dataset {cfg.dataset!r} uses the celltracking runner, which has not been "
-            "migrated to topo.ml_runner yet."
-        )
-
-    if run_config.get("kind") in {"lorenz_moving_shapes", "orbiting_shapes"}:
+    if run_config.get("kind") in {"lorenz_moving_shapes", "orbiting_shapes", "lorenz96_timeseries"}:
         if cfg.num_train_clips is not None:
             run_config["num_train_clips"] = cfg.num_train_clips
         if cfg.num_test_clips is not None:
             run_config["num_test_clips"] = cfg.num_test_clips
+        run_config["force_rebuild_cache"] = cfg.force_rebuild_data_cache
+    elif run_config.get("kind") == "ctc_tif_clips":
+        if cfg.num_train_clips is not None:
+            run_config["max_train_clips"] = cfg.num_train_clips
+        if cfg.num_test_clips is not None:
+            run_config["max_test_clips"] = cfg.num_test_clips
         run_config["force_rebuild_cache"] = cfg.force_rebuild_data_cache
 
     train_array, test_array = load_video_dataset(run_config)
@@ -283,6 +293,7 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         REAL_TDA_BINS=real_tda_bins,
         HORIZON=horizon,
         PREDICTOR_EPOCHS=predictor_epochs,
+        PREDICTOR_TYPE=cfg.predictor_type,
         DEVICE=_select_device(cfg.device),
         AE_EPOCHS=ae_epochs,
         AE_FRAME_BATCH_SIZE=ae_frame_batch_size,
@@ -319,7 +330,7 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
     )
 
     rows = []
-    for seed in seeds:
+    for seed in tqdm_progress_bar(seeds, desc="real_tda seeds", total=len(seeds), leave=True):
         print(f"\n================ real-tda seed={seed} ================")
         random.seed(seed)
         np.random.seed(seed)
@@ -351,7 +362,7 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
                 latent_dim=context.latent_dim,
                 output_size=context.x_train.shape[-2:],
             )
-            model = TopologicalPredictor(input_dim=input_dim, hidden_dim=context.hidden_dim)
+            model = make_predictor(input_dim=input_dim, hidden_dim=context.hidden_dim, predictor_type=cfg.predictor_type)
             load_or_train_model(
                 encoder,
                 decoder,
@@ -489,13 +500,14 @@ def _ae_real_tda_predictor_path(
     mode: str,
     context: VideoContext,
     input_dim: int,
+    predictor_type: str = "lstm",
 ) -> Path:
     model_dir = Path("models") / model_namespace / predictor_dir
     model_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_mode{mode}_pred{context.horizon}_"
         f"T{context.x_train.shape[0]}_B{context.x_train.shape[1]}_"
-        f"latent{context.latent_dim}_input{input_dim}"
+        f"latent{context.latent_dim}_input{input_dim}_{predictor_type}"
     )
     return model_dir / f"{tag}.pt"
 
@@ -505,13 +517,14 @@ def _decode_z_predictor_path(
     seed: int,
     context: VideoContext,
     decoder_type: str = "mlp",
+    predictor_type: str = "lstm",
 ) -> Path:
     model_dir = Path("models") / model_namespace / "decode_z_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_pred{context.horizon}_"
         f"T{context.x_train.shape[0]}_B{context.x_train.shape[1]}_"
-        f"latent{context.latent_dim}{_decoder_suffix(decoder_type)}"
+        f"latent{context.latent_dim}_{predictor_type}{_decoder_suffix(decoder_type)}"
     )
     return model_dir / f"model_{tag}.pt"
 
@@ -524,8 +537,14 @@ def _train_or_load_decode_z_predictor(
     train_z: torch.Tensor,
 ) -> tuple[TopologicalPredictor, Path]:
     device = ml_tda.get_runtime_device()
-    model = TopologicalPredictor(input_dim=context.latent_dim, hidden_dim=context.hidden_dim).to(device)
-    model_path = _decode_z_predictor_path(model_namespace, seed, context, cfg.decoder_type)
+    model = make_predictor(input_dim=context.latent_dim, hidden_dim=context.hidden_dim, predictor_type=cfg.predictor_type).to(device)
+    model_path = _decode_z_predictor_path(
+        model_namespace,
+        seed,
+        context,
+        cfg.decoder_type,
+        cfg.predictor_type,
+    )
 
     if model_path.exists() and not cfg.retrain_predictor:
         print(f"Loading decode-z predictor: {model_path}")
@@ -545,7 +564,8 @@ def _train_or_load_decode_z_predictor(
     x_train = train_z[:-context.horizon].to(device)
     y_train = train_z[context.horizon:].to(device)
 
-    for epoch in range(1, context.predictor_epochs + 1):
+    epochs = range(1, context.predictor_epochs + 1)
+    for epoch in tqdm_progress_bar(epochs, desc=f"decode-z seed={seed}", total=context.predictor_epochs):
         model.train()
         optimizer.zero_grad()
         pred_z = model(x_train)
@@ -620,7 +640,7 @@ def _train_or_load_geo_real_tda_predictor(
     mode: str,
 ) -> tuple[TopologicalPredictor, Path]:
     use_tda, input_dim = _geo_feature_dim(mode, context)
-    model = TopologicalPredictor(input_dim=input_dim, hidden_dim=context.hidden_dim)
+    model = make_predictor(input_dim=input_dim, hidden_dim=context.hidden_dim, predictor_type=cfg.predictor_type)
     model_path = _ae_real_tda_predictor_path(
         model_namespace,
         "geo_real_tda_predictors",
@@ -628,6 +648,7 @@ def _train_or_load_geo_real_tda_predictor(
         mode,
         context,
         input_dim,
+        cfg.predictor_type,
     )
     device = ml_tda.get_runtime_device()
 
@@ -714,7 +735,7 @@ def run_geo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFram
     )
 
     rows = []
-    for seed in seeds:
+    for seed in tqdm_progress_bar(seeds, desc="geo_real_tda seeds", total=len(seeds), leave=True):
         print(f"\n================ geo-real-tda seed={seed} ================")
         _set_all_seeds(seed)
         encoder, encoder_path, model_namespace = _load_geo_encoder_for_seed(cfg, context, seed)
@@ -786,7 +807,7 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
     )
 
     rows = []
-    for seed in seeds:
+    for seed in tqdm_progress_bar(seeds, desc="topo_real_tda seeds", total=len(seeds), leave=True):
         print(f"\n================ topo-real-tda seed={seed} ================")
         _set_all_seeds(seed)
         encoder, encoder_path, model_namespace = _load_topo_encoder_for_seed(cfg, context, seed)
@@ -795,7 +816,7 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
             ml_tda.configure_runtime(EXPERIMENT_SEED=seed, TDA_MODE=mode)
             use_tda, input_dim = _geo_feature_dim(mode, context)
             print(f"\n-------- DATASET={cfg.dataset} seed={seed} TOPO_TDA_MODE={mode} --------")
-            model = TopologicalPredictor(input_dim=input_dim, hidden_dim=context.hidden_dim)
+            model = make_predictor(input_dim=input_dim, hidden_dim=context.hidden_dim, predictor_type=cfg.predictor_type)
             model_path = _ae_real_tda_predictor_path(
                 model_namespace,
                 "topo_real_tda_predictors",
@@ -803,6 +824,7 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
                 mode,
                 context,
                 input_dim,
+                cfg.predictor_type,
             )
             device = ml_tda.get_runtime_device()
             if model_path.exists() and not cfg.retrain_predictor:
@@ -886,6 +908,7 @@ def run_aux_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd
         AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+        PREDICTOR_TYPE=cfg.predictor_type,
     )
     ml_tda_aux.configure_runtime(
         DATASET=cfg.dataset,
@@ -945,6 +968,7 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
         AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+        PREDICTOR_TYPE=cfg.predictor_type,
     )
     ml_tda_latent.configure_runtime(
         DATASET=cfg.dataset,
@@ -1008,6 +1032,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
         AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+        PREDICTOR_TYPE=cfg.predictor_type,
     )
     ml_tda_latent.configure_runtime(
         DATASET=model_namespace,
@@ -1031,7 +1056,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     )
 
     rows = []
-    for seed in seeds:
+    for seed in tqdm_progress_bar(seeds, desc="geo_latent_tda seeds", total=len(seeds), leave=True):
         print(f"\n================ geo latent TDA seed={seed} ================")
         _set_all_seeds(seed)
         encoder, encoder_path, _ = _load_geo_encoder_for_seed(cfg, context, seed)
@@ -1049,6 +1074,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
             x_test_subset,
             encoder,
         )
+        diagnostics = ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
 
         for mode in modes:
             print(f"\n--- geo latent mode={mode} seed={seed} ---")
@@ -1077,6 +1103,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
                 "encoder_path": str(encoder_path),
+                **diagnostics,
             }
             rows.append(row)
             print("geo latent TDA summary:", row)
@@ -1127,6 +1154,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
         AE_EPOCHS=context.ae_epochs,
         AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
         AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+        PREDICTOR_TYPE=cfg.predictor_type,
     )
     ml_tda_latent.configure_runtime(
         DATASET=model_namespace,
@@ -1150,7 +1178,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     )
 
     rows = []
-    for seed in seeds:
+    for seed in tqdm_progress_bar(seeds, desc="topo_latent_tda seeds", total=len(seeds), leave=True):
         print(f"\n================ topo latent TDA seed={seed} ================")
         _set_all_seeds(seed)
         encoder, encoder_path, _ = _load_topo_encoder_for_seed(cfg, context, seed)
@@ -1168,6 +1196,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
             x_test_subset,
             encoder,
         )
+        diagnostics = ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
 
         for mode in modes:
             print(f"\n--- topo latent mode={mode} seed={seed} ---")
@@ -1197,6 +1226,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
                 "encoder_path": str(encoder_path),
+                **diagnostics,
             }
             rows.append(row)
             print("topo latent TDA summary:", row)
@@ -1214,6 +1244,147 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     with pd.option_context("display.float_format", "{:.4f}".format):
         print(summary_df)
     return results_df, summary_df
+
+
+def _run_representation_latent_tda(
+    cfg: RunConfig,
+    context: VideoContext,
+    *,
+    rep_kind: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get(
+            "LATENT_TDA_MODES",
+            ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+        ),
+    )
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
+    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
+    max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
+    if rep_kind == "vae":
+        model_namespace = f"{cfg.dataset}_vae_beta{cfg.vae_beta:g}"
+        scenario_name = "vae_latent_tda"
+    elif rep_kind == "byol":
+        model_namespace = f"{cfg.dataset}_byol"
+        scenario_name = "byol_latent_tda"
+    else:
+        raise ValueError(f"Unknown representation kind: {rep_kind}")
+    recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
+        "RECOMPUTE_LATENT_TDA_FEATURES",
+        True,
+    )
+
+    ml_tda.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        REAL_TDA_SCALE=context.real_tda_scale,
+        REAL_TDA_BINS=context.real_tda_bins,
+        HORIZON=context.horizon,
+        DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+        PREDICTOR_TYPE=cfg.predictor_type,
+    )
+    ml_tda_latent.configure_runtime(
+        DATASET=model_namespace,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        RETRAIN_ENCODER=cfg.retrain_encoder,
+        HORIZON=context.horizon,
+        LATENT_TDA_WINDOW=window,
+        LATENT_TDA_BINS=bins,
+        LATENT_TDA_PREDICTOR_EPOCHS=latent_epochs,
+        LATENT_TDA_LR=latent_lr,
+        RETRAIN_LATENT_TDA_PREDICTOR=cfg.retrain_predictor,
+        RECOMPUTE_LATENT_TDA_FEATURES=recompute_features,
+    )
+    print(
+        f"{scenario_name} config: dataset={cfg.dataset}, namespace={model_namespace}, "
+        f"seeds={seeds}, modes={modes}, predictor_type={cfg.predictor_type}, "
+        f"window={window}, bins={bins}, predictor_epochs={latent_epochs}, lr={latent_lr}"
+    )
+
+    rows = []
+    for seed in tqdm_progress_bar(seeds, desc=f"{scenario_name} seeds", total=len(seeds), leave=True):
+        print(f"\n================ {scenario_name} seed={seed} ================")
+        _set_all_seeds(seed)
+        x_train_subset = ml_tda_latent.take_batch_subset(context.x_train, max_train, seed=seed)
+        x_test_subset = ml_tda_latent.take_batch_subset(context.x_test, max_test, seed=seed + 1)
+        if rep_kind == "vae":
+            encoder, encoder_path = ml_tda_repr.load_or_train_vae_encoder(
+                x_train_subset,
+                dataset_name=cfg.dataset,
+                seed=seed,
+                latent_dim=context.latent_dim,
+                ae_epochs=int(_override(cfg.vae_epochs, context.ae_epochs)),
+                beta=cfg.vae_beta,
+                frame_batch_size=context.ae_frame_batch_size,
+                max_frames_per_epoch=context.ae_max_frames_per_epoch,
+                retrain=cfg.retrain_encoder,
+            )
+        else:
+            encoder, encoder_path = ml_tda_repr.load_or_train_byol_encoder(
+                x_train_subset,
+                dataset_name=cfg.dataset,
+                seed=seed,
+                latent_dim=context.latent_dim,
+                byol_epochs=int(_override(cfg.byol_epochs, context.ae_epochs)),
+                noise_std=cfg.byol_noise_std,
+                frame_batch_size=context.ae_frame_batch_size,
+                max_frames_per_epoch=context.ae_max_frames_per_epoch,
+                retrain=cfg.retrain_encoder,
+            )
+        train_payload = ml_tda_latent.load_or_compute_latent_tda_features(seed, "train", x_train_subset, encoder)
+        test_payload = ml_tda_latent.load_or_compute_latent_tda_features(seed, "test", x_test_subset, encoder)
+        diagnostics = ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
+
+        for mode in modes:
+            print(f"\n--- {scenario_name} mode={mode} seed={seed} ---")
+            ml_tda_latent.configure_runtime(CONTROL_SEED=seed)
+            train_features = ml_tda_latent.features_for_latent_tda_mode(train_payload, mode)
+            ml_tda_latent.configure_runtime(CONTROL_SEED=seed + 10_000)
+            test_features = ml_tda_latent.features_for_latent_tda_mode(test_payload, mode)
+            model = ml_tda_latent.train_or_load_latent_tda_predictor(seed, mode, train_features, train_payload["z"])
+            test_mse, _, latent_r2 = ml_tda_latent.eval_latent_tda_predictor(model, test_features, test_payload["z"])
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": rep_kind,
+                "seed": seed,
+                "mode": mode,
+                "horizon": context.horizon,
+                "test_mse": float(test_mse),
+                "latent_r2": float(latent_r2),
+                "encoder_path": str(encoder_path),
+                **diagnostics,
+            }
+            rows.append(row)
+            print(f"{scenario_name} summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=["test_mse", "latent_r2"],
+        sort_metric="test_mse",
+    )
+    print(f"\n{scenario_name} mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
+def run_vae_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return _run_representation_latent_tda(cfg, context, rep_kind="vae")
+
+
+def run_byol_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return _run_representation_latent_tda(cfg, context, rep_kind="byol")
 
 
 def _load_geo_autoencoder_for_seed(
@@ -1322,7 +1493,7 @@ def _run_decode_z(
     )
 
     rows = []
-    for seed in seeds:
+    for seed in tqdm_progress_bar(seeds, desc=f"{scenario_name} seeds", total=len(seeds), leave=True):
         print(f"\n================ {scenario_name} seed={seed} ================")
         _set_all_seeds(seed)
         if ae_kind == "geo":
@@ -1469,7 +1640,7 @@ def run_geo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
     )
 
     rows = []
-    for seed in seeds:
+    for seed in tqdm_progress_bar(seeds, desc="geo_pixel_tda seeds", total=len(seeds), leave=True):
         print(f"\n================ geo pixel-TDA seed={seed} ================")
         _set_all_seeds(seed)
         encoder, encoder_path, _ = _load_geo_encoder_for_seed(cfg, context, seed)
@@ -1590,7 +1761,7 @@ def run_topo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     )
 
     rows = []
-    for seed in seeds:
+    for seed in tqdm_progress_bar(seeds, desc="topo_pixel_tda seeds", total=len(seeds), leave=True):
         print(f"\n================ topo pixel-TDA seed={seed} ================")
         _set_all_seeds(seed)
         encoder, encoder_path, _ = _load_topo_encoder_for_seed(cfg, context, seed)
@@ -1781,6 +1952,16 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         default="mlp",
         help="Autoencoder decoder architecture: mlp keeps old flat decoder; conv uses a convolutional upsampling decoder.",
     )
+    parser.add_argument(
+        "--predictor-type",
+        choices=sorted(ml_tda.PREDICTOR_TYPES),
+        default="lstm",
+        help="Temporal predictor architecture.",
+    )
+    parser.add_argument("--vae-beta", type=float, default=1e-3, help="VAE KL weight for vae_latent_tda.")
+    parser.add_argument("--vae-epochs", type=int, default=None, help="VAE pretraining epochs.")
+    parser.add_argument("--byol-epochs", type=int, default=None, help="BYOL-style pretraining epochs.")
+    parser.add_argument("--byol-noise-std", type=float, default=0.05, help="BYOL augmentation noise std.")
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
@@ -1823,6 +2004,11 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         topo_ae_pair_batch_size=args.topo_ae_pair_batch_size,
         topo_ae_distance=args.topo_ae_distance,
         decoder_type=args.decoder_type,
+        predictor_type=args.predictor_type,
+        vae_beta=args.vae_beta,
+        vae_epochs=args.vae_epochs,
+        byol_epochs=args.byol_epochs,
+        byol_noise_std=args.byol_noise_std,
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,
@@ -1856,6 +2042,10 @@ def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame |
         results_df, summary_df = run_geo_latent_tda(cfg, context)
     elif cfg.scenario == "topo_latent_tda":
         results_df, summary_df = run_topo_latent_tda(cfg, context)
+    elif cfg.scenario == "vae_latent_tda":
+        results_df, summary_df = run_vae_latent_tda(cfg, context)
+    elif cfg.scenario == "byol_latent_tda":
+        results_df, summary_df = run_byol_latent_tda(cfg, context)
     elif cfg.scenario == "aux_tda":
         results_df, summary_df = run_aux_tda(cfg, context)
     elif cfg.scenario == "geo_pixel_tda":

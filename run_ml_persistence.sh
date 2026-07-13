@@ -8,6 +8,8 @@ set -euo pipefail
 # latent_tda: AE z-history + optional latent-trajectory TDA -> future z
 # geo_latent_tda: geoAE z-history + optional latent-trajectory TDA -> future z
 # topo_latent_tda: topoAE z-history + optional latent-trajectory TDA -> future z
+# vae_latent_tda: VAE encoder z-history + optional latent-trajectory TDA -> future z
+# byol_latent_tda: BYOL-style encoder z-history + optional latent-trajectory TDA -> future z
 # decode_z: AE z-history -> future z -> decoded future X
 # geo_decode_z: geoAE z-history -> future z -> decoded future X
 # topo_decode_z: topoAE z-history -> future z -> decoded future X
@@ -15,23 +17,26 @@ set -euo pipefail
 # geo_pixel_tda: geoAE z-history + optional frame TDA -> future X
 # topo_pixel_tda: topoAE z-history + optional frame TDA -> future X
 # aux_tda: AE z-history -> future z, with optional auxiliary Betti prediction head/loss
-# geo_* models use the old pairwise-distance geometry proxy; topo_* models use H0 persistence-signature AE
+# geo_* models use the old pairwise-distance geometry proxy; topo_* models use H0 persistence-signature AE.
+# VAE/BYOL are representation baselines for latent_tda; --predictor-type xlstm swaps the temporal predictor.
 
 # Modes:
 #   real_tda:      none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_real_tda/topo_real_tda: same as real_tda
 #   latent_tda: z,z_temporal_stats,z_temporal_stats_latent_h0,z_temporal_stats_latent_h1,z_temporal_stats_latent_both,z_latent_h0,z_latent_h1,z_latent_both,z_latent_h0_zero,z_latent_h0_shuffle,z_latent_h0_noise,z_latent_h0_shift,z_latent_h1_zero,z_latent_h1_shuffle,z_latent_h1_noise,z_latent_h1_shift,z_latent_both_zero,z_latent_both_shuffle,z_latent_both_noise,z_latent_both_shift
-#   geo_latent_tda/topo_latent_tda: same as latent_tda
+#   geo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda: same as latent_tda
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_pixel_tda/topo_pixel_tda: same as pixel_tda; none is AE z-only -> future X
 #   decode_z/geo_decode_z/topo_decode_z: z_decode only
 #   aux_tda:    none,aux_h0,aux_h1,aux_both
 
-# Synthetic datasets:
+# Synthetic/video/time-series datasets:
 #   bouncing_rings: hollow/ring objects with Lorenz-like irregular motion
 #   bouncing_disks: filled objects with Lorenz-like irregular motion
 #   orbiting_rings: hollow/ring objects with periodic circular/elliptical orbit motion
 #   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
+#   lorenz96: synthetic multivariate Lorenz-96 trajectories rasterized as heatmap frames
+#   glioblastoma/hela: CTC TIFF sequences windowed as full-frame clips by default
 #
 # Encoder workflow:
 #   First fair run for a scenario/dataset: add --include-retrain-encoder and list all modes.
@@ -41,14 +46,15 @@ set -euo pipefail
 # Use --decoder-type conv for new paper-quality decoded-image runs; default mlp preserves old results/checkpoints.
 
 args=(
-  --scenario decode_z,geo_decode_z,topo_decode_z  # comma-separated allowed; options: aux_tda | real_tda | geo_real_tda | topo_real_tda | latent_tda | geo_latent_tda | topo_latent_tda | pixel_tda | geo_pixel_tda | topo_pixel_tda | decode_z | geo_decode_z | topo_decode_z
-  --dataset bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist #,celltracking_fluo # comma-separated allowed; moving_mnist | davis_images | celltracking_fluo | bouncing_rings | bouncing_disks | orbiting_rings | orbiting_disks
+  --scenario latent_tda,geo_latent_tda,topo_latent_tda,vae_latent_tda,byol_latent_tda # options: aux_tda | real_tda | geo_real_tda | topo_real_tda | latent_tda | geo_latent_tda | topo_latent_tda | vae_latent_tda | byol_latent_tda | pixel_tda | geo_pixel_tda | topo_pixel_tda | decode_z | geo_decode_z | topo_decode_z
+  --dataset bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist,lorenz96 #lorenz96,celltracking_fluo,glioblastoma,hela,bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist
   --seeds 0,1,2,3,4                  # comma-separated seeds
   --modes z,z_latent_h0,z_latent_h1,z_latent_both #,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift #z,z_latent_h0,z_latent_h1,z_latent_both #z,z_latent_h0,z_latent_h1,z_latent_both #none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift # comma-separated modes; see above
   --horizon 5
-  --include-retrain-encoder        # train encoder once per seed, freeze it, then run all modes fairly
+  --include-retrain-encoder         # train encoder once per seed, freeze it, then run all modes fairly
   --ae-epochs 10                    # baseline AE pretraining epochs
   --predictor-epochs 40 #10
+  --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
   --geo-ae-lambda 0.1
   --topo-ae-lambda 0.1
   --geo-ae-epochs 3
@@ -59,6 +65,10 @@ args=(
   --decoder-type mlp                   # mlp: old flat decoder | conv: convolutional upsampling decoder
   --latent-tda-window 15
   --recompute-latent-tda-features
+  # --vae-beta 0.001                 # vae_latent_tda: KL weight
+  # --vae-epochs 10                  # vae_latent_tda: pretraining epochs; default falls back to --ae-epochs
+  # --byol-epochs 10                 # byol_latent_tda: pretraining epochs; default falls back to --ae-epochs
+  # --byol-noise-std 0.05            # byol_latent_tda: two-view augmentation noise
   # --latent-tda-bins 16
   # --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
 
@@ -67,6 +77,7 @@ args=(
   # --latent-dim 64                  # override encoder latent dimension
   # --hidden-dim 64                  # override LSTM hidden dimension
   # --predictor-epochs 10            # predictor training epochs; scenario-specific where applicable
+  # --predictor-type lstm            # lstm | xlstm temporal predictor
   # --learning-rate 3e-4             # predictor learning rate
   # --real-tda-scale 15              # real/frame-space Betti curve normalization
   # --real-tda-bins 25               # real/frame-space Betti curve bins

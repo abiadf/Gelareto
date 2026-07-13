@@ -41,7 +41,7 @@ torch==2.8.0
 # torch-cluster
 #torch-spline-conv
 
-# tqdm
+tqdm
 # tslearn
 # pykeops
 PyYAML

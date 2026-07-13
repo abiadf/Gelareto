@@ -1,15 +1,32 @@
 """Module for util functions, places here to avoid redundant and circular imports"""
+from __future__ import annotations
+
 import gc
 import os
 import psutil
 import shutil, pathlib
-from typing import Optional
+from typing import Optional, TypeVar
+from tqdm.auto import tqdm
 
 import torch
 import torch.nn.functional as F
 import numpy as np
+from collections.abc import Iterable, Iterator
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+T = TypeVar("T")
+
+def tqdm_progress_bar(iterable: Iterable[T], *, desc: str | None = None,
+                      total: int | None = None, leave: bool = False, disable: bool | None = None,) -> Iterator[T]:
+    """Wrap an iterable in tqdm when available."""
+    if disable is None:
+        disable = os.environ.get("TOPO_DISABLE_TQDM", "").lower() in {"1", "true", "yes"}
+    if tqdm is None or disable:
+        yield from iterable
+        return
+    yield from tqdm(iterable, desc=desc, total=total, leave=leave)
+
 
 class DataGenerator1D:
     """Generate 1d data"""

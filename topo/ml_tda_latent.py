@@ -7,15 +7,23 @@ import random
 import numpy as np
 import pandas as pd
 from ripser import ripser
+from scipy.spatial.distance import pdist, squareform
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
+try:
+    from sklearn.manifold import trustworthiness
+except ImportError:  # pragma: no cover - optional diagnostic dependency
+    trustworthiness = None
+
 import topo.ml_tda as ml_tda
+from topo.utils import tqdm_progress_bar
 from topo.ml_tda import (
     SpatialEncoder,
     SpatialDecoder,
     TopologicalPredictor,
+    make_predictor,
     pretrain_spatial_encoder,
     summarize_metric_runs,
 )
@@ -88,7 +96,9 @@ def encode_video_to_z(X, encoder, frame_batch_size=1024):
     T, B = X.shape[:2]
     frames = X.reshape(T * B, *X.shape[2:])
     chunks = []
-    for start in range(0, len(frames), frame_batch_size):
+    batches = range(0, len(frames), frame_batch_size)
+    n_batches = (len(frames) + frame_batch_size - 1) // frame_batch_size
+    for start in tqdm_progress_bar(batches, desc="Encode z batches", total=n_batches):
         frame_batch = ml_tda.tensor_to_model_float(frames[start:start + frame_batch_size]).to(device)
         chunks.append(encoder(frame_batch).cpu())
     return torch.cat(chunks, dim=0).reshape(T, B, -1)
@@ -264,11 +274,11 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
     model_dir.mkdir(parents=True, exist_ok=True)
     standardizer_tag = "gstdz" if STANDARDIZE_LATENT_PREDICTOR else "raw"
     model_path = model_dir / (
-        f"model_seed{seed}_pred{HORIZON}_{mode}_{standardizer_tag}_"
+        f"model_seed{seed}_pred{HORIZON}_{mode}_{standardizer_tag}_{ml_tda.PREDICTOR_TYPE}_"
         f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}.pt"
     )
     device = ml_tda.get_runtime_device()
-    model = TopologicalPredictor(input_dim=train_features.shape[-1], hidden_dim=HIDDEN_DIM).to(device)
+    model = make_predictor(input_dim=train_features.shape[-1], hidden_dim=HIDDEN_DIM).to(device)
     source_features = train_features[:-HORIZON]
     source_targets = train_z[HORIZON:]
     if STANDARDIZE_LATENT_PREDICTOR:
@@ -303,7 +313,8 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
     criterion = nn.MSELoss()
     train_x = _standardize(source_features, feature_mean, feature_std).to(device)
     train_y = _standardize(source_targets, target_mean, target_std).to(device)
-    for epoch in range(1, LATENT_TDA_PREDICTOR_EPOCHS + 1):
+    epochs = range(1, LATENT_TDA_PREDICTOR_EPOCHS + 1)
+    for epoch in tqdm_progress_bar(epochs, desc=f"Latent predictor {mode}", total=LATENT_TDA_PREDICTOR_EPOCHS):
         model.train()
         optimizer.zero_grad()
         pred = model(train_x)
@@ -356,6 +367,77 @@ def eval_latent_tda_predictor(model, test_features, test_z):
     return mse, per_frame, r2
 
 
+def _normalized_distance_matrix(points):
+    distances = squareform(pdist(points))
+    scale = float(distances.max())
+    if scale > 1e-12:
+        distances = distances / scale
+    return distances.astype(np.float32)
+
+
+def _sample_betti_curves(points, n_bins=16):
+    if points.shape[0] < 4:
+        zero = np.zeros(n_bins, dtype=np.float32)
+        return zero, zero
+    distances = _normalized_distance_matrix(points)
+    diagrams = ripser(distances, maxdim=1, distance_matrix=True)["dgms"]
+    h0 = betti_curve_from_diag(diagrams[0], n_bins=n_bins)
+    h1 = betti_curve_from_diag(diagrams[1], n_bins=n_bins) if len(diagrams) > 1 else np.zeros(n_bins, dtype=np.float32)
+    return h0, h1
+
+
+def latent_geometry_diagnostics(video_tensor, z, max_points=512, max_tda_points=128):
+    """Secondary diagnostics for explaining latent geometry quality."""
+    with torch.no_grad():
+        z_cpu = z.detach().cpu().float()
+        dz = z_cpu[1:] - z_cpu[:-1]
+        velocity = float(torch.linalg.vector_norm(dz, dim=-1).mean().item()) if dz.numel() else 0.0
+        if z_cpu.shape[0] > 2:
+            ddz = z_cpu[2:] - 2 * z_cpu[1:-1] + z_cpu[:-2]
+            acceleration = float(torch.linalg.vector_norm(ddz, dim=-1).mean().item())
+        else:
+            acceleration = 0.0
+        flat_z = z_cpu.reshape(-1, z_cpu.shape[-1]).numpy()
+        frames = ml_tda.tensor_to_model_float(video_tensor).reshape(-1, *video_tensor.shape[2:]).float()
+        flat_x = frames.reshape(frames.shape[0], -1).cpu().numpy()
+
+    n = min(int(max_points), flat_z.shape[0], flat_x.shape[0])
+    if n < 4:
+        return {
+            "latent_velocity": velocity,
+            "latent_acceleration": acceleration,
+            "distance_corr": np.nan,
+            "trustworthiness": np.nan,
+            "topology_h0_l2": np.nan,
+            "topology_h1_l2": np.nan,
+        }
+
+    idx = np.linspace(0, flat_z.shape[0] - 1, n, dtype=int)
+    x_sample = flat_x[idx]
+    z_sample = flat_z[idx]
+    dx = pdist(x_sample)
+    dz_pair = pdist(z_sample)
+    distance_corr = np.nan
+    if np.std(dx) >= 1e-12 and np.std(dz_pair) >= 1e-12:
+        distance_corr = float(np.corrcoef(dx, dz_pair)[0, 1])
+    if trustworthiness is None:
+        trust = np.nan
+    else:
+        trust = float(trustworthiness(x_sample, z_sample, n_neighbors=min(10, n - 1)))
+    n_tda = min(int(max_tda_points), n)
+    tda_idx = np.linspace(0, n - 1, n_tda, dtype=int)
+    x_h0, x_h1 = _sample_betti_curves(x_sample[tda_idx], n_bins=LATENT_TDA_BINS)
+    z_h0, z_h1 = _sample_betti_curves(z_sample[tda_idx], n_bins=LATENT_TDA_BINS)
+    return {
+        "latent_velocity": velocity,
+        "latent_acceleration": acceleration,
+        "distance_corr": distance_corr,
+        "trustworthiness": trust,
+        "topology_h0_l2": float(np.linalg.norm(x_h0 - z_h0)),
+        "topology_h1_l2": float(np.linalg.norm(x_h1 - z_h1)),
+    }
+
+
 def run_latent_tda_trajectory_experiment(
     X_train=None,
     X_test=None,
@@ -376,7 +458,7 @@ def run_latent_tda_trajectory_experiment(
     run_seeds = list(range(5)) if run_seeds is None else run_seeds
     modes = ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"] if modes is None else modes
     rows = []
-    for seed in run_seeds:
+    for seed in tqdm_progress_bar(run_seeds, desc="Latent TDA seeds", total=len(run_seeds), leave=True):
         print(f"\n================ latent TDA seed={seed} ================")
         random.seed(seed)
         np.random.seed(seed)
@@ -387,6 +469,7 @@ def run_latent_tda_trajectory_experiment(
         encoder = load_or_train_shared_encoder_for_latent_tda(seed, Xtr, X_train)
         train_payload = load_or_compute_latent_tda_features(seed, "train", Xtr, encoder)
         test_payload = load_or_compute_latent_tda_features(seed, "test", Xte, encoder)
+        diagnostics = latent_geometry_diagnostics(Xte, test_payload["z"])
 
         for mode in modes:
             configure_runtime(CONTROL_SEED=seed)
@@ -406,6 +489,7 @@ def run_latent_tda_trajectory_experiment(
                 "horizon": HORIZON,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
+                **diagnostics,
             }
             rows.append(row)
             print("latent TDA run summary:", row)

@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from topo import ml_tda
+from topo.utils import tqdm_progress_bar
 
 
 DATASET = "default"
@@ -160,7 +161,8 @@ def train_or_load_predictor(seed, mode, train_z, train_b):
     x_train, y_z_train, y_b_train = make_supervised_sequences(train_z, train_b, HORIZON)
     opt = optim.AdamW(model.parameters(), lr=AUX_TDA_LR)
     loss_fn = nn.MSELoss()
-    for epoch in range(1, AUX_TDA_PREDICTOR_EPOCHS + 1):
+    epochs = range(1, AUX_TDA_PREDICTOR_EPOCHS + 1)
+    for epoch in tqdm_progress_bar(epochs, desc=f"Aux predictor {mode}", total=AUX_TDA_PREDICTOR_EPOCHS):
         model.train()
         opt.zero_grad()
         pred_z, pred_b = model(x_train)
