@@ -1269,8 +1269,13 @@ def aeon_classification_cache_path(config, split_name):
     cache_dir = Path(config.get("cache_dir", f"datasets/timeseries/{dataset_name}/processed"))
     cache_dir.mkdir(parents=True, exist_ok=True)
     image_size = tuple(config.get("image_size", (64, 64)))
+    max_key = "max_train_clips" if split_name == "train" else "max_test_clips"
+    max_tag = config.get(max_key, "all")
+    subset_seed = config.get("subset_seed", 0)
     tag = (
         f"{split_name}_{dataset_name}_"
+        f"N{max_tag}_"
+        f"subset{subset_seed}_"
         f"H{image_size[0]}_W{image_size[1]}_"
         f"window{config.get('render_window', 16)}_"
         f"dtype{config.get('cache_dtype', 'uint8')}.pt"
@@ -1333,6 +1338,33 @@ def _aeon_array_to_clips(x, image_size=(64, 64), render_window=16, mean=None, st
     return clips, mean, std
 
 
+def _stratified_aeon_subset(x, y, max_clips, *, seed=0):
+    if max_clips is None or len(x) <= int(max_clips):
+        return x, y
+    max_clips = int(max_clips)
+    x_arr = np.asarray(x)
+    y_arr = np.asarray(y)
+    rng = np.random.default_rng(int(seed))
+    classes = np.unique(y_arr)
+    per_class = max(1, int(np.ceil(max_clips / max(1, len(classes)))))
+    selected = []
+    for cls in classes:
+        cls_idx = np.flatnonzero(y_arr == cls)
+        if cls_idx.size > per_class:
+            cls_idx = rng.choice(cls_idx, size=per_class, replace=False)
+        selected.extend(cls_idx.tolist())
+    selected = np.asarray(selected, dtype=np.int64)
+    if selected.size < max_clips:
+        remaining = np.setdiff1d(np.arange(len(y_arr)), selected, assume_unique=False)
+        extra_n = min(max_clips - selected.size, remaining.size)
+        if extra_n > 0:
+            selected = np.concatenate([selected, rng.choice(remaining, size=extra_n, replace=False)])
+    if selected.size > max_clips:
+        selected = rng.choice(selected, size=max_clips, replace=False)
+    selected.sort()
+    return x_arr[selected], y_arr[selected]
+
+
 def load_or_build_aeon_classification_split(config, split_name, *, mean=None, std=None):
     cache_path = aeon_classification_cache_path(config, split_name)
     force_rebuild = config.get("force_rebuild_cache", False)
@@ -1353,7 +1385,26 @@ def load_or_build_aeon_classification_split(config, split_name, *, mean=None, st
     dataset_name = config.get("aeon_name", "ElectricDevices")
     extract_path = config.get("extract_path", "datasets/timeseries/aeon_data")
     print(f"Loading aeon classification dataset {dataset_name} split={split_name}")
-    x, y = load_classification(dataset_name, split=split_name, extract_path=extract_path)
+    try:
+        x, y = load_classification(
+            dataset_name,
+            split=split_name,
+            extract_path=extract_path,
+            load_equal_length=True,
+            load_no_missing=True,
+        )
+    except Exception:
+        x, y = load_classification(
+            dataset_name,
+            split=split_name.upper(),
+            extract_path=extract_path,
+            load_equal_length=True,
+            load_no_missing=True,
+        )
+    max_key = "max_train_clips" if split_name == "train" else "max_test_clips"
+    max_clips = config.get(max_key)
+    subset_seed = int(config.get("subset_seed", 0)) + (0 if split_name == "train" else 1)
+    x, y = _stratified_aeon_subset(x, y, max_clips, seed=subset_seed)
     clips, mean, std = _aeon_array_to_clips(
         x,
         image_size=tuple(config.get("image_size", (64, 64))),
