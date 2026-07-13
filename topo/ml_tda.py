@@ -1,6 +1,7 @@
 """Core video forecasting helpers: encoders, predictors, TDA features, and datasets."""
 
 from pathlib import Path
+import pickle
 import random
 
 import cv2
@@ -1369,7 +1370,12 @@ def load_or_build_aeon_classification_split(config, split_name, *, mean=None, st
     cache_path = aeon_classification_cache_path(config, split_name)
     force_rebuild = config.get("force_rebuild_cache", False)
     if cache_path.exists() and not force_rebuild:
-        payload = torch.load(cache_path, map_location="cpu")
+        try:
+            payload = torch.load(cache_path, map_location="cpu")
+        except pickle.UnpicklingError:
+            # Older aeon caches stored NumPy labels. PyTorch 2.6's default
+            # weights_only=True rejects them, so fall back for local caches.
+            payload = torch.load(cache_path, map_location="cpu", weights_only=False)
         if isinstance(payload, dict):
             return payload["clips"], payload.get("mean", mean), payload.get("std", std)
         return payload, mean, std
@@ -1416,7 +1422,7 @@ def load_or_build_aeon_classification_split(config, split_name, *, mean=None, st
         clips_tensor = torch.from_numpy(np.clip(np.rint(clips * 255.0), 0, 255).astype(np.uint8))
     else:
         clips_tensor = torch.from_numpy(clips.astype(np.float32))
-    payload = {"clips": clips_tensor, "labels": np.asarray(y), "mean": mean, "std": std}
+    payload = {"clips": clips_tensor, "labels": list(np.asarray(y).astype(str)), "mean": mean, "std": std}
     torch.save(payload, cache_path)
     print(f"Saved aeon {dataset_name} {split_name} cache: {cache_path} shape={tuple(clips_tensor.shape)}")
     return clips_tensor, mean, std
