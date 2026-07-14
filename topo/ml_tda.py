@@ -551,6 +551,19 @@ def normalize_video_array(arr):
         arr /= max_val
     return arr
 
+
+def normalize_train_test_video_arrays(train, test):
+    """Min-max normalize train/test arrays using train statistics only."""
+    train = train.astype(np.float32)
+    test = test.astype(np.float32)
+    min_val = float(train.min())
+    max_val = float(train.max())
+    denom = max(max_val - min_val, 1e-8)
+    train = (train - min_val) / denom
+    test = (test - min_val) / denom
+    return np.clip(train, 0.0, 1.0), np.clip(test, 0.0, 1.0)
+
+
 def resize_video_array(video, image_size=(64, 64)):
     if video.shape[-2:] == image_size:
         return video.astype(np.float32)
@@ -1008,8 +1021,7 @@ def load_orbiting_shapes(config):
     normalize = config.get("normalize", "minmax")
     if normalize == "minmax":
         if train.dtype != np.uint8:
-            train = normalize_video_array(train)
-            test = normalize_video_array(test)
+            train, test = normalize_train_test_video_arrays(train, test)
     elif normalize in {None, "none"}:
         pass
     else:
@@ -1079,8 +1091,7 @@ def load_lorenz_moving_shapes(config):
     normalize = config.get("normalize", "minmax")
     if normalize == "minmax":
         if train.dtype != np.uint8:
-            train = normalize_video_array(train)
-            test = normalize_video_array(test)
+            train, test = normalize_train_test_video_arrays(train, test)
     elif normalize in {None, "none"}:
         pass
     else:
@@ -1190,8 +1201,7 @@ def load_lorenz96_timeseries(config):
     train = train.squeeze(2).permute(1, 0, 2, 3).numpy()
     test = test.squeeze(2).permute(1, 0, 2, 3).numpy()
     if config.get("normalize", "none") == "minmax" and train.dtype != np.uint8:
-        train = normalize_video_array(train)
-        test = normalize_video_array(test)
+        train, test = normalize_train_test_video_arrays(train, test)
     return train, test
 
 
@@ -1260,8 +1270,7 @@ def load_noisy_video(config):
     train = train.squeeze(2).permute(1, 0, 2, 3).numpy()
     test = test.squeeze(2).permute(1, 0, 2, 3).numpy()
     if config.get("normalize", "none") == "minmax" and train.dtype != np.uint8:
-        train = normalize_video_array(train)
-        test = normalize_video_array(test)
+        train, test = normalize_train_test_video_arrays(train, test)
     return train, test
 
 
@@ -1438,14 +1447,16 @@ def load_aeon_classification_video(config):
 
 def load_video_dataset(config):
     if config["kind"] == "moving_mnist":
-        arr = normalize_video_array(np.load(config["path"]))
+        arr = np.load(config["path"]).astype(np.float32)
         train = arr[:, config["train_slice"], :, :]
         test = arr[:, config["test_slice"], :, :]
+        train, test = normalize_train_test_video_arrays(train, test)
     elif config["kind"] == "tif_folder":
-        arr = normalize_video_array(load_tif_sequence(config["folder"]))
+        arr = load_tif_sequence(config["folder"]).astype(np.float32)
         arr = arr[:, None, :, :]
         train = arr[config["train_slice"], :, :, :]
         test = arr[config["test_slice"], :, :, :]
+        train, test = normalize_train_test_video_arrays(train, test)
     elif config["kind"] == "davis_images":
         train, test = load_davis_images(config)
     elif config["kind"] == "lorenz_moving_shapes":

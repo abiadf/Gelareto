@@ -80,15 +80,15 @@ def load_raw_video_stack(folder_path):
     return video_stack
 
 
-def normalize_video_stack(video_stack, mode="minmax", percentiles=(1, 99.8)):
+def normalize_video_stack(video_stack, mode="minmax", percentiles=(1, 99.8), stats=None):
     video_stack = video_stack.astype(np.float32)
     if mode == "percentile":
-        lo, hi = np.percentile(video_stack, percentiles)
+        lo, hi = stats if stats is not None else np.percentile(video_stack, percentiles)
         if hi <= lo:
             hi = lo + 1.0
         video_stack = np.clip((video_stack - lo) / (hi - lo), 0.0, 1.0)
     elif mode == "minmax":
-        lo, hi = float(video_stack.min()), float(video_stack.max())
+        lo, hi = stats if stats is not None else (float(video_stack.min()), float(video_stack.max()))
         if hi <= lo:
             hi = lo + 1.0
         video_stack = (video_stack - lo) / (hi - lo)
@@ -98,6 +98,27 @@ def normalize_video_stack(video_stack, mode="minmax", percentiles=(1, 99.8)):
     else:
         raise ValueError(f"Unknown normalize mode: {mode}")
     return video_stack.astype(np.float32)
+
+
+def fit_video_stack_normalization_stats(sequence_dirs, cfg):
+    mode = cfg.get("normalize", "minmax")
+    if mode not in {"minmax", "percentile"}:
+        return None
+
+    lows, highs = [], []
+    percentiles = cfg.get("normalize_percentiles", (1, 99.8))
+    for seq_dir in sequence_dirs:
+        stack = load_raw_video_stack(seq_dir)
+        if mode == "percentile":
+            lo, hi = np.percentile(stack.astype(np.float32), percentiles)
+        else:
+            lo, hi = float(stack.min()), float(stack.max())
+        lows.append(float(lo))
+        highs.append(float(hi))
+    lo, hi = min(lows), max(highs)
+    if hi <= lo:
+        hi = lo + 1.0
+    return lo, hi
 
 
 def slice_video_into_spatial_patches(video_stack, patch_size=128, spatial_stride=None):
@@ -142,7 +163,7 @@ def generate_sliding_window_clips(
     return clips
 
 
-def build_clips_from_sequence_dirs(sequence_dirs, cfg, split_name):
+def build_clips_from_sequence_dirs(sequence_dirs, cfg, split_name, normalization_stats=None):
     all_clips = []
     for seq_dir in sequence_dirs:
         stack = load_raw_video_stack(seq_dir)
@@ -150,6 +171,7 @@ def build_clips_from_sequence_dirs(sequence_dirs, cfg, split_name):
             stack,
             mode=cfg.get("normalize", "minmax"),
             percentiles=cfg.get("normalize_percentiles", (1, 99.8)),
+            stats=normalization_stats,
         )
         if cfg.get("full_frame", False):
             image_size = cfg.get("image_size")
@@ -194,8 +216,11 @@ def load_or_build_celltracking_tensors(cfg, force_rebuild=False):
             raise ValueError(f"Cache build expects kind='ctc_tif_clips', got {cfg.get('kind')!r}")
         reason = "forced rebuild" if force_rebuild else "cache missing"
         print(f"Building celltracking tensors ({reason})...")
-        train_tensor = build_clips_from_sequence_dirs(cfg["train_sequence_dirs"], cfg, "train")
-        test_tensor = build_clips_from_sequence_dirs(cfg["test_sequence_dirs"], cfg, "test")
+        normalization_stats = fit_video_stack_normalization_stats(cfg["train_sequence_dirs"], cfg)
+        if normalization_stats is not None:
+            print(f"Celltracking normalization stats from train only: lo={normalization_stats[0]:.4f}, hi={normalization_stats[1]:.4f}")
+        train_tensor = build_clips_from_sequence_dirs(cfg["train_sequence_dirs"], cfg, "train", normalization_stats)
+        test_tensor = build_clips_from_sequence_dirs(cfg["test_sequence_dirs"], cfg, "test", normalization_stats)
 
         max_train = cfg.get("max_train_clips")
         max_test = cfg.get("max_test_clips")

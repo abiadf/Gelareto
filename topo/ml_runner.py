@@ -949,9 +949,10 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
         cfg.modes,
         context.dataset_config.get(
             "LATENT_TDA_MODES",
-            ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+            ["z", "z_h0", "z_h1", "z_both"],
         ),
     )
+    modes = ml_tda_latent.canonicalize_latent_tda_modes(modes)
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
@@ -1012,9 +1013,10 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
         cfg.modes,
         context.dataset_config.get(
             "LATENT_TDA_MODES",
-            ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+            ["z", "z_h0", "z_h1", "z_both"],
         ),
     )
+    modes = ml_tda_latent.canonicalize_latent_tda_modes(modes)
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
@@ -1084,10 +1086,13 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
 
         for mode in modes:
             print(f"\n--- geo latent mode={mode} seed={seed} ---")
-            ml_tda_latent.configure_runtime(CONTROL_SEED=seed)
-            train_features = ml_tda_latent.features_for_latent_tda_mode(train_payload, mode)
-            ml_tda_latent.configure_runtime(CONTROL_SEED=seed + 10_000)
-            test_features = ml_tda_latent.features_for_latent_tda_mode(test_payload, mode)
+            train_features, test_features = ml_tda_latent.features_for_latent_tda_mode_pair(
+                train_payload,
+                test_payload,
+                mode,
+                train_control_seed=seed,
+                test_control_seed=seed + 10_000,
+            )
             model = ml_tda_latent.train_or_load_latent_tda_predictor(
                 seed,
                 mode,
@@ -1134,9 +1139,10 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
         cfg.modes,
         context.dataset_config.get(
             "LATENT_TDA_MODES",
-            ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+            ["z", "z_h0", "z_h1", "z_both"],
         ),
     )
+    modes = ml_tda_latent.canonicalize_latent_tda_modes(modes)
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
@@ -1206,10 +1212,13 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
 
         for mode in modes:
             print(f"\n--- topo latent mode={mode} seed={seed} ---")
-            ml_tda_latent.configure_runtime(CONTROL_SEED=seed)
-            train_features = ml_tda_latent.features_for_latent_tda_mode(train_payload, mode)
-            ml_tda_latent.configure_runtime(CONTROL_SEED=seed + 10_000)
-            test_features = ml_tda_latent.features_for_latent_tda_mode(test_payload, mode)
+            train_features, test_features = ml_tda_latent.features_for_latent_tda_mode_pair(
+                train_payload,
+                test_payload,
+                mode,
+                train_control_seed=seed,
+                test_control_seed=seed + 10_000,
+            )
             model = ml_tda_latent.train_or_load_latent_tda_predictor(
                 seed,
                 mode,
@@ -1262,9 +1271,10 @@ def _run_representation_latent_tda(
         cfg.modes,
         context.dataset_config.get(
             "LATENT_TDA_MODES",
-            ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"],
+            ["z", "z_h0", "z_h1", "z_both"],
         ),
     )
+    modes = ml_tda_latent.canonicalize_latent_tda_modes(modes)
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
@@ -1352,10 +1362,13 @@ def _run_representation_latent_tda(
 
         for mode in modes:
             print(f"\n--- {scenario_name} mode={mode} seed={seed} ---")
-            ml_tda_latent.configure_runtime(CONTROL_SEED=seed)
-            train_features = ml_tda_latent.features_for_latent_tda_mode(train_payload, mode)
-            ml_tda_latent.configure_runtime(CONTROL_SEED=seed + 10_000)
-            test_features = ml_tda_latent.features_for_latent_tda_mode(test_payload, mode)
+            train_features, test_features = ml_tda_latent.features_for_latent_tda_mode_pair(
+                train_payload,
+                test_payload,
+                mode,
+                train_control_seed=seed,
+                test_control_seed=seed + 10_000,
+            )
             model = ml_tda_latent.train_or_load_latent_tda_predictor(seed, mode, train_features, train_payload["z"])
             test_mse, _, latent_r2 = ml_tda_latent.eval_latent_tda_predictor(model, test_features, test_payload["z"])
             row = {

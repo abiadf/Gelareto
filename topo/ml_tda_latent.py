@@ -17,6 +17,12 @@ try:
 except ImportError:  # pragma: no cover - optional diagnostic dependency
     trustworthiness = None
 
+try:
+    from gudhi.representations import Landscape, PersistenceImage
+except ImportError:  # pragma: no cover - optional vectorization dependency
+    Landscape = None
+    PersistenceImage = None
+
 import topo.ml_tda as ml_tda
 from topo.utils import tqdm_progress_bar
 from topo.ml_tda import (
@@ -41,6 +47,12 @@ LATENT_TDA_LR = 3e-4
 RETRAIN_LATENT_TDA_PREDICTOR = True
 RECOMPUTE_LATENT_TDA_FEATURES = True
 STANDARDIZE_LATENT_PREDICTOR = True
+PERSISTENCE_IMAGE_RESOLUTION = (8, 8)
+PERSISTENCE_IMAGE_BANDWIDTH = 0.1
+PERSISTENCE_LANDSCAPE_NUM = 5
+PERSISTENCE_LANDSCAPE_RESOLUTION = 32
+PERSLAY_OUT_DIM = 64
+PERSLAY_SIGMA = 0.25
 
 
 def configure_runtime(**kwargs):
@@ -121,10 +133,23 @@ def betti_curve_from_diag(diag, n_bins=16):
     return ((births <= grid) & (grid < deaths)).sum(axis=0).astype(np.float32)
 
 
-def latent_window_betti_features(z_features, window=6, n_bins=16):
+def _finite_diagram(diag):
+    if diag is None or len(diag) == 0:
+        return np.empty((0, 2), dtype=np.float64)
+    if torch.is_tensor(diag):
+        diag = diag.detach().cpu().numpy()
+    diag = np.asarray(diag, dtype=np.float64)
+    finite = diag[np.isfinite(diag).all(axis=1)]
+    finite = finite[finite[:, 1] > finite[:, 0]]
+    return finite.astype(np.float64, copy=False)
+
+
+def latent_window_betti_features(z_features, window=6, n_bins=16, return_diagrams=False):
     T, B, _ = z_features.shape
     h0 = np.zeros((T, B, n_bins), dtype=np.float32)
     h1 = np.zeros((T, B, n_bins), dtype=np.float32)
+    diagrams_h0 = [[torch.empty((0, 2), dtype=torch.float32) for _ in range(B)] for _ in range(T)]
+    diagrams_h1 = [[torch.empty((0, 2), dtype=torch.float32) for _ in range(B)] for _ in range(T)]
     z_np = z_features.detach().cpu().numpy().astype(np.float32)
 
     for t in range(T):
@@ -139,11 +164,17 @@ def latent_window_betti_features(z_features, window=6, n_bins=16):
             diffs = pts[:, None, :] - pts[None, :, :]
             dmat = np.sqrt(np.sum(diffs * diffs, axis=-1)).astype(np.float32)
             dgms = ripser(dmat, maxdim=1, distance_matrix=True)["dgms"]
-            h0[t, b] = betti_curve_from_diag(dgms[0], n_bins=n_bins)
-            h1[t, b] = betti_curve_from_diag(dgms[1], n_bins=n_bins) if len(dgms) > 1 else 0.0
+            dgm0 = _finite_diagram(dgms[0])
+            dgm1 = _finite_diagram(dgms[1]) if len(dgms) > 1 else np.empty((0, 2), dtype=np.float64)
+            diagrams_h0[t][b] = torch.from_numpy(dgm0.astype(np.float32))
+            diagrams_h1[t][b] = torch.from_numpy(dgm1.astype(np.float32))
+            h0[t, b] = betti_curve_from_diag(dgm0, n_bins=n_bins)
+            h1[t, b] = betti_curve_from_diag(dgm1, n_bins=n_bins)
         if t in {0, T - 1}:
             print(f"  latent TDA frame {t + 1}/{T}")
 
+    if return_diagrams:
+        return torch.from_numpy(h0), torch.from_numpy(h1), {"h0": diagrams_h0, "h1": diagrams_h1}
     return torch.from_numpy(h0), torch.from_numpy(h1)
 
 
@@ -162,12 +193,20 @@ def load_or_compute_latent_tda_features(seed, split_name, X_subset, encoder):
     cache_path = latent_tda_cache_path(seed, split_name, X_subset)
     if cache_path.exists() and not RECOMPUTE_LATENT_TDA_FEATURES:
         print(f"Loading latent TDA cache: {cache_path}")
-        return torch.load(cache_path, map_location="cpu")
+        try:
+            return torch.load(cache_path, map_location="cpu")
+        except Exception:
+            return torch.load(cache_path, map_location="cpu", weights_only=False)
 
     print(f"Computing z + latent-window TDA for {split_name}...")
     z = encode_video_to_z(X_subset, encoder)
-    h0, h1 = latent_window_betti_features(z, window=LATENT_TDA_WINDOW, n_bins=LATENT_TDA_BINS)
-    payload = {"z": z, "h0": h0, "h1": h1}
+    h0, h1, diagrams = latent_window_betti_features(
+        z,
+        window=LATENT_TDA_WINDOW,
+        n_bins=LATENT_TDA_BINS,
+        return_diagrams=True,
+    )
+    payload = {"z": z, "h0": h0, "h1": h1, "diagrams": diagrams}
     torch.save(payload, cache_path)
     print(f"Saved latent TDA cache: {cache_path}")
     return payload
@@ -194,32 +233,177 @@ def latent_window_temporal_stats(z, window=6):
     return torch.cat([rolling_mean, rolling_std, velocity, acceleration], dim=-1)
 
 
+def _split_control_suffix(mode):
+    control_names = {"zero", "shuffle", "noise", "shift"}
+    parts = mode.rsplit("_", 1)
+    if len(parts) == 2 and parts[1] in control_names:
+        return parts[0], parts[1]
+    return mode, "real"
+
+
+def canonicalize_latent_tda_mode(mode):
+    """Prefer compact mode names while accepting the older z_latent_* aliases."""
+    if mode.startswith("z_temporal_stats_latent_"):
+        return "z_temporal_stats_" + mode.removeprefix("z_temporal_stats_latent_")
+    if mode.startswith("z_latent_"):
+        return "z_" + mode.removeprefix("z_latent_")
+    return mode
+
+
+def canonicalize_latent_tda_modes(modes):
+    return [canonicalize_latent_tda_mode(mode) for mode in modes]
+
+
+def _parse_vectorized_latent_mode(base_mode):
+    base_mode = canonicalize_latent_tda_mode(base_mode)
+    prefix = "z_"
+    if not base_mode.startswith(prefix):
+        return None
+    spec = base_mode[len(prefix):]
+    for homology in ("both", "h0", "h1"):
+        suffix = f"_{homology}"
+        if spec.endswith(suffix):
+            vectorizer = spec[:-len(suffix)]
+            aliases = {
+                "pi": "pi",
+                "image": "pi",
+                "images": "pi",
+                "persistence_image": "pi",
+                "persistence_images": "pi",
+                "landscape": "landscape",
+                "landscapes": "landscape",
+                "perslay": "perslay",
+            }
+            if vectorizer in aliases:
+                return aliases[vectorizer], homology
+    return None
+
+
+def _require_diagrams(payload):
+    if "diagrams" not in payload:
+        raise ValueError(
+            "This latent mode needs persistence diagrams, but the cache only has Betti curves. "
+            "Rerun with --recompute-latent-tda-features."
+        )
+
+
+def _diagram_list(payload, homology):
+    _require_diagrams(payload)
+    return [_finite_diagram(diag) for row in payload["diagrams"][homology] for diag in row]
+
+
+def _diagram_tensor_from_features(features, payload):
+    T, B = payload["z"].shape[:2]
+    return torch.as_tensor(features, dtype=torch.float32).reshape(T, B, -1)
+
+
+def _fit_persistence_image(train_diagrams):
+    if PersistenceImage is None:
+        raise ImportError("Install gudhi to use z_latent_pi_* modes.")
+    transformer = PersistenceImage(
+        bandwidth=float(PERSISTENCE_IMAGE_BANDWIDTH),
+        weight=lambda point: point[1],
+        resolution=list(PERSISTENCE_IMAGE_RESOLUTION),
+    )
+    transformer.fit(train_diagrams)
+    return transformer
+
+
+def _fit_landscape(train_diagrams):
+    if Landscape is None:
+        raise ImportError("Install gudhi to use z_latent_landscape_* modes.")
+    transformer = Landscape(
+        num_landscapes=int(PERSISTENCE_LANDSCAPE_NUM),
+        resolution=int(PERSISTENCE_LANDSCAPE_RESOLUTION),
+    )
+    transformer.fit(train_diagrams)
+    return transformer
+
+
+class PersLayFeaturizer:
+    """Train-fitted, permutation-invariant diagram embedding inspired by PersLay."""
+
+    def __init__(self, out_dim=64, sigma=0.25):
+        self.out_dim = int(out_dim)
+        self.sigma = float(sigma)
+        self.centers = None
+
+    def fit(self, diagrams):
+        points = []
+        for diag in diagrams:
+            diag = _finite_diagram(diag)
+            if len(diag):
+                bp = diag.copy()
+                bp[:, 1] = bp[:, 1] - bp[:, 0]
+                points.append(bp)
+        if points:
+            points = np.concatenate(points, axis=0)
+            idx = np.linspace(0, len(points) - 1, self.out_dim, dtype=int)
+            order = np.argsort(points[:, 1], kind="mergesort")
+            self.centers = points[order][idx].astype(np.float32)
+        else:
+            self.centers = np.zeros((self.out_dim, 2), dtype=np.float32)
+        return self
+
+    def transform(self, diagrams):
+        if self.centers is None:
+            raise RuntimeError("PersLayFeaturizer must be fit before transform.")
+        outputs = np.zeros((len(diagrams), self.out_dim), dtype=np.float32)
+        centers = self.centers[None, :, :]
+        sigma2 = max(self.sigma ** 2, 1e-8)
+        for i, diag in enumerate(diagrams):
+            diag = _finite_diagram(diag)
+            if len(diag) == 0:
+                continue
+            bp = diag.astype(np.float32, copy=True)
+            bp[:, 1] = bp[:, 1] - bp[:, 0]
+            weights = bp[:, 1:2]
+            dist2 = np.sum((bp[:, None, :] - centers) ** 2, axis=-1)
+            outputs[i] = np.sum(weights * np.exp(-0.5 * dist2 / sigma2), axis=0)
+        return outputs
+
+
+def _vectorized_diagram_tensor_pair(train_payload, test_payload, vectorizer, homology):
+    train_parts, test_parts = [], []
+    homologies = ("h0", "h1") if homology == "both" else (homology,)
+    for h in homologies:
+        train_diagrams = _diagram_list(train_payload, h)
+        test_diagrams = _diagram_list(test_payload, h)
+        if vectorizer == "pi":
+            transformer = _fit_persistence_image(train_diagrams)
+        elif vectorizer == "landscape":
+            transformer = _fit_landscape(train_diagrams)
+        elif vectorizer == "perslay":
+            transformer = PersLayFeaturizer(out_dim=PERSLAY_OUT_DIM, sigma=PERSLAY_SIGMA).fit(train_diagrams)
+        else:
+            raise ValueError(f"Unknown diagram vectorizer: {vectorizer}")
+        train_parts.append(_diagram_tensor_from_features(transformer.transform(train_diagrams), train_payload))
+        test_parts.append(_diagram_tensor_from_features(transformer.transform(test_diagrams), test_payload))
+    return torch.cat(train_parts, dim=-1), torch.cat(test_parts, dim=-1)
+
+
 def features_for_latent_tda_mode(payload, mode):
+    mode = canonicalize_latent_tda_mode(mode)
     z = payload["z"]
     if mode == "z":
         return z
     if mode == "z_temporal_stats":
         temporal_stats = latent_window_temporal_stats(z, window=LATENT_TDA_WINDOW)
         return torch.cat([z, temporal_stats], dim=-1)
-    if mode.startswith("z_temporal_stats_latent_"):
+    if mode.startswith("z_temporal_stats_"):
         temporal_stats = latent_window_temporal_stats(z, window=LATENT_TDA_WINDOW)
-        latent_mode = "z_latent_" + mode.removeprefix("z_temporal_stats_latent_")
+        latent_mode = "z_" + mode.removeprefix("z_temporal_stats_")
         latent_features = features_for_latent_tda_mode(payload, latent_mode)
         latent_tda = latent_features[..., z.shape[-1]:]
         return torch.cat([z, temporal_stats, latent_tda], dim=-1)
 
-    control_names = {"zero", "shuffle", "noise", "shift"}
-    parts = mode.rsplit("_", 1)
-    if len(parts) == 2 and parts[1] in control_names:
-        base_mode, control = parts
-    else:
-        base_mode, control = mode, "real"
+    base_mode, control = _split_control_suffix(mode)
 
-    if base_mode == "z_latent_h0":
+    if base_mode == "z_h0":
         tda = payload["h0"]
-    elif base_mode == "z_latent_h1":
+    elif base_mode == "z_h1":
         tda = payload["h1"]
-    elif base_mode == "z_latent_both":
+    elif base_mode == "z_both":
         tda = torch.cat([payload["h0"], payload["h1"]], dim=-1)
     else:
         raise ValueError(f"Unknown latent TDA mode: {mode}")
@@ -227,6 +411,56 @@ def features_for_latent_tda_mode(payload, mode):
     control_seed = globals().get("CONTROL_SEED", 0)
     tda = ml_tda.apply_tda_control(tda, control=control, seed=int(control_seed), shift=1)
     return torch.cat([z, tda], dim=-1)
+
+
+def features_for_latent_tda_mode_pair(train_payload, test_payload, mode, train_control_seed=0, test_control_seed=10_000):
+    mode = canonicalize_latent_tda_mode(mode)
+    if mode == "z":
+        return train_payload["z"], test_payload["z"]
+
+    if mode == "z_temporal_stats":
+        train_z = train_payload["z"]
+        test_z = test_payload["z"]
+        return (
+            torch.cat([train_z, latent_window_temporal_stats(train_z, window=LATENT_TDA_WINDOW)], dim=-1),
+            torch.cat([test_z, latent_window_temporal_stats(test_z, window=LATENT_TDA_WINDOW)], dim=-1),
+        )
+
+    if mode.startswith("z_temporal_stats_"):
+        latent_mode = "z_" + mode.removeprefix("z_temporal_stats_")
+        train_latent, test_latent = features_for_latent_tda_mode_pair(
+            train_payload,
+            test_payload,
+            latent_mode,
+            train_control_seed=train_control_seed,
+            test_control_seed=test_control_seed,
+        )
+        train_z = train_payload["z"]
+        test_z = test_payload["z"]
+        train_tda = train_latent[..., train_z.shape[-1]:]
+        test_tda = test_latent[..., test_z.shape[-1]:]
+        return (
+            torch.cat([train_z, latent_window_temporal_stats(train_z, window=LATENT_TDA_WINDOW), train_tda], dim=-1),
+            torch.cat([test_z, latent_window_temporal_stats(test_z, window=LATENT_TDA_WINDOW), test_tda], dim=-1),
+        )
+
+    base_mode, control = _split_control_suffix(mode)
+    parsed = _parse_vectorized_latent_mode(base_mode)
+    if parsed is None:
+        configure_runtime(CONTROL_SEED=train_control_seed)
+        train_features = features_for_latent_tda_mode(train_payload, mode)
+        configure_runtime(CONTROL_SEED=test_control_seed)
+        test_features = features_for_latent_tda_mode(test_payload, mode)
+        return train_features, test_features
+
+    vectorizer, homology = parsed
+    train_tda, test_tda = _vectorized_diagram_tensor_pair(train_payload, test_payload, vectorizer, homology)
+    train_tda = ml_tda.apply_tda_control(train_tda, control=control, seed=int(train_control_seed), shift=1)
+    test_tda = ml_tda.apply_tda_control(test_tda, control=control, seed=int(test_control_seed), shift=1)
+    return (
+        torch.cat([train_payload["z"], train_tda], dim=-1),
+        torch.cat([test_payload["z"], test_tda], dim=-1),
+    )
 
 
 def _fit_standardizer(x, eps=1e-6):
@@ -456,7 +690,7 @@ def run_latent_tda_trajectory_experiment(
         return empty, empty, empty
 
     run_seeds = list(range(5)) if run_seeds is None else run_seeds
-    modes = ["z", "z_latent_h0", "z_latent_h1", "z_latent_both"] if modes is None else modes
+    modes = ["z", "z_h0", "z_h1", "z_both"] if modes is None else canonicalize_latent_tda_modes(modes)
     rows = []
     for seed in tqdm_progress_bar(run_seeds, desc="Latent TDA seeds", total=len(run_seeds), leave=True):
         print(f"\n================ latent TDA seed={seed} ================")
@@ -472,10 +706,13 @@ def run_latent_tda_trajectory_experiment(
         diagnostics = latent_geometry_diagnostics(Xte, test_payload["z"])
 
         for mode in modes:
-            configure_runtime(CONTROL_SEED=seed)
-            train_features = features_for_latent_tda_mode(train_payload, mode)
-            configure_runtime(CONTROL_SEED=seed + 10_000)
-            test_features = features_for_latent_tda_mode(test_payload, mode)
+            train_features, test_features = features_for_latent_tda_mode_pair(
+                train_payload,
+                test_payload,
+                mode,
+                train_control_seed=seed,
+                test_control_seed=seed + 10_000,
+            )
             model = train_or_load_latent_tda_predictor(seed, mode, train_features, train_payload["z"])
             test_mse, per_frame_mse, latent_r2 = eval_latent_tda_predictor(
                 model,
@@ -502,9 +739,9 @@ def run_latent_tda_trajectory_experiment(
         sort_metric="test_mse",
     )
     paired_df = results_df.pivot(index="seed", columns="mode", values="test_mse")
-    if {"z", "z_latent_h1"}.issubset(paired_df.columns):
-        paired_df["latent_h1_minus_z"] = paired_df["z_latent_h1"] - paired_df["z"]
-        print("\nPaired latent_h1 - z differences; negative means latent TDA helped:")
+    if {"z", "z_h1"}.issubset(paired_df.columns):
+        paired_df["h1_minus_z"] = paired_df["z_h1"] - paired_df["z"]
+        print("\nPaired z_h1 - z differences; negative means TDA helped:")
         print(paired_df)
 
     print("\nLatent TDA trajectory summary:")
