@@ -255,7 +255,15 @@ def canonicalize_latent_tda_mode(mode):
 
 
 def canonicalize_latent_tda_modes(modes):
-    return [canonicalize_latent_tda_mode(mode) for mode in modes]
+    canonical_modes = []
+    seen = set()
+    for mode in modes:
+        canonical_mode = canonicalize_latent_tda_mode(mode)
+        if canonical_mode in seen:
+            continue
+        seen.add(canonical_mode)
+        canonical_modes.append(canonical_mode)
+    return canonical_modes
 
 
 def _parse_vectorized_latent_mode(base_mode):
@@ -846,7 +854,18 @@ def run_latent_tda_trajectory_experiment(
         metric_cols=["test_mse", "latent_r2"],
         sort_metric="test_mse",
     )
-    paired_df = results_df.pivot(index="seed", columns="mode", values="test_mse")
+    duplicate_mask = results_df.duplicated(subset=["seed", "mode"], keep=False)
+    if duplicate_mask.any():
+        duplicate_counts = (
+            results_df.loc[duplicate_mask]
+            .groupby(["seed", "mode"])
+            .size()
+            .rename("n")
+            .reset_index()
+        )
+        print("\nDuplicate latent TDA rows found; averaging duplicates for paired diagnostics:")
+        print(duplicate_counts)
+    paired_df = results_df.pivot_table(index="seed", columns="mode", values="test_mse", aggfunc="mean")
     if {"z", "z_h1"}.issubset(paired_df.columns):
         paired_df["h1_minus_z"] = paired_df["z_h1"] - paired_df["z"]
         print("\nPaired z_h1 - z differences; negative means TDA helped:")
