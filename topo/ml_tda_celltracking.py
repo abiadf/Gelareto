@@ -539,14 +539,16 @@ def load_or_compute_latent_tda_features(
 
 
 def features_for_latent_tda_mode(payload, mode):
+    if mode.startswith("z_latent_"):
+        mode = "z_" + mode.removeprefix("z_latent_")
     z = payload["z"]
     if mode == "z":
         return z
-    if mode == "z_latent_h0":
+    if mode == "z_h0":
         return torch.cat([z, payload["h0"]], dim=-1)
-    if mode == "z_latent_h1":
+    if mode == "z_h1":
         return torch.cat([z, payload["h1"]], dim=-1)
-    if mode == "z_latent_both":
+    if mode == "z_both":
         return torch.cat([z, payload["h0"], payload["h1"]], dim=-1)
     raise ValueError(f"Unknown latent TDA mode: {mode}")
 

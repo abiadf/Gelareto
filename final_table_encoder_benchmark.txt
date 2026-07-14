@@ -1,67 +1,19 @@
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \small
-\resizebox{\textwidth}{!}{
-\begin{tabular}{l|ccccc}
-\hline
-\textbf{Dataset} &
-\textbf{AE} &
-\textbf{GeoAE} &
-\textbf{TopoAE} &
-\textbf{VAE} &
-\textbf{BYOL} \\
-\hline
-Bouncing disks &
-0.5613 $\pm$ 0.0396 {\scriptsize (ts+H1)} &
-\textbf{0.0498 $\pm$ 0.0122 {\scriptsize (ts+H1)}} &
-0.3126 $\pm$ 0.0132 {\scriptsize (ts+H0+H1)} &
-0.6537 $\pm$ 0.0550 {\scriptsize (ts+H1)} &
-0.2353 $\pm$ 0.0307 {\scriptsize (ts+H1)} \\
-\hline
-Bouncing rings &
-0.4959 $\pm$ 0.0334 {\scriptsize (ts+H1)} &
-\textbf{0.0622 $\pm$ 0.0193 {\scriptsize (ts)}} &
-0.2966 $\pm$ 0.0072 {\scriptsize (ts)} &
-0.5550 $\pm$ 0.0808 {\scriptsize (ts)} &
-0.2010 $\pm$ 0.0310 {\scriptsize (ts)} \\
-\hline
-Orbiting disks &
-0.0624 $\pm$ 0.0162 {\scriptsize (ts+H0+H1)} &
-\textbf{0.0547 $\pm$ 0.0095 {\scriptsize (ts+H1)}} &
-0.3594 $\pm$ 0.0232 {\scriptsize (ts+H0)} &
-0.5193 $\pm$ 0.1672 {\scriptsize (ts)} &
-0.2847 $\pm$ 0.0560 {\scriptsize (ts)} \\
-\hline
-Orbiting rings &
-\textbf{0.0527 $\pm$ 0.0079 {\scriptsize (ts)}} &
-0.0644 $\pm$ 0.0150 {\scriptsize (ts+H1)} &
-0.3242 $\pm$ 0.0381 {\scriptsize (ts+H0+H1)} &
-0.1564 $\pm$ 0.0458 {\scriptsize (ts)} &
-0.3194 $\pm$ 0.0928 {\scriptsize (ts+H1)} \\
-\hline
-Moving MNIST &
-\textbf{0.2015 $\pm$ 0.0316 {\scriptsize (ts+H1)}} &
-0.2099 $\pm$ 0.0235 {\scriptsize (ts)} &
-0.4733 $\pm$ 0.0262 {\scriptsize (ts+H1)} &
-0.6344 $\pm$ 0.2261 {\scriptsize (ts)} &
-0.5713 $\pm$ 0.0676 {\scriptsize (ts+H1)} \\
-\hline
-Lorenz-96 &
-0.2436 $\pm$ 0.0377 {\scriptsize (ts)} &
-\textbf{0.0624 $\pm$ 0.0147 {\scriptsize (ts+H1)}} &
-0.5238 $\pm$ 0.0764 {\scriptsize (ts+H1)} &
-0.6614 $\pm$ 0.0465 {\scriptsize (ts)} &
-0.1408 $\pm$ 0.0285 {\scriptsize (ts+H1)} \\
-\hline
-ElectricDevices &
-0.1104 $\pm$ 0.0223 {\scriptsize (ts+H0+H1)} &
-\textbf{0.0560 $\pm$ 0.0215 {\scriptsize (ts+H1)}} &
-0.2186 $\pm$ 0.0283 {\scriptsize (ts+H1)} &
-0.4289 $\pm$ 0.0546 {\scriptsize (ts+H1)} &
-0.3470 $\pm$ 0.0818 {\scriptsize (ts)} \\
-\hline
+\caption{Ablation over persistence-diagram vectorizations for the standard AE encoder. All columns use $z+$temporal statistics plus an H1 topological feature. Lower MSE is better.}
+\label{tab:diagram_vectorization}
+\begin{tabular}{lcccc}
+\toprule
+Dataset & Betti H1 & PI H1 & Landscape H1 & PersLay-style H1 \\
+\midrule
+Bouncing disks & $0.5573{\pm}0.0397$ & $0.5645{\pm}0.0330$ & $\mathbf{0.5485{\pm}0.0384}$ & $0.5643{\pm}0.0288$ \\
+Bouncing rings & $\mathbf{0.4905{\pm}0.0313}$ & $0.4975{\pm}0.0406$ & $\mathbf{0.4905{\pm}0.0410}$ & $\mathbf{0.4905{\pm}0.0374}$ \\
+Orbiting disks & $0.0622{\pm}0.0108$ & $0.0594{\pm}0.0231$ & $0.0553{\pm}0.0077$ & $\mathbf{0.0471{\pm}0.0087}$ \\
+Orbiting rings & $0.0535{\pm}0.0122$ & $0.0602{\pm}0.0117$ & $0.0615{\pm}0.0201$ & $\mathbf{0.0525{\pm}0.0172}$ \\
+Moving MNIST & $\mathbf{0.1744{\pm}0.0455}$ & $0.2046{\pm}0.0455$ & $0.1951{\pm}0.0300$ & $0.1953{\pm}0.0307$ \\
+Lorenz-96 & $0.2470{\pm}0.0251$ & $\mathbf{0.2331{\pm}0.0393}$ & $0.2475{\pm}0.0253$ & $0.2422{\pm}0.0312$ \\
+ElectricDevices & $0.1126{\pm}0.0176$ & $\mathbf{0.1070{\pm}0.0149}$ & $0.1168{\pm}0.0108$ & $0.1212{\pm}0.0226$ \\
+\bottomrule
 \end{tabular}
-}
-\caption{Encoder-family benchmark using the best available mode for each encoder on each dataset. Values report test MSE $\pm$ std; the selected mode is shown in parentheses. ``ts'' denotes temporal statistics, and H0/H1 denote latent-TDA summaries.}
-\label{tab:encoder_benchmark}
-\end{table*}
+\end{table}

@@ -1,21 +1,27 @@
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \small
-\resizebox{\textwidth}{!}{
-\begin{tabular}{l|ccc}
-\hline
-\textbf{Dataset} & \textbf{Best interpretable mode} & \textbf{Best perturbation mode} & \textbf{Gap} \\
-\hline
-Bouncing disks & 0.0498 $\pm$ 0.0122 {\scriptsize (GeoAE, ts+H1)} & 0.0919 $\pm$ 0.0244 {\scriptsize (GeoAE, H0 zero)} & +0.0421 \\
-Bouncing rings & 0.0622 $\pm$ 0.0193 {\scriptsize (GeoAE, ts)} & 0.0885 $\pm$ 0.0174 {\scriptsize (GeoAE, H0+H1 zero)} & +0.0263 \\
-Orbiting disks & 0.0547 $\pm$ 0.0095 {\scriptsize (GeoAE, ts+H1)} & 0.0816 $\pm$ 0.0065 {\scriptsize (GeoAE, H0 zero)} & +0.0269 \\
-Orbiting rings & 0.0527 $\pm$ 0.0079 {\scriptsize (AE, ts)} & 0.0768 $\pm$ 0.0083 {\scriptsize (AE, H0+H1 noise)} & +0.0241 \\
-Moving MNIST & 0.2015 $\pm$ 0.0316 {\scriptsize (AE, ts+H1)} & 0.2765 $\pm$ 0.0385 {\scriptsize (AE, H1 noise)} & +0.0750 \\
-Lorenz-96 & 0.0624 $\pm$ 0.0147 {\scriptsize (GeoAE, ts+H1)} & 0.1017 $\pm$ 0.0218 {\scriptsize (GeoAE, H0+H1 shuffle)} & +0.0393 \\
-ElectricDevices & 0.0560 $\pm$ 0.0215 {\scriptsize (GeoAE, ts+H1)} & 0.0901 $\pm$ 0.0107 {\scriptsize (GeoAE, H0 zero)} & +0.0341 \\
-\hline
+\caption{ElectricDevices expanded topology sweep. This appendix-style slice shows that the result is not tied to a single vectorization. Lower MSE is better.}
+\label{tab:electricdevices_topology_sweep}
+\begin{tabular}{llccc}
+\toprule
+Encoder & Mode & MSE & Latent $R^2$ & Rank \\
+\midrule
+AE & $z+\mathrm{Temp}+\mathrm{PI}_{H1}$ & $\mathbf{0.1070{\pm}0.0149}$ & $0.8974{\pm}0.0117$ & 1 \\
+AE & $z+\mathrm{Temp}+\mathrm{Betti}_{H0}$ & $0.1081{\pm}0.0173$ & $0.8958{\pm}0.0180$ & 2 \\
+AE & $z+\mathrm{Temp}+\mathrm{Betti}_{H1}$ & $0.1126{\pm}0.0176$ & $0.8923{\pm}0.0132$ & 3 \\
+AE & $z+\mathrm{Temp}$ & $0.1296{\pm}0.0370$ & $0.8747{\pm}0.0394$ & -- \\
+AE & $z$ & $0.1638{\pm}0.0237$ & $0.8427{\pm}0.0205$ & -- \\
+\midrule
+GeoAE & $z+\mathrm{Temp}+\mathrm{Betti}_{H1}$ & $\mathbf{0.0513{\pm}0.0127}$ & $0.9487{\pm}0.0127$ & 1 \\
+GeoAE & $z+\mathrm{Temp}+\mathrm{PersLay}_{H1}$ & $0.0544{\pm}0.0117$ & $0.9456{\pm}0.0117$ & 2 \\
+GeoAE & $z+\mathrm{Temp}+\mathrm{PI}_{H1}$ & $0.0579{\pm}0.0053$ & $0.9421{\pm}0.0053$ & 3 \\
+GeoAE & $z+\mathrm{Temp}$ & $0.0603{\pm}0.0225$ & $0.9397{\pm}0.0225$ & -- \\
+GeoAE & $z$ & $0.0964{\pm}0.0104$ & $0.9036{\pm}0.0103$ & -- \\
+\midrule
+TopoAE & $z+\mathrm{Temp}+\mathrm{PI}_{H1}$ & $\mathbf{0.2296{\pm}0.0328}$ & $0.8026{\pm}0.0254$ & 1 \\
+TopoAE & $z+\mathrm{Temp}$ & $0.2359{\pm}0.0238$ & $0.7970{\pm}0.0181$ & -- \\
+TopoAE & $z$ & $0.2880{\pm}0.0153$ & $0.7518{\pm}0.0120$ & -- \\
+\bottomrule
 \end{tabular}
-}
-\caption{Sanity check over perturbed TDA descriptors. The strongest mode is consistently an interpretable temporal/topological descriptor, while the best zero/noise/shift/shuffle variant remains worse. This supports that the gains do not come merely from adding arbitrary extra features. Values are test MSE $\pm$ std; lower is better.}
-\label{tab:perturbation_sanity}
-\end{table*}
+\end{table}

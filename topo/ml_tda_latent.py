@@ -245,6 +245,10 @@ def canonicalize_latent_tda_mode(mode):
     """Prefer compact mode names while accepting the older z_latent_* aliases."""
     if mode.startswith("z_temporal_stats_latent_"):
         return "z_temporal_stats_" + mode.removeprefix("z_temporal_stats_latent_")
+    if mode.startswith("z_fuse_latent_"):
+        return "z_fuse_" + mode.removeprefix("z_fuse_latent_")
+    if mode.startswith("topo_latent_"):
+        return "topo_" + mode.removeprefix("topo_latent_")
     if mode.startswith("z_latent_"):
         return "z_" + mode.removeprefix("z_latent_")
     return mode
@@ -256,10 +260,14 @@ def canonicalize_latent_tda_modes(modes):
 
 def _parse_vectorized_latent_mode(base_mode):
     base_mode = canonicalize_latent_tda_mode(base_mode)
-    prefix = "z_"
-    if not base_mode.startswith(prefix):
+    if base_mode.startswith("z_fuse_"):
+        spec = base_mode[len("z_fuse_"):]
+    elif base_mode.startswith("topo_"):
+        spec = base_mode[len("topo_"):]
+    elif base_mode.startswith("z_"):
+        spec = base_mode[len("z_"):]
+    else:
         return None
-    spec = base_mode[len(prefix):]
     for homology in ("both", "h0", "h1"):
         suffix = f"_{homology}"
         if spec.endswith(suffix):
@@ -382,6 +390,39 @@ def _vectorized_diagram_tensor_pair(train_payload, test_payload, vectorizer, hom
     return torch.cat(train_parts, dim=-1), torch.cat(test_parts, dim=-1)
 
 
+def _betti_tda_tensor(payload, homology):
+    if homology == "h0":
+        return payload["h0"]
+    if homology == "h1":
+        return payload["h1"]
+    if homology == "both":
+        return torch.cat([payload["h0"], payload["h1"]], dim=-1)
+    raise ValueError(f"Unknown homology selector: {homology}")
+
+
+def _topology_tensor_pair(train_payload, test_payload, topo_spec, train_control_seed=0, test_control_seed=10_000):
+    topo_spec, control = _split_control_suffix(canonicalize_latent_tda_mode(topo_spec))
+    if topo_spec.startswith("z_fuse_"):
+        topo_spec = "z_" + topo_spec.removeprefix("z_fuse_")
+    elif topo_spec.startswith("topo_"):
+        topo_spec = "z_" + topo_spec.removeprefix("topo_")
+
+    parsed = _parse_vectorized_latent_mode(topo_spec)
+    if parsed is not None:
+        vectorizer, homology = parsed
+        train_tda, test_tda = _vectorized_diagram_tensor_pair(train_payload, test_payload, vectorizer, homology)
+    elif topo_spec in {"z_h0", "z_h1", "z_both"}:
+        homology = topo_spec.removeprefix("z_")
+        train_tda = _betti_tda_tensor(train_payload, homology)
+        test_tda = _betti_tda_tensor(test_payload, homology)
+    else:
+        raise ValueError(f"Unknown topology mode: {topo_spec}")
+
+    train_tda = ml_tda.apply_tda_control(train_tda, control=control, seed=int(train_control_seed), shift=1)
+    test_tda = ml_tda.apply_tda_control(test_tda, control=control, seed=int(test_control_seed), shift=1)
+    return train_tda, test_tda
+
+
 def features_for_latent_tda_mode(payload, mode):
     mode = canonicalize_latent_tda_mode(mode)
     z = payload["z"]
@@ -444,6 +485,28 @@ def features_for_latent_tda_mode_pair(train_payload, test_payload, mode, train_c
             torch.cat([test_z, latent_window_temporal_stats(test_z, window=LATENT_TDA_WINDOW), test_tda], dim=-1),
         )
 
+    if mode.startswith("topo_"):
+        return _topology_tensor_pair(
+            train_payload,
+            test_payload,
+            mode,
+            train_control_seed=train_control_seed,
+            test_control_seed=test_control_seed,
+        )
+
+    if mode.startswith("z_fuse_"):
+        train_tda, test_tda = _topology_tensor_pair(
+            train_payload,
+            test_payload,
+            mode,
+            train_control_seed=train_control_seed,
+            test_control_seed=test_control_seed,
+        )
+        return (
+            torch.cat([train_payload["z"], train_tda], dim=-1),
+            torch.cat([test_payload["z"], test_tda], dim=-1),
+        )
+
     base_mode, control = _split_control_suffix(mode)
     parsed = _parse_vectorized_latent_mode(base_mode)
     if parsed is None:
@@ -482,6 +545,39 @@ def _attach_latent_standardizers(model, feature_mean, feature_std, target_mean, 
     return model
 
 
+class TopologicalFusion(nn.Module):
+    """Fuse latent visual state and topology features into one learned representation."""
+
+    def __init__(self, latent_dim, topo_dim, fused_dim=128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(latent_dim + topo_dim, fused_dim),
+            nn.GELU(),
+            nn.LayerNorm(fused_dim),
+            nn.Linear(fused_dim, fused_dim),
+        )
+
+    def forward(self, z, topo):
+        return self.net(torch.cat([z, topo], dim=-1))
+
+
+class FusedTopologicalPredictor(nn.Module):
+    """Jointly train a topology fusion MLP and the temporal predictor."""
+
+    def __init__(self, latent_dim, topo_dim, fused_dim=128, hidden_dim=128):
+        super().__init__()
+        self.latent_dim = int(latent_dim)
+        self.topo_dim = int(topo_dim)
+        self.fusion = TopologicalFusion(latent_dim=latent_dim, topo_dim=topo_dim, fused_dim=fused_dim)
+        self.predictor = make_predictor(input_dim=fused_dim, hidden_dim=hidden_dim)
+
+    def forward(self, x):
+        z = x[..., :self.latent_dim]
+        topo = x[..., self.latent_dim:]
+        h = self.fusion(z, topo)
+        return self.predictor(h)
+
+
 def _stable_int_seed(*parts):
     key = "|".join(str(part) for part in parts)
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
@@ -507,12 +603,24 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
     model_dir = Path("models") / DATASET / "latent_tda_predictors"
     model_dir.mkdir(parents=True, exist_ok=True)
     standardizer_tag = "gstdz" if STANDARDIZE_LATENT_PREDICTOR else "raw"
+    architecture_tag = "fusion" if mode.startswith("z_fuse_") else "direct"
     model_path = model_dir / (
-        f"model_seed{seed}_pred{HORIZON}_{mode}_{standardizer_tag}_{ml_tda.PREDICTOR_TYPE}_"
+        f"model_seed{seed}_pred{HORIZON}_{mode}_{architecture_tag}_{standardizer_tag}_{ml_tda.PREDICTOR_TYPE}_"
         f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}.pt"
     )
     device = ml_tda.get_runtime_device()
-    model = make_predictor(input_dim=train_features.shape[-1], hidden_dim=HIDDEN_DIM).to(device)
+    if mode.startswith("z_fuse_"):
+        topo_dim = train_features.shape[-1] - LATENT_DIM
+        if topo_dim <= 0:
+            raise ValueError(f"Fusion mode {mode} needs topology features after z; got input_dim={train_features.shape[-1]}")
+        model = FusedTopologicalPredictor(
+            latent_dim=LATENT_DIM,
+            topo_dim=topo_dim,
+            fused_dim=HIDDEN_DIM,
+            hidden_dim=HIDDEN_DIM,
+        ).to(device)
+    else:
+        model = make_predictor(input_dim=train_features.shape[-1], hidden_dim=HIDDEN_DIM).to(device)
     source_features = train_features[:-HORIZON]
     source_targets = train_z[HORIZON:]
     if STANDARDIZE_LATENT_PREDICTOR:

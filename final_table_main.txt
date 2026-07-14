@@ -1,74 +1,19 @@
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \small
-\resizebox{\textwidth}{!}{
-\begin{tabular}{l|ccccc}
-\hline
-\textbf{Dataset} &
-\textbf{AE $z$} &
-\textbf{AE + TDA} &
-\textbf{GeoAE $z$} &
-\textbf{GeoAE + TDA} &
-\textbf{TopoAE + TDA} \\
-\hline
-Bouncing disks &
-0.6424 $\pm$ 0.0355 &
-0.5613 $\pm$ 0.0396 &
-0.1128 $\pm$ 0.0208 &
-\textbf{0.0498 $\pm$ 0.0122} &
-0.3126 $\pm$ 0.0132 \\
-& (0.3601 $\pm$ 0.0350) & (0.4410 $\pm$ 0.0385) & (0.8872 $\pm$ 0.0208) & \textbf{(0.9502 $\pm$ 0.0122)} & (0.6912 $\pm$ 0.0131) \\
-\hline
-Bouncing rings &
-0.5636 $\pm$ 0.0499 &
-0.4959 $\pm$ 0.0334 &
-0.1135 $\pm$ 0.0403 &
-\textbf{0.0622 $\pm$ 0.0193} &
-0.2966 $\pm$ 0.0072 \\
-& (0.4374 $\pm$ 0.0497) & (0.5050 $\pm$ 0.0334) & (0.8865 $\pm$ 0.0403) & \textbf{(0.9378 $\pm$ 0.0193)} & (0.7078 $\pm$ 0.0069) \\
-\hline
-Orbiting disks &
-0.0998 $\pm$ 0.0161 &
-0.0624 $\pm$ 0.0162 &
-0.0984 $\pm$ 0.0137 &
-\textbf{0.0547 $\pm$ 0.0095} &
-0.3594 $\pm$ 0.0232 \\
-& (0.9018 $\pm$ 0.0156) & (0.9385 $\pm$ 0.0159) & (0.9016 $\pm$ 0.0137) & \textbf{(0.9453 $\pm$ 0.0095)} & (0.6548 $\pm$ 0.0223) \\
-\hline
-Orbiting rings &
-0.0841 $\pm$ 0.0158 &
-\textbf{0.0527 $\pm$ 0.0079} &
-0.0978 $\pm$ 0.0200 &
-0.0644 $\pm$ 0.0150 &
-0.3242 $\pm$ 0.0381 \\
-& (0.9171 $\pm$ 0.0159) & \textbf{(0.9482 $\pm$ 0.0077)} & (0.9022 $\pm$ 0.0200) & (0.9356 $\pm$ 0.0150) & (0.6909 $\pm$ 0.0357) \\
-\hline
-Moving MNIST &
-0.2953 $\pm$ 0.0569 &
-\textbf{0.2015 $\pm$ 0.0316} &
-0.3413 $\pm$ 0.0374 &
-0.2099 $\pm$ 0.0235 &
-0.4733 $\pm$ 0.0262 \\
-& (0.7093 $\pm$ 0.0551) & \textbf{(0.8016 $\pm$ 0.0306)} & (0.6587 $\pm$ 0.0374) & (0.7901 $\pm$ 0.0235) & (0.5445 $\pm$ 0.0248) \\
-\hline
-Lorenz-96 &
-0.2797 $\pm$ 0.0287 &
-0.2436 $\pm$ 0.0377 &
-0.1283 $\pm$ 0.0179 &
-\textbf{0.0624 $\pm$ 0.0147} &
-0.5238 $\pm$ 0.0764 \\
-& (0.7200 $\pm$ 0.0292) & (0.7561 $\pm$ 0.0381) & (0.8717 $\pm$ 0.0179) & \textbf{(0.9376 $\pm$ 0.0147)} & (0.4702 $\pm$ 0.0779) \\
-\hline
-ElectricDevices &
-0.1638 $\pm$ 0.0236 &
-0.1104 $\pm$ 0.0223 &
-0.0971 $\pm$ 0.0105 &
-\textbf{0.0560 $\pm$ 0.0215} &
-0.2186 $\pm$ 0.0283 \\
-& (0.8427 $\pm$ 0.0205) & (0.8945 $\pm$ 0.0182) & (0.9030 $\pm$ 0.0104) & \textbf{(0.9440 $\pm$ 0.0215)} & (0.8119 $\pm$ 0.0227) \\
-\hline
+\caption{Main latent-forecasting results with the standard AE encoder. Lower MSE is better. The best topological augmentation is selected among Betti, persistence image, persistence landscape, and PersLay-style H1 features combined with temporal statistics.}
+\label{tab:main_latent_topology}
+\begin{tabular}{lccccc}
+\toprule
+Dataset & $z$ & $z+$Temp & Best $z+$Temp+Topo & Best mode & Gain vs. $z$ \\
+\midrule
+Bouncing disks & $0.6437{\pm}0.0371$ & $0.5618{\pm}0.0404$ & $\mathbf{0.5485{\pm}0.0384}$ & Landscape H1 & $14.8\%$ \\
+Bouncing rings & $0.5654{\pm}0.0538$ & $0.4989{\pm}0.0387$ & $\mathbf{0.4905{\pm}0.0313}$ & Betti/Landscape/PersLay H1 & $13.2\%$ \\
+Orbiting disks & $0.0998{\pm}0.0161$ & $0.0717{\pm}0.0052$ & $\mathbf{0.0471{\pm}0.0087}$ & PersLay-style H1 & $52.8\%$ \\
+Orbiting rings & $0.0841{\pm}0.0158$ & $0.0527{\pm}0.0079$ & $\mathbf{0.0525{\pm}0.0172}$ & PersLay-style H1 & $37.6\%$ \\
+Moving MNIST & $0.2953{\pm}0.0569$ & $0.2021{\pm}0.0146$ & $\mathbf{0.1744{\pm}0.0455}$ & Betti H1 & $40.9\%$ \\
+Lorenz-96 & $0.2797{\pm}0.0286$ & $0.2437{\pm}0.0379$ & $\mathbf{0.2331{\pm}0.0393}$ & PI H1 & $16.7\%$ \\
+ElectricDevices & $0.1638{\pm}0.0237$ & $0.1296{\pm}0.0370$ & $\mathbf{0.1070{\pm}0.0149}$ & PI H1 & $34.7\%$ \\
+\bottomrule
 \end{tabular}
-}
-\caption{Forecasting performance across video and time-series datasets. Each cell reports test MSE $\pm$ std, with latent $R^2 \pm$ std in parentheses. ``AE + TDA'', ``GeoAE + TDA'', and ``TopoAE + TDA'' use the best TDA-enhanced mode for that encoder family. Lower MSE and higher $R^2$ are better.}
-\label{tab:main_forecasting}
-\end{table*}
+\end{table}
