@@ -37,21 +37,12 @@ def parse_line(line: str) -> tuple[str, str, str, int, float, float, float, floa
 
 
 def read_rows(path: Path) -> list[tuple[str, str, str, int, float, float, float, float]]:
-    rows = []
     text = path.read_text()
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("dataset"):
-            continue
-        parsed = parse_line(line)
-        if parsed is not None:
-            rows.append(parsed)
-    if rows:
-        return rows
 
-    # Terminal output is often soft-wrapped, so a row may span multiple lines.
-    # Fall back to parsing the whitespace token stream:
+    # Terminal output is often soft-wrapped, so parse the full whitespace token
+    # stream instead of assuming each row occupies exactly one line.
     # dataset scenario mode n_runs mse_mean mse_std r2_mean r2_std
+    rows = []
     tokens = text.split()
     i = 0
     while i + 7 < len(tokens):
@@ -100,7 +91,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", type=Path)
     parser.add_argument("--caption", default="Full sweep over datasets, encoder families, and topology/fusion modes. Lower MSE and higher latent $R^2$ are better.")
-    parser.add_argument("--label", default="tab:appendix_full_locked_sweep")
+    parser.add_argument("--label", default="tab:appendix_full_sweep")
     args = parser.parse_args()
     rows = read_rows(args.input)
     if not rows:
