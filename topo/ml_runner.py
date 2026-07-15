@@ -31,6 +31,7 @@ import topo.ml_tda_geoae as ml_tda_geoae
 import topo.ml_tda_topoae as ml_tda_topoae
 import topo.ml_tda_repr as ml_tda_repr
 import topo.ml_tda_vjepa as ml_tda_vjepa
+import topo.ml_tda_simvp as ml_tda_simvp
 from topo.utils import tqdm_progress_bar
 from topo.ml_tda import (
     SpatialDecoder,
@@ -56,6 +57,7 @@ RUNNER_SCENARIOS = {
     "vae_latent_tda",
     "byol_latent_tda",
     "vjepa_latent_tda",
+    "simvp",
     "aux_tda",
     "pixel_tda",
     "geo_pixel_tda",
@@ -126,6 +128,7 @@ class RunConfig:
     vjepa_repo: str
     vjepa_batch_size: int
     vjepa_num_frames: int
+    simvp_input_frames: int
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
@@ -1789,6 +1792,158 @@ def run_topo_decode_z(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
     return _run_decode_z(cfg, context, ae_kind="topo")
 
 
+def run_simvp(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    raw_modes = _override(cfg.modes, context.dataset_config.get("SIMVP_MODES", ["frames", "z", "z_fuse_h1"]))
+    modes = []
+    for mode in raw_modes:
+        mode_text = str(mode).strip()
+        if ml_tda_simvp.is_unconditioned_mode(mode_text):
+            modes.append("frames")
+        else:
+            modes.extend(ml_tda_latent.canonicalize_latent_tda_modes([mode_text]))
+    modes = list(dict.fromkeys(modes))
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
+    max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
+    simvp_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("SIMVP_EPOCHS", context.predictor_epochs)))
+    simvp_lr = float(_override(cfg.learning_rate, context.dataset_config.get("SIMVP_LR", context.learning_rate)))
+    simvp_batch_size = int(
+        _override(cfg.pixel_tda_batch_size, context.dataset_config.get("SIMVP_BATCH_SIZE", 16))
+    )
+    simvp_hidden = int(_override(cfg.hidden_dim, context.dataset_config.get("SIMVP_HIDDEN_DIM", context.hidden_dim)))
+    simvp_input_frames = int(
+        _override(cfg.simvp_input_frames, context.dataset_config.get("SIMVP_INPUT_FRAMES", 5))
+    )
+    recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
+        "RECOMPUTE_LATENT_TDA_FEATURES",
+        True,
+    )
+    device = _select_device(cfg.device)
+
+    ml_tda.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        REAL_TDA_SCALE=context.real_tda_scale,
+        REAL_TDA_BINS=context.real_tda_bins,
+        HORIZON=context.horizon,
+        DEVICE=device,
+        AE_EPOCHS=context.ae_epochs,
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_latent.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        RETRAIN_ENCODER=cfg.retrain_encoder,
+        HORIZON=context.horizon,
+        LATENT_TDA_WINDOW=window,
+        LATENT_TDA_BINS=bins,
+        RECOMPUTE_LATENT_TDA_FEATURES=recompute_features,
+    )
+    ml_tda_simvp.configure_runtime(
+        DATASET=f"{cfg.dataset}_simvp",
+        HORIZON=context.horizon,
+        SIMVP_INPUT_FRAMES=simvp_input_frames,
+        SIMVP_HIDDEN_DIM=simvp_hidden,
+        SIMVP_EPOCHS=simvp_epochs,
+        SIMVP_LR=simvp_lr,
+        SIMVP_BATCH_SIZE=simvp_batch_size,
+        SIMVP_RETRAIN=cfg.retrain_predictor,
+    )
+    print(
+        f"SimVP config: dataset={cfg.dataset}, seeds={seeds}, modes={modes}, "
+        f"input_frames={simvp_input_frames}, horizon={context.horizon}, epochs={simvp_epochs}, "
+        f"lr={simvp_lr}, batch={simvp_batch_size}, hidden={simvp_hidden}, "
+        f"max_train={max_train}, max_test={max_test}"
+    )
+
+    rows = []
+    for seed in tqdm_progress_bar(seeds, desc="simvp seeds", total=len(seeds), leave=True):
+        print(f"\n================ SimVP seed={seed} ================")
+        _set_all_seeds(seed)
+        train_video = ml_tda_latent.take_batch_subset(context.x_train, max_train, seed=seed)
+        test_video = ml_tda_latent.take_batch_subset(context.x_test, max_test, seed=seed + 1)
+        encoder, _, encoder_path, _ = _load_or_train_baseline_autoencoder(cfg, context, seed)
+
+        train_payload = None
+        test_payload = None
+        if any(not ml_tda_simvp.is_unconditioned_mode(mode) for mode in modes):
+            train_payload = ml_tda_latent.load_or_compute_latent_tda_features(seed, "train", train_video, encoder)
+            test_payload = ml_tda_latent.load_or_compute_latent_tda_features(seed, "test", test_video, encoder)
+
+        for mode in modes:
+            print(f"\n--- SimVP mode={mode} seed={seed} ---")
+            if ml_tda_simvp.is_unconditioned_mode(mode):
+                train_cond = None
+                test_cond = None
+            else:
+                if train_payload is None or test_payload is None:
+                    raise RuntimeError("Latent payload was not computed for conditioned SimVP mode.")
+                train_cond, test_cond = ml_tda_latent.features_for_latent_tda_mode_pair(
+                    train_payload,
+                    test_payload,
+                    mode,
+                    train_control_seed=seed,
+                    test_control_seed=seed + 10_000,
+                )
+            model, model_path = ml_tda_simvp.train_or_load_simvp(
+                seed=seed,
+                mode=mode,
+                train_video=train_video,
+                cond_features=train_cond,
+            )
+            metrics = ml_tda_simvp.evaluate_simvp(
+                model=model,
+                test_video=test_video,
+                cond_features=test_cond,
+                encoder=encoder,
+            )
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": "simvp",
+                "seed": seed,
+                "mode": mode,
+                "horizon": context.horizon,
+                "input_frames": simvp_input_frames,
+                "pixel_mse": float(metrics["pixel_mse"]),
+                "pixel_r2": float(metrics["pixel_r2"]),
+                "weighted_mse": float(metrics["weighted_mse"]),
+                "foreground_mse": float(metrics["foreground_mse"]),
+                "background_mse": float(metrics["background_mse"]),
+                "latent_mse": float(metrics.get("latent_mse", float("nan"))),
+                "latent_r2": float(metrics.get("latent_r2", float("nan"))),
+                "encoder_path": str(encoder_path),
+                "model_path": str(model_path),
+            }
+            rows.append(row)
+            print("SimVP summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=[
+            "pixel_mse",
+            "pixel_r2",
+            "weighted_mse",
+            "foreground_mse",
+            "background_mse",
+            "latent_mse",
+            "latent_r2",
+        ],
+        sort_metric="pixel_mse",
+    )
+    print("\nSimVP per-run results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nSimVP mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
 def run_geo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
@@ -2176,6 +2331,12 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         default=16,
         help="Number of frames per V-JEPA context window ending at each time step.",
     )
+    parser.add_argument(
+        "--simvp-input-frames",
+        type=int,
+        default=5,
+        help="Number of past frames given to the SimVP pixel predictor.",
+    )
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
@@ -2226,6 +2387,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         vjepa_repo=args.vjepa_repo,
         vjepa_batch_size=args.vjepa_batch_size,
         vjepa_num_frames=args.vjepa_num_frames,
+        simvp_input_frames=args.simvp_input_frames,
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,
@@ -2265,6 +2427,8 @@ def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame |
         results_df, summary_df = run_byol_latent_tda(cfg, context)
     elif cfg.scenario == "vjepa_latent_tda":
         results_df, summary_df = run_vjepa_latent_tda(cfg, context)
+    elif cfg.scenario == "simvp":
+        results_df, summary_df = run_simvp(cfg, context)
     elif cfg.scenario == "aux_tda":
         results_df, summary_df = run_aux_tda(cfg, context)
     elif cfg.scenario == "geo_pixel_tda":

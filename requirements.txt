@@ -42,6 +42,9 @@ torch==2.8.0
 #torch-spline-conv
 git+https://github.com/huggingface/transformers
 torchcodec
+torchvision
+
+opencv-python
 
 tqdm
 # tslearn
