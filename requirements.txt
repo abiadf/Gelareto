@@ -40,6 +40,8 @@ torch==2.8.0
 # torch-sparse
 # torch-cluster
 #torch-spline-conv
+git+https://github.com/huggingface/transformers
+torchcodec
 
 tqdm
 # tslearn

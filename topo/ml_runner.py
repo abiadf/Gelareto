@@ -30,6 +30,7 @@ import topo.ml_tda_pixel as ml_tda_pixel
 import topo.ml_tda_geoae as ml_tda_geoae
 import topo.ml_tda_topoae as ml_tda_topoae
 import topo.ml_tda_repr as ml_tda_repr
+import topo.ml_tda_vjepa as ml_tda_vjepa
 from topo.utils import tqdm_progress_bar
 from topo.ml_tda import (
     SpatialDecoder,
@@ -54,6 +55,7 @@ RUNNER_SCENARIOS = {
     "topo_latent_tda",
     "vae_latent_tda",
     "byol_latent_tda",
+    "vjepa_latent_tda",
     "aux_tda",
     "pixel_tda",
     "geo_pixel_tda",
@@ -121,6 +123,9 @@ class RunConfig:
     vae_epochs: int | None
     byol_epochs: int | None
     byol_noise_std: float
+    vjepa_repo: str
+    vjepa_batch_size: int
+    vjepa_num_frames: int
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
@@ -1406,6 +1411,184 @@ def run_byol_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     return _run_representation_latent_tda(cfg, context, rep_kind="byol")
 
 
+def _load_or_compute_vjepa_payload(
+    *,
+    namespace: str,
+    repo: str,
+    seed: int,
+    split_name: str,
+    video_tensor: torch.Tensor,
+    device: str,
+    batch_size: int,
+    num_frames: int,
+    window: int,
+    bins: int,
+    recompute: bool,
+) -> dict[str, Any]:
+    cache_path = ml_tda_vjepa.vjepa_feature_cache_path(
+        namespace=namespace,
+        repo=repo,
+        seed=seed,
+        split_name=split_name,
+        video_tensor=video_tensor,
+        num_frames=num_frames,
+    )
+    if cache_path.exists() and not recompute:
+        print(f"Loading V-JEPA feature cache: {cache_path}")
+        try:
+            return torch.load(cache_path, map_location="cpu")
+        except Exception:
+            return torch.load(cache_path, map_location="cpu", weights_only=False)
+
+    print(f"Computing V-JEPA z + latent-window TDA for {split_name}...")
+    z = ml_tda_vjepa.encode_video_tensor_with_vjepa(
+        video_tensor,
+        repo=repo,
+        device=device,
+        batch_size=batch_size,
+        num_frames=num_frames,
+    )
+    h0, h1, diagrams = ml_tda_latent.latent_window_betti_features(
+        z,
+        window=window,
+        n_bins=bins,
+        return_diagrams=True,
+    )
+    payload = {"z": z, "h0": h0, "h1": h1, "diagrams": diagrams}
+    torch.save(payload, cache_path)
+    print(f"Saved V-JEPA feature cache: {cache_path}")
+    return payload
+
+
+def run_vjepa_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get(
+            "LATENT_TDA_MODES",
+            ["z", "z_temporal_stats", "z_temporal_stats_h1"],
+        ),
+    )
+    modes = ml_tda_latent.canonicalize_latent_tda_modes(modes)
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
+    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
+    max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
+    repo = str(cfg.vjepa_repo)
+    vjepa_namespace = f"{cfg.dataset}_vjepa_{repo.replace('/', '__')}"
+    recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
+        "RECOMPUTE_LATENT_TDA_FEATURES",
+        True,
+    )
+    selected_device = _select_device(cfg.device)
+    vjepa_device = selected_device.type if cfg.device == "auto" else cfg.device
+
+    print(
+        f"vjepa_latent_tda config: dataset={cfg.dataset}, namespace={vjepa_namespace}, repo={repo}, "
+        f"seeds={seeds}, modes={modes}, vjepa_num_frames={cfg.vjepa_num_frames}, "
+        f"vjepa_batch_size={cfg.vjepa_batch_size}, window={window}, bins={bins}, "
+        f"predictor_epochs={latent_epochs}, lr={latent_lr}, horizon={context.horizon}"
+    )
+
+    rows = []
+    for seed in tqdm_progress_bar(seeds, desc="vjepa_latent_tda seeds", total=len(seeds), leave=True):
+        print(f"\n================ vjepa_latent_tda seed={seed} ================")
+        _set_all_seeds(seed)
+        x_train_subset = ml_tda_latent.take_batch_subset(context.x_train, max_train, seed=seed)
+        x_test_subset = ml_tda_latent.take_batch_subset(context.x_test, max_test, seed=seed + 1)
+        train_payload = _load_or_compute_vjepa_payload(
+            namespace=vjepa_namespace,
+            repo=repo,
+            seed=seed,
+            split_name="train",
+            video_tensor=x_train_subset,
+            device=vjepa_device,
+            batch_size=cfg.vjepa_batch_size,
+            num_frames=cfg.vjepa_num_frames,
+            window=window,
+            bins=bins,
+            recompute=recompute_features,
+        )
+        test_payload = _load_or_compute_vjepa_payload(
+            namespace=vjepa_namespace,
+            repo=repo,
+            seed=seed,
+            split_name="test",
+            video_tensor=x_test_subset,
+            device=vjepa_device,
+            batch_size=cfg.vjepa_batch_size,
+            num_frames=cfg.vjepa_num_frames,
+            window=window,
+            bins=bins,
+            recompute=recompute_features,
+        )
+        vjepa_latent_dim = int(train_payload["z"].shape[-1])
+        ml_tda.configure_runtime(
+            DATASET=vjepa_namespace,
+            LATENT_DIM=vjepa_latent_dim,
+            REAL_TDA_SCALE=context.real_tda_scale,
+            REAL_TDA_BINS=context.real_tda_bins,
+            HORIZON=context.horizon,
+            DEVICE=selected_device,
+            PREDICTOR_TYPE=cfg.predictor_type,
+        )
+        ml_tda_latent.configure_runtime(
+            DATASET=vjepa_namespace,
+            LATENT_DIM=vjepa_latent_dim,
+            HIDDEN_DIM=context.hidden_dim,
+            RETRAIN_ENCODER=False,
+            HORIZON=context.horizon,
+            LATENT_TDA_WINDOW=window,
+            LATENT_TDA_BINS=bins,
+            LATENT_TDA_PREDICTOR_EPOCHS=latent_epochs,
+            LATENT_TDA_LR=latent_lr,
+            RETRAIN_LATENT_TDA_PREDICTOR=cfg.retrain_predictor,
+            RECOMPUTE_LATENT_TDA_FEATURES=recompute_features,
+        )
+        diagnostics = ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
+
+        for mode in modes:
+            print(f"\n--- vjepa_latent_tda mode={mode} seed={seed} ---")
+            train_features, test_features = ml_tda_latent.features_for_latent_tda_mode_pair(
+                train_payload,
+                test_payload,
+                mode,
+                train_control_seed=seed,
+                test_control_seed=seed + 10_000,
+            )
+            model = ml_tda_latent.train_or_load_latent_tda_predictor(seed, mode, train_features, train_payload["z"])
+            test_mse, _, latent_r2 = ml_tda_latent.eval_latent_tda_predictor(model, test_features, test_payload["z"])
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": "vjepa",
+                "seed": seed,
+                "mode": mode,
+                "horizon": context.horizon,
+                "test_mse": float(test_mse),
+                "latent_r2": float(latent_r2),
+                "vjepa_repo": repo,
+                "vjepa_num_frames": int(cfg.vjepa_num_frames),
+                "latent_dim": vjepa_latent_dim,
+                **diagnostics,
+            }
+            rows.append(row)
+            print("vjepa_latent_tda summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=["test_mse", "latent_r2"],
+        sort_metric="test_mse",
+    )
+    print("\nvjepa_latent_tda mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
 def _load_geo_autoencoder_for_seed(
     cfg: RunConfig,
     context: VideoContext,
@@ -1981,6 +2164,18 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument("--vae-epochs", type=int, default=None, help="VAE pretraining epochs.")
     parser.add_argument("--byol-epochs", type=int, default=None, help="BYOL-style pretraining epochs.")
     parser.add_argument("--byol-noise-std", type=float, default=0.05, help="BYOL augmentation noise std.")
+    parser.add_argument(
+        "--vjepa-repo",
+        default=ml_tda_vjepa.DEFAULT_VJEPA_REPO,
+        help="Hugging Face repo for vjepa_latent_tda.",
+    )
+    parser.add_argument("--vjepa-batch-size", type=int, default=2, help="V-JEPA encoding batch size.")
+    parser.add_argument(
+        "--vjepa-num-frames",
+        type=int,
+        default=16,
+        help="Number of frames per V-JEPA context window ending at each time step.",
+    )
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
@@ -2028,6 +2223,9 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         vae_epochs=args.vae_epochs,
         byol_epochs=args.byol_epochs,
         byol_noise_std=args.byol_noise_std,
+        vjepa_repo=args.vjepa_repo,
+        vjepa_batch_size=args.vjepa_batch_size,
+        vjepa_num_frames=args.vjepa_num_frames,
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,
@@ -2065,6 +2263,8 @@ def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame |
         results_df, summary_df = run_vae_latent_tda(cfg, context)
     elif cfg.scenario == "byol_latent_tda":
         results_df, summary_df = run_byol_latent_tda(cfg, context)
+    elif cfg.scenario == "vjepa_latent_tda":
+        results_df, summary_df = run_vjepa_latent_tda(cfg, context)
     elif cfg.scenario == "aux_tda":
         results_df, summary_df = run_aux_tda(cfg, context)
     elif cfg.scenario == "geo_pixel_tda":
