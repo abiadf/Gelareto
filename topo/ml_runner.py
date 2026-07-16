@@ -32,6 +32,7 @@ import topo.ml_tda_topoae as ml_tda_topoae
 import topo.ml_tda_repr as ml_tda_repr
 import topo.ml_tda_vjepa as ml_tda_vjepa
 import topo.ml_tda_simvp as ml_tda_simvp
+import topo.ml_tda_openstl as ml_tda_openstl
 from topo.utils import tqdm_progress_bar
 from topo.ml_tda import (
     SpatialDecoder,
@@ -58,6 +59,7 @@ RUNNER_SCENARIOS = {
     "byol_latent_tda",
     "vjepa_latent_tda",
     "simvp",
+    "openstl_simvp",
     "aux_tda",
     "pixel_tda",
     "geo_pixel_tda",
@@ -129,6 +131,8 @@ class RunConfig:
     vjepa_batch_size: int
     vjepa_num_frames: int
     simvp_input_frames: int
+    openstl_config: str
+    openstl_method: str
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
@@ -1944,6 +1948,63 @@ def run_simvp(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.D
     return results_df, summary_df
 
 
+def run_openstl_simvp(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", [0]))
+    max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
+    max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
+    input_frames = int(_override(cfg.simvp_input_frames, context.dataset_config.get("SIMVP_INPUT_FRAMES", 5)))
+    method = str(cfg.openstl_method)
+    config_file = str(cfg.openstl_config)
+    print(
+        f"OpenSTL export config: dataset={cfg.dataset}, seeds={seeds}, method={method}, "
+        f"config={config_file}, input_frames={input_frames}, horizon={context.horizon}, "
+        f"max_train={max_train}, max_test={max_test}"
+    )
+
+    rows = []
+    for seed in tqdm_progress_bar(seeds, desc="openstl exports", total=len(seeds), leave=True):
+        export = ml_tda_openstl.export_openstl_dataset(
+            dataset=cfg.dataset,
+            x_train=context.x_train,
+            x_test=context.x_test,
+            seed=seed,
+            input_frames=input_frames,
+            horizon=context.horizon,
+            max_train_clips=max_train,
+            max_test_clips=max_test,
+            method=method,
+            config_file=config_file,
+        )
+        row = {
+            "dataset": cfg.dataset,
+            "encoder": "openstl",
+            "seed": seed,
+            "mode": method,
+            "horizon": context.horizon,
+            "input_frames": input_frames,
+            "n_train_samples": export.n_train_samples,
+            "n_test_samples": export.n_test_samples,
+            "sequence_shape": str(export.sequence_shape),
+            "export_dir": str(export.export_dir),
+            "train_path": str(export.train_path),
+            "test_path": str(export.test_path),
+            "metadata_path": str(export.metadata_path),
+            "command_script": str(export.train_script_path),
+        }
+        rows.append(row)
+        print("OpenSTL export:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = results_df.set_index("seed") if not results_df.empty else pd.DataFrame()
+    print("\nOpenSTL export summary:")
+    print(results_df.to_string(index=False))
+    print(
+        "\nThese rows are export manifests, not trained metrics. Run the generated "
+        "run_openstl_train.sh scripts inside an official OpenSTL checkout."
+    )
+    return results_df, summary_df
+
+
 def run_geo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
@@ -2337,6 +2398,16 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         default=5,
         help="Number of past frames given to the SimVP pixel predictor.",
     )
+    parser.add_argument(
+        "--openstl-method",
+        default="SimVP",
+        help="Official OpenSTL method name for openstl_simvp exports.",
+    )
+    parser.add_argument(
+        "--openstl-config",
+        default="configs/mmnist/simvp/SimVP_gSTA.py",
+        help="Official OpenSTL config file path, relative to the OpenSTL checkout.",
+    )
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
@@ -2388,6 +2459,8 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         vjepa_batch_size=args.vjepa_batch_size,
         vjepa_num_frames=args.vjepa_num_frames,
         simvp_input_frames=args.simvp_input_frames,
+        openstl_config=args.openstl_config,
+        openstl_method=args.openstl_method,
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,
@@ -2429,6 +2502,8 @@ def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame |
         results_df, summary_df = run_vjepa_latent_tda(cfg, context)
     elif cfg.scenario == "simvp":
         results_df, summary_df = run_simvp(cfg, context)
+    elif cfg.scenario == "openstl_simvp":
+        results_df, summary_df = run_openstl_simvp(cfg, context)
     elif cfg.scenario == "aux_tda":
         results_df, summary_df = run_aux_tda(cfg, context)
     elif cfg.scenario == "geo_pixel_tda":
