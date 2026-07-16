@@ -773,7 +773,10 @@ def latent_geometry_diagnostics(video_tensor, z, max_points=512, max_tda_points=
     if trustworthiness is None:
         trust = np.nan
     else:
-        trust = float(trustworthiness(x_sample, z_sample, n_neighbors=min(10, n - 1)))
+        # sklearn requires n_neighbors < n_samples / 2. Small biological clips can
+        # hit this boundary exactly, so choose the largest valid diagnostic value.
+        n_neighbors = min(10, max(1, (n - 1) // 2))
+        trust = float(trustworthiness(x_sample, z_sample, n_neighbors=n_neighbors))
     n_tda = min(int(max_tda_points), n)
     tda_idx = np.linspace(0, n - 1, n_tda, dtype=int)
     x_h0, x_h1 = _sample_betti_curves(x_sample[tda_idx], n_bins=LATENT_TDA_BINS)
