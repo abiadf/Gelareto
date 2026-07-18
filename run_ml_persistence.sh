@@ -12,7 +12,7 @@ set -euo pipefail
 # byol_latent_tda: BYOL-style encoder z-history + optional latent-trajectory TDA -> future z
 # vjepa_latent_tda: frozen V-JEPA video embeddings + optional latent-trajectory TDA -> future V-JEPA embedding
 # simvp: SimVP-style pixel predictor; frames is the standard pixel baseline, z_* modes add AE latent/TDA conditioning
-# openstl_simvp: export Pechstre clips for the official OpenSTL SimVP/SimVP.V2 benchmark
+# video3d_tda: AE z-history + streaming 3D cubical H0/H1/H2 features from growing frame volumes -> future X
 # decode_z: AE z-history -> future z -> decoded future X
 # geo_decode_z: geoAE z-history -> future z -> decoded future X
 # topo_decode_z: topoAE z-history -> future z -> decoded future X
@@ -21,7 +21,7 @@ set -euo pipefail
 # topo_pixel_tda: topoAE z-history + optional frame TDA -> future X
 # aux_tda: AE z-history -> future z, with optional auxiliary Betti prediction head/loss
 # geo_* models use the old pairwise-distance geometry proxy; topo_* models use H0 persistence-signature AE.
-# VAE/BYOL/V-JEPA are representation baselines for latent_tda; SimVP/OpenSTL are pixel-space video prediction baselines.
+# VAE/BYOL/V-JEPA are representation baselines for latent_tda; SimVP/video3d_tda are pixel-space video prediction baselines.
 
 # Modes:
 #   real_tda:   none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
@@ -29,7 +29,7 @@ set -euo pipefail
 #   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
 #   geo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda/vjepa_latent_tda: same as latent_tda
 #   simvp: frames, plus latent-TDA modes such as z,z_temporal_stats,z_fuse_h1,z_fuse_pi_h1
-#   openstl_simvp: export-only bridge for official OpenSTL; no z_* modes
+#   video3d_tda: none,h0,h1,h2,h0_h1,h0_h2,h1_h2,all, plus *_zero,*_shuffle,*_noise,*_shift controls
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_pixel_tda/topo_pixel_tda: same as pixel_tda; none is AE z-only -> future X
 #   decode_z/geo_decode_z/topo_decode_z: z_decode only
@@ -53,7 +53,7 @@ set -euo pipefail
 # Use --decoder-type conv for new paper-quality decoded-image runs; default mlp preserves old results/checkpoints.
 
 args=(
-  --scenario latent_tda,geo_latent_tda,topo_latent_tda #,simvp,openstl_simvp,topo_latent_tda #,vae_latent_tda,byol_latent_tda,vjepa_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp openstl_simvp pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
+  --scenario latent_tda,geo_latent_tda,topo_latent_tda #,simvp,video3d_tda,topo_latent_tda #,vae_latent_tda,byol_latent_tda,vjepa_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
   --dataset bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist,lorenz96,electric_devices,glioblastoma,hela #noisy_frames,celltracking_fluo,glioblastoma,hela,bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist
   --seeds 0,1,2,3,4                 # comma-separated seeds
   --modes z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
@@ -80,8 +80,10 @@ args=(
   # --vjepa-batch-size 1             # vjepa_latent_tda: lower this if GPU memory is tight
   # --vjepa-num-frames 16            # vjepa_latent_tda: frames per context window ending at each time step
   # --simvp-input-frames 5           # simvp: past frames used to predict the horizon frame
-  # --openstl-method SimVP           # openstl_simvp: official OpenSTL method
-  # --openstl-config configs/mmnist/simvp/SimVP_gSTA.py # openstl_simvp: official SimVP.V2/gSTA config template
+  # --video3d-tda-bins 16            # video3d_tda: bins per H0/H1/H2 Betti curve
+  # --video3d-tda-scale 15           # video3d_tda: normalizes Betti counts before concatenation
+  # --video3d-tda-boundary-slices 2  # video3d_tda: rolling damage-region radius recorded in stream state
+  # --recompute-video3d-tda-features # video3d_tda: refresh cached H0/H1/H2 volume features
   # --latent-tda-bins 16
   # --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
 

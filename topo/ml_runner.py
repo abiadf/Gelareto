@@ -32,6 +32,7 @@ import topo.ml_tda_topoae as ml_tda_topoae
 import topo.ml_tda_repr as ml_tda_repr
 import topo.ml_tda_vjepa as ml_tda_vjepa
 import topo.ml_tda_simvp as ml_tda_simvp
+import topo.persistence_3d as persistence_3d
 from topo.utils import tqdm_progress_bar
 from topo.ml_tda import (
     SpatialDecoder,
@@ -58,6 +59,7 @@ RUNNER_SCENARIOS = {
     "byol_latent_tda",
     "vjepa_latent_tda",
     "simvp",
+    "video3d_tda",
     "aux_tda",
     "pixel_tda",
     "geo_pixel_tda",
@@ -129,6 +131,10 @@ class RunConfig:
     vjepa_batch_size: int
     vjepa_num_frames: int
     simvp_input_frames: int
+    video3d_tda_bins: int | None
+    video3d_tda_scale: float | None
+    video3d_tda_boundary_slices: int | None
+    recompute_video3d_tda_features: bool
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
@@ -2246,6 +2252,137 @@ def run_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, 
     return results_df, summary_df
 
 
+def run_video3d_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get("VIDEO3D_TDA_MODES", ["none", "h1", "h2", "all"]),
+    )
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    pixel_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("VIDEO3D_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
+    pixel_lr = float(_override(cfg.learning_rate, context.dataset_config.get("VIDEO3D_TDA_LR", context.learning_rate)))
+    batch_size = int(
+        _override(cfg.pixel_tda_batch_size, context.dataset_config.get("VIDEO3D_TDA_BATCH_SIZE", 32))
+    )
+    fg_weight = float(
+        _override(cfg.pixel_tda_fg_weight, context.dataset_config.get("PIXEL_TDA_FG_WEIGHT", 10.0))
+    )
+    fg_threshold = float(
+        _override(cfg.pixel_tda_fg_threshold, context.dataset_config.get("PIXEL_TDA_FG_THRESHOLD", 0.05))
+    )
+    bins = int(_override(cfg.video3d_tda_bins, context.dataset_config.get("VIDEO3D_TDA_BINS", context.real_tda_bins)))
+    scale = float(_override(cfg.video3d_tda_scale, context.dataset_config.get("VIDEO3D_TDA_SCALE", context.real_tda_scale)))
+    boundary_slices = int(
+        _override(cfg.video3d_tda_boundary_slices, context.dataset_config.get("VIDEO3D_TDA_BOUNDARY_SLICES", 2))
+    )
+
+    ml_tda.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HORIZON=context.horizon,
+        DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_pixel.configure_runtime(
+        HORIZON=context.horizon,
+        PIXEL_TDA_BATCH_SIZE=batch_size,
+        PIXEL_TDA_FG_WEIGHT=fg_weight,
+        PIXEL_TDA_FG_THRESHOLD=fg_threshold,
+    )
+    persistence_3d.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        HORIZON=context.horizon,
+        VIDEO3D_TDA_BINS=bins,
+        VIDEO3D_TDA_SCALE=scale,
+        VIDEO3D_TDA_BOUNDARY_SLICES=boundary_slices,
+        VIDEO3D_TDA_PREDICTOR_EPOCHS=pixel_epochs,
+        VIDEO3D_TDA_LR=pixel_lr,
+        VIDEO3D_TDA_BATCH_SIZE=batch_size,
+        VIDEO3D_TDA_RETRAIN_PREDICTOR=cfg.retrain_predictor,
+    )
+    print(
+        f"Video3D-TDA config: dataset={cfg.dataset}, seeds={seeds}, modes={modes}, "
+        f"bins={bins}, scale={scale:g}, boundary_slices={boundary_slices}, "
+        f"predictor_epochs={pixel_epochs}, lr={pixel_lr}, batch={batch_size}, "
+        f"fg_weight={fg_weight}, fg_threshold={fg_threshold}, horizon={context.horizon}"
+    )
+
+    rows = []
+    for seed in tqdm_progress_bar(seeds, desc="video3d_tda seeds", total=len(seeds), leave=True):
+        print(f"\n================ video3d-tda seed={seed} ================")
+        _set_all_seeds(seed)
+        encoder, _, encoder_path, _ = _load_or_train_baseline_autoencoder(cfg, context, seed)
+        train_z, train_h0, train_h1, train_h2, train_payload = persistence_3d.compute_z_h0_h1_h2(
+            context.x_train,
+            encoder,
+            split_name="train",
+            seed=seed,
+            recompute=cfg.recompute_video3d_tda_features,
+        )
+        test_z, test_h0, test_h1, test_h2, test_payload = persistence_3d.compute_z_h0_h1_h2(
+            context.x_test,
+            encoder,
+            split_name="test",
+            seed=seed,
+            recompute=cfg.recompute_video3d_tda_features,
+        )
+
+        for mode in modes:
+            print(f"\n--- video3d mode={mode} seed={seed} ---")
+            train_features = persistence_3d.make_mode_features(train_z, train_h0, train_h1, train_h2, mode, seed)
+            test_features = persistence_3d.make_mode_features(test_z, test_h0, test_h1, test_h2, mode, seed + 10_000)
+            model, model_path = persistence_3d.train_or_load_predictor(
+                seed,
+                mode,
+                train_features,
+                context.x_train,
+            )
+            metrics = persistence_3d.evaluate_predictor(model, test_features, context.x_test)
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": "ae",
+                "seed": seed,
+                "mode": mode,
+                "horizon": context.horizon,
+                "pixel_mse": float(metrics["pixel_mse"]),
+                "pixel_r2": float(metrics["pixel_r2"]),
+                "weighted_mse": float(metrics["weighted_mse"]),
+                "foreground_mse": float(metrics["foreground_mse"]),
+                "background_mse": float(metrics["background_mse"]),
+                "video3d_backend": train_payload.get("backend", "unknown"),
+                "video3d_bins": bins,
+                "video3d_scale": scale,
+                "boundary_slices": boundary_slices,
+                "encoder_path": str(encoder_path),
+                "model_path": str(model_path),
+            }
+            rows.append(row)
+            print("video3d-TDA summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=[
+            "pixel_mse",
+            "pixel_r2",
+            "weighted_mse",
+            "foreground_mse",
+            "background_mse",
+        ],
+        sort_metric="weighted_mse",
+    )
+    print("\nVideo3D-TDA per-run results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nVideo3D-TDA mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
 def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -2337,6 +2474,29 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         default=5,
         help="Number of past frames given to the SimVP pixel predictor.",
     )
+    parser.add_argument(
+        "--video3d-tda-bins",
+        type=int,
+        default=None,
+        help="Betti-curve bins for video3d_tda H0/H1/H2 features.",
+    )
+    parser.add_argument(
+        "--video3d-tda-scale",
+        type=float,
+        default=None,
+        help="Count normalization scale for video3d_tda Betti curves.",
+    )
+    parser.add_argument(
+        "--video3d-tda-boundary-slices",
+        type=int,
+        default=None,
+        help="Rolling boundary-slice radius recorded by the video3d_tda streaming state.",
+    )
+    parser.add_argument(
+        "--recompute-video3d-tda-features",
+        action="store_true",
+        help="Recompute video3d_tda H0/H1/H2 caches even when matching cached files exist.",
+    )
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
@@ -2388,6 +2548,10 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         vjepa_batch_size=args.vjepa_batch_size,
         vjepa_num_frames=args.vjepa_num_frames,
         simvp_input_frames=args.simvp_input_frames,
+        video3d_tda_bins=args.video3d_tda_bins,
+        video3d_tda_scale=args.video3d_tda_scale,
+        video3d_tda_boundary_slices=args.video3d_tda_boundary_slices,
+        recompute_video3d_tda_features=args.recompute_video3d_tda_features,
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,
@@ -2429,6 +2593,8 @@ def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame |
         results_df, summary_df = run_vjepa_latent_tda(cfg, context)
     elif cfg.scenario == "simvp":
         results_df, summary_df = run_simvp(cfg, context)
+    elif cfg.scenario == "video3d_tda":
+        results_df, summary_df = run_video3d_tda(cfg, context)
     elif cfg.scenario == "aux_tda":
         results_df, summary_df = run_aux_tda(cfg, context)
     elif cfg.scenario == "geo_pixel_tda":
