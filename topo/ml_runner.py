@@ -2329,6 +2329,9 @@ def run_video3d_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame
             seed=seed,
             recompute=cfg.recompute_video3d_tda_features,
         )
+        persistence_3d.print_payload_feature_stats(train_payload, label=f"seed={seed} train")
+        persistence_3d.print_payload_feature_stats(test_payload, label=f"seed={seed} test")
+        test_tda_stats = persistence_3d.payload_feature_stats(test_payload, prefix="test")
 
         for mode in modes:
             print(f"\n--- video3d mode={mode} seed={seed} ---")
@@ -2359,6 +2362,7 @@ def run_video3d_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame
                 "encoder_path": str(encoder_path),
                 "model_path": str(model_path),
             }
+            row.update(test_tda_stats)
             rows.append(row)
             print("video3d-TDA summary:", row)
 
@@ -2650,7 +2654,7 @@ def _drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def _format_mean_std(value: object, std: object) -> str:
     if pd.isna(value) and pd.isna(std):
-        return ""
+        return "nan nan"
     if pd.isna(std):
         return f"{float(value):.4f}"
     if pd.isna(value):

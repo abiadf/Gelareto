@@ -251,6 +251,50 @@ def compute_video3d_tda_features(
     return payload
 
 
+def feature_stats(features: torch.Tensor, prefix: str = "") -> dict[str, float]:
+    """Return compact diagnostics for one TDA feature tensor."""
+    x = features.detach().cpu().float()
+    prefix = f"{prefix}_" if prefix else ""
+    if x.numel() == 0:
+        return {
+            f"{prefix}mean": float("nan"),
+            f"{prefix}std": float("nan"),
+            f"{prefix}max": float("nan"),
+            f"{prefix}nonzero_frac": float("nan"),
+        }
+    return {
+        f"{prefix}mean": float(x.mean().item()),
+        f"{prefix}std": float(x.std(unbiased=False).item()),
+        f"{prefix}max": float(x.max().item()),
+        f"{prefix}nonzero_frac": float((x != 0).float().mean().item()),
+    }
+
+
+def payload_feature_stats(payload: dict[str, torch.Tensor], prefix: str = "") -> dict[str, float]:
+    """Return H0/H1/H2 diagnostics for a video3d TDA payload."""
+    stats: dict[str, float] = {}
+    base_prefix = f"{prefix}_" if prefix else ""
+    for dim in ("h0", "h1", "h2"):
+        if dim in payload:
+            stats.update(feature_stats(payload[dim], prefix=f"{base_prefix}{dim}"))
+    return stats
+
+
+def print_payload_feature_stats(payload: dict[str, torch.Tensor], label: str) -> None:
+    """Print whether H0/H1/H2 features are active or effectively constant."""
+    print(f"{label} video3d TDA feature diagnostics:")
+    for dim in ("h0", "h1", "h2"):
+        if dim not in payload:
+            continue
+        stats = feature_stats(payload[dim])
+        shape = tuple(payload[dim].shape)
+        print(
+            f"  {dim}: shape={shape} "
+            f"mean={stats['mean']:.6f} std={stats['std']:.6f} "
+            f"max={stats['max']:.6f} nonzero_frac={stats['nonzero_frac']:.4f}"
+        )
+
+
 def cache_path_for_split(video_tensor: torch.Tensor, *, seed: int, split_name: str) -> Path:
     """Build a shape/config-specific cache path."""
     tag = (

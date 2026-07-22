@@ -233,6 +233,71 @@ def latent_window_temporal_stats(z, window=6):
     return torch.cat([rolling_mean, rolling_std, velocity, acceleration], dim=-1)
 
 
+def latent_window_pca_eigenvalue_features(z, window=6, n_components=16):
+    """Top PCA eigenvalues of each latent trajectory window as non-topological controls."""
+    T, B, _ = z.shape
+    n_components = int(n_components)
+    features = np.zeros((T, B, n_components), dtype=np.float32)
+    z_np = z.detach().cpu().numpy().astype(np.float32)
+
+    for t in range(T):
+        start = max(0, t - window + 1)
+        for b in range(B):
+            pts = z_np[start:t + 1, b, :]
+            if len(pts) < 2:
+                continue
+            pts = pts - pts.mean(axis=0, keepdims=True)
+            scale = pts.std(axis=0, keepdims=True).mean() + 1e-6
+            pts = pts / scale
+            denom = max(len(pts) - 1, 1)
+            covariance = (pts.T @ pts) / float(denom)
+            eigvals = np.linalg.eigvalsh(covariance).astype(np.float32)
+            eigvals = np.sort(np.maximum(eigvals, 0.0))[::-1]
+            k = min(n_components, len(eigvals))
+            features[t, b, :k] = eigvals[:k]
+    return torch.from_numpy(features).float()
+
+
+def _pca_feature_dim_for_homology(homology):
+    if homology in {"h0", "h1"}:
+        return int(LATENT_TDA_BINS)
+    if homology == "both":
+        return int(2 * LATENT_TDA_BINS)
+    raise ValueError(f"Unknown PCA homology-width selector: {homology}")
+
+
+def _parse_pca_latent_mode(base_mode):
+    base_mode = canonicalize_latent_tda_mode(base_mode)
+    if base_mode.startswith("z_fuse_"):
+        spec = base_mode[len("z_fuse_"):]
+    elif base_mode.startswith("topo_"):
+        spec = base_mode[len("topo_"):]
+    elif base_mode.startswith("z_"):
+        spec = base_mode[len("z_"):]
+    else:
+        return None
+    for homology in ("both", "h0", "h1"):
+        if spec == f"pca_{homology}":
+            return homology
+    return None
+
+
+def _pca_tensor(payload, homology):
+    return latent_window_pca_eigenvalue_features(
+        payload["z"],
+        window=LATENT_TDA_WINDOW,
+        n_components=_pca_feature_dim_for_homology(homology),
+    )
+
+
+def _pca_tensor_pair(train_payload, test_payload, homology, train_control_seed=0, test_control_seed=10_000, control="real"):
+    train_pca = _pca_tensor(train_payload, homology)
+    test_pca = _pca_tensor(test_payload, homology)
+    train_pca = ml_tda.apply_tda_control(train_pca, control=control, seed=int(train_control_seed), shift=1)
+    test_pca = ml_tda.apply_tda_control(test_pca, control=control, seed=int(test_control_seed), shift=1)
+    return train_pca, test_pca
+
+
 def _split_control_suffix(mode):
     control_names = {"zero", "shuffle", "noise", "shift"}
     parts = mode.rsplit("_", 1)
@@ -415,6 +480,18 @@ def _topology_tensor_pair(train_payload, test_payload, topo_spec, train_control_
     elif topo_spec.startswith("topo_"):
         topo_spec = "z_" + topo_spec.removeprefix("topo_")
 
+    pca_homology = _parse_pca_latent_mode(topo_spec)
+    if pca_homology is not None:
+        train_tda, test_tda = _pca_tensor_pair(
+            train_payload,
+            test_payload,
+            pca_homology,
+            train_control_seed=train_control_seed,
+            test_control_seed=test_control_seed,
+            control=control,
+        )
+        return train_tda, test_tda
+
     parsed = _parse_vectorized_latent_mode(topo_spec)
     if parsed is not None:
         vectorizer, homology = parsed
@@ -447,6 +524,12 @@ def features_for_latent_tda_mode(payload, mode):
         return torch.cat([z, temporal_stats, latent_tda], dim=-1)
 
     base_mode, control = _split_control_suffix(mode)
+    pca_homology = _parse_pca_latent_mode(base_mode)
+    if pca_homology is not None:
+        tda = _pca_tensor(payload, pca_homology)
+        control_seed = globals().get("CONTROL_SEED", 0)
+        tda = ml_tda.apply_tda_control(tda, control=control, seed=int(control_seed), shift=1)
+        return torch.cat([z, tda], dim=-1)
 
     if base_mode == "z_h0":
         tda = payload["h0"]
@@ -516,6 +599,21 @@ def features_for_latent_tda_mode_pair(train_payload, test_payload, mode, train_c
         )
 
     base_mode, control = _split_control_suffix(mode)
+    pca_homology = _parse_pca_latent_mode(base_mode)
+    if pca_homology is not None:
+        train_pca, test_pca = _pca_tensor_pair(
+            train_payload,
+            test_payload,
+            pca_homology,
+            train_control_seed=train_control_seed,
+            test_control_seed=test_control_seed,
+            control=control,
+        )
+        return (
+            torch.cat([train_payload["z"], train_pca], dim=-1),
+            torch.cat([test_payload["z"], test_pca], dim=-1),
+        )
+
     parsed = _parse_vectorized_latent_mode(base_mode)
     if parsed is None:
         configure_runtime(CONTROL_SEED=train_control_seed)

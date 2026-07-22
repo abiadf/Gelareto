@@ -26,7 +26,7 @@ set -euo pipefail
 # Modes:
 #   real_tda:   none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_real_tda/topo_real_tda: same as real_tda
-#   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
+#   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_pca_h0,z_pca_h1,z_pca_both,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,topo_h1,topo_pi_h1,topo_pca_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
 #   geo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda/vjepa_latent_tda: same as latent_tda
 #   simvp: frames, plus latent-TDA modes such as z,z_temporal_stats,z_fuse_h1,z_fuse_pi_h1
 #   video3d_tda: none,h0,h1,h2,h0_h1,h0_h2,h1_h2,all, plus *_zero,*_shuffle,*_noise,*_shift controls
@@ -53,15 +53,18 @@ set -euo pipefail
 # Use --decoder-type conv for new paper-quality decoded-image runs; default mlp preserves old results/checkpoints.
 
 args=(
-  --scenario latent_tda,geo_latent_tda,topo_latent_tda #,simvp,video3d_tda,topo_latent_tda #,vae_latent_tda,byol_latent_tda,vjepa_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
-  --dataset bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist,lorenz96,electric_devices,glioblastoma,hela #noisy_frames,celltracking_fluo,glioblastoma,hela,bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist
+  --scenario latent_tda,geo_latent_tda,topo_latent_tda #video3d_tda # latent_tda,geo_latent_tda,topo_latent_tda #,simvp,video3d_tda,topo_latent_tda #,vae_latent_tda,byol_latent_tda,vjepa_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
+  --dataset bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist,lorenz96,electric_devices,hela,glioblastoma  #bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist,lorenz96,electric_devices,glioblastoma,hela #noisy_frames,celltracking_fluo,glioblastoma,hela,bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist
   --seeds 0,1,2,3,4                 # comma-separated seeds
-  --modes z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
+  # --modes none,h1,h2,all #,h2_shuffle,h2_noise,h2_zero #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
+  # --modes none,h2,h2_shuffle,h2_zero,h2_noise,h1,all
+  # --modes none,h0_h1,all,h2,h2_shuffle,h2_noise,h2_zero
+  --modes z,z_h1,z_pca_h1,z_fuse_h1,z_fuse_pca_h1
   --horizon 5
   --include-retrain-encoder         # train encoder once per seed, freeze it, then run all modes fairly
   --ae-epochs 10                    # baseline AE pretraining epochs
   --predictor-epochs 40 #10
-  --predictor-type xlstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
+  --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
   --geo-ae-lambda 0.1
   --topo-ae-lambda 0.1
   --geo-ae-epochs 3
@@ -83,9 +86,11 @@ args=(
   # --video3d-tda-bins 16            # video3d_tda: bins per H0/H1/H2 Betti curve
   # --video3d-tda-scale 15           # video3d_tda: normalizes Betti counts before concatenation
   # --video3d-tda-boundary-slices 2  # video3d_tda: rolling damage-region radius recorded in stream state
-  # --recompute-video3d-tda-features # video3d_tda: refresh cached H0/H1/H2 volume features
+  # --recompute-video3d-tda-features   # video3d_tda: refresh cached H0/H1/H2 volume features
   # --latent-tda-bins 16
   # --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
+  # --num-train-clips 128 \
+  # --num-test-clips 64 \
 
   # --device auto                    # auto | cpu | cuda | mps
   # --horizon 5                      # override forecast horizon
