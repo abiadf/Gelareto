@@ -87,13 +87,27 @@ PHASE_PEAK_COLUMNS = {
 
 def read_profile(path: Path) -> pd.DataFrame:
     rows = []
+    active_columns = None
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("-") or stripped.startswith("dataset"):
+        if not stripped or stripped.startswith("-"):
+            continue
+        if stripped.startswith("dataset"):
+            header_parts = stripped.split()
+            if "dataset" in header_parts and "scenario" in header_parts and "mode" in header_parts:
+                active_columns = header_parts
             continue
         parts = stripped.split()
-        if len(parts) == len(COLUMNS):
-            rows.append(dict(zip(COLUMNS, parts)))
+        if active_columns is not None and len(parts) == len(active_columns):
+            row = dict(zip(active_columns, parts))
+            for col in COLUMNS:
+                row.setdefault(col, "nan")
+            rows.append(row)
+        elif len(parts) == len(COLUMNS):
+            row = dict(zip(COLUMNS, parts))
+            for col in COLUMNS:
+                row.setdefault(col, "nan")
+            rows.append(row)
         elif len(parts) == len(OLD_COLUMNS):
             row = dict(zip(OLD_COLUMNS, parts))
             for col in COLUMNS:

@@ -349,7 +349,7 @@ def latent_z_cache_path(seed, split_name, X_subset):
 
 def load_or_compute_latent_z_features(seed, split_name, X_subset, encoder):
     cache_path = latent_z_cache_path(seed, split_name, X_subset)
-    if cache_path.exists():
+    if cache_path.exists() and not RECOMPUTE_LATENT_TDA_FEATURES:
         print(f"Loading z-only cache: {cache_path}")
         try:
             return torch.load(cache_path, map_location="cpu")
