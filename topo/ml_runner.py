@@ -7,9 +7,13 @@ decode-to-frame scenarios without modifying the exploratory notebook.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import random
+import resource
 import sys
+import threading
+import time
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +57,9 @@ RUNNER_SCENARIOS = {
     "geo_real_tda",
     "topo_real_tda",
     "latent_tda",
+    "latent_stability",
+    "geo_latent_stability",
+    "topo_latent_stability",
     "geo_latent_tda",
     "topo_latent_tda",
     "vae_latent_tda",
@@ -114,6 +121,7 @@ class RunConfig:
     latent_tda_max_train: int | None
     latent_tda_max_test: int | None
     recompute_latent_tda_features: bool
+    stability_noise_levels: list[float] | None
     geo_ae_lambda: float
     geo_ae_epochs: int | None
     geo_ae_pair_batch_size: int
@@ -138,6 +146,9 @@ class RunConfig:
     pixel_tda_batch_size: int | None
     pixel_tda_fg_weight: float | None
     pixel_tda_fg_threshold: float | None
+    profile_run: bool
+    profile_sizes: list[int] | None
+    profile_size: int | None
     output_dir: Path
     no_save: bool
 
@@ -152,6 +163,12 @@ def _parse_str_list(value: str | None) -> list[str] | None:
     if value is None or value == "":
         return None
     return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def _parse_float_list(value: str | None) -> list[float] | None:
+    if value is None or value == "":
+        return None
+    return [float(part.strip()) for part in value.split(",") if part.strip()]
 
 
 def _select_device(name: str) -> torch.device:
@@ -201,11 +218,141 @@ def _mse_r2(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-12) -> tup
     return float(mse), float(r2)
 
 
+def _ru_maxrss_mb() -> float:
+    rss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    # Linux reports KiB; macOS reports bytes.
+    if sys.platform == "darwin":
+        return rss / (1024.0 * 1024.0)
+    return rss / 1024.0
+
+
+class RunProfiler:
+    def __init__(self, cfg: RunConfig):
+        self.cfg = cfg
+        self.start_time = 0.0
+        self.wall_time_sec = 0.0
+        self.topo_time_sec = 0.0
+        self.peak_cpu_rss_mb = _ru_maxrss_mb()
+        self.peak_accelerator_mem_mb = np.nan
+        self._stop = threading.Event()
+        self._thread = None
+
+    def __enter__(self):
+        self.start_time = time.perf_counter()
+        self.peak_cpu_rss_mb = _ru_maxrss_mb()
+        self._reset_accelerator_memory()
+        self._thread = threading.Thread(target=self._sample_loop, daemon=True)
+        self._thread.start()
+        self._patch_stack = contextlib.ExitStack()
+        self._patch_stack.enter_context(self._profiled_topology_calls())
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.wall_time_sec = time.perf_counter() - self.start_time
+        if hasattr(self, "_patch_stack"):
+            self._patch_stack.close()
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+        self._sample_once()
+        return False
+
+    def _reset_accelerator_memory(self):
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+        if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+            # MPS has no resettable peak counter; sampling below is best-effort.
+            pass
+
+    def _sample_loop(self):
+        while not self._stop.wait(0.05):
+            self._sample_once()
+
+    def _sample_once(self):
+        self.peak_cpu_rss_mb = max(self.peak_cpu_rss_mb, _ru_maxrss_mb())
+        if torch.cuda.is_available():
+            cuda_mb = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
+            if np.isnan(self.peak_accelerator_mem_mb):
+                self.peak_accelerator_mem_mb = float(cuda_mb)
+            else:
+                self.peak_accelerator_mem_mb = max(self.peak_accelerator_mem_mb, float(cuda_mb))
+        elif hasattr(torch, "mps") and hasattr(torch.mps, "current_allocated_memory"):
+            try:
+                mps_mb = torch.mps.current_allocated_memory() / (1024.0 * 1024.0)
+            except Exception:
+                return
+            if np.isnan(self.peak_accelerator_mem_mb):
+                self.peak_accelerator_mem_mb = float(mps_mb)
+            else:
+                self.peak_accelerator_mem_mb = max(self.peak_accelerator_mem_mb, float(mps_mb))
+
+    @contextlib.contextmanager
+    def _timed_topology(self):
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.topo_time_sec += time.perf_counter() - start
+
+    @contextlib.contextmanager
+    def _profiled_topology_calls(self):
+        patches = []
+
+        def patch(module, name):
+            original = getattr(module, name, None)
+            if original is None:
+                return
+
+            def wrapped(*args, **kwargs):
+                with self._timed_topology():
+                    return original(*args, **kwargs)
+
+            setattr(module, name, wrapped)
+            patches.append((module, name, original))
+
+        patch(ml_tda_latent, "latent_window_betti_features")
+        patch(ml_tda_latent, "_window_persistence_diagrams")
+        patch(ml_tda, "run_cripser_tda_on_current_frames")
+        patch(persistence_3d, "streaming_video_betti_features")
+        try:
+            yield
+        finally:
+            for module, name, original in reversed(patches):
+                setattr(module, name, original)
+
+    def to_row(self, cfg: RunConfig, context: VideoContext) -> dict[str, Any]:
+        n_train = int(context.x_train.shape[1])
+        n_test = int(context.x_test.shape[1])
+        sequence_len = int(context.x_train.shape[0])
+        frame_h = int(context.x_train.shape[-2])
+        frame_w = int(context.x_train.shape[-1])
+        processed_frames = sequence_len * (n_train + n_test)
+        throughput = processed_frames / self.wall_time_sec if self.wall_time_sec > 0 else np.nan
+        return {
+            "dataset": cfg.dataset,
+            "scenario": cfg.scenario,
+            "profile_size": cfg.profile_size if cfg.profile_size is not None else np.nan,
+            "wall_time_sec": float(self.wall_time_sec),
+            "peak_cpu_rss_mb": float(self.peak_cpu_rss_mb),
+            "peak_accelerator_mem_mb": float(self.peak_accelerator_mem_mb),
+            "topo_time_sec": float(self.topo_time_sec),
+            "topo_fraction": float(self.topo_time_sec / self.wall_time_sec) if self.wall_time_sec > 0 else np.nan,
+            "throughput_frames_per_sec": float(throughput),
+            "n_train_clips": n_train,
+            "n_test_clips": n_test,
+            "sequence_len": sequence_len,
+            "frame_size": f"{frame_h}x{frame_w}",
+            "n_processed_frames": processed_frames,
+            "device": str(ml_tda.get_runtime_device()),
+        }
+
+
 def _save_results(
     cfg: RunConfig,
     context: VideoContext | None,
     results_df: pd.DataFrame | None,
     summary_df: pd.DataFrame | None,
+    profile_df: pd.DataFrame | None = None,
 ) -> None:
     if cfg.no_save:
         return
@@ -240,6 +387,8 @@ def _save_results(
         results_df.to_csv(out_dir / "results.csv", index=False, float_format="%.4f")
     if summary_df is not None:
         summary_df.to_csv(out_dir / "summary.csv", float_format="%.4f")
+    if profile_df is not None:
+        profile_df.to_csv(out_dir / "profile.csv", index=False, float_format="%.4f")
     print(f"\nSaved run outputs to {out_dir}")
 
 
@@ -1020,6 +1169,72 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
         display_fn=None,
     )
     return results_df, summary_df
+
+
+def run_latent_stability(cfg: RunConfig, context: VideoContext, encoder_kind: str = "ae") -> tuple[pd.DataFrame, pd.DataFrame]:
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
+    max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
+    noise_levels = _override(cfg.stability_noise_levels, [0.01, 0.03, 0.05, 0.10])
+
+    ml_tda.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        REAL_TDA_SCALE=context.real_tda_scale,
+        REAL_TDA_BINS=context.real_tda_bins,
+        HORIZON=context.horizon,
+        DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+        PREDICTOR_TYPE=cfg.predictor_type,
+    )
+    ml_tda_latent.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        RETRAIN_ENCODER=cfg.retrain_encoder,
+        HORIZON=context.horizon,
+        LATENT_TDA_WINDOW=window,
+        LATENT_TDA_BINS=bins,
+        RECOMPUTE_LATENT_TDA_FEATURES=False,
+    )
+    encoder_loader = None
+    encoder_label = "ae"
+    if encoder_kind == "geo":
+        encoder_label = "geo_ae"
+
+        def encoder_loader(seed, _x_subset, _x_train_for_tag):
+            encoder, _, _ = _load_geo_encoder_for_seed(cfg, context, seed)
+            return encoder
+
+    elif encoder_kind == "topo":
+        encoder_label = "topo_ae"
+
+        def encoder_loader(seed, _x_subset, _x_train_for_tag):
+            encoder, _, _ = _load_topo_encoder_for_seed(cfg, context, seed)
+            return encoder
+
+    elif encoder_kind != "ae":
+        raise ValueError(f"Unknown stability encoder kind: {encoder_kind}")
+
+    print(
+        f"Latent stability config: dataset={cfg.dataset}, encoder={encoder_label}, seeds={seeds}, "
+        f"noise_levels={noise_levels}, window={window}, bins={bins}, "
+        f"max_train={max_train}, max_test={max_test}"
+    )
+    return ml_tda_latent.run_latent_stability_diagnostic(
+        X_train=context.x_train,
+        X_test=context.x_test,
+        run_seeds=seeds,
+        noise_levels=noise_levels,
+        max_train=max_train,
+        max_test=max_test,
+        encoder_loader=encoder_loader,
+        encoder_label=encoder_label,
+    )
 
 
 def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -2429,6 +2644,12 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument("--latent-tda-max-train", type=int, default=None)
     parser.add_argument("--latent-tda-max-test", type=int, default=None)
     parser.add_argument(
+        "--stability-noise-levels",
+        type=_parse_float_list,
+        default=None,
+        help="Comma-separated input-noise std levels for latent_stability, e.g. 0.01,0.03,0.05,0.10.",
+    )
+    parser.add_argument(
         "--recompute-latent-tda-features",
         action="store_true",
         help="Recompute latent-trajectory TDA caches even when matching cached files exist.",
@@ -2504,6 +2725,17 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument("--pixel-tda-batch-size", type=int, default=None)
     parser.add_argument("--pixel-tda-fg-weight", type=float, default=None)
     parser.add_argument("--pixel-tda-fg-threshold", type=float, default=None)
+    parser.add_argument(
+        "--profile-run",
+        action="store_true",
+        help="Record wall time, peak memory, throughput, and topology-time fraction for each dataset/scenario run.",
+    )
+    parser.add_argument(
+        "--profile-sizes",
+        type=_parse_int_list,
+        default=None,
+        help="Comma-separated clip caps for scaling runs, e.g. 16,32,64,128. Applies to num/latent train-test clip caps.",
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("results/ml_persistence"))
     parser.add_argument("--no-save", action="store_true")
 
@@ -2535,6 +2767,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         latent_tda_max_train=args.latent_tda_max_train,
         latent_tda_max_test=args.latent_tda_max_test,
         recompute_latent_tda_features=args.recompute_latent_tda_features,
+        stability_noise_levels=args.stability_noise_levels,
         geo_ae_lambda=args.geo_ae_lambda,
         geo_ae_epochs=args.geo_ae_epochs,
         geo_ae_pair_batch_size=args.geo_ae_pair_batch_size,
@@ -2559,6 +2792,9 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         pixel_tda_batch_size=args.pixel_tda_batch_size,
         pixel_tda_fg_weight=args.pixel_tda_fg_weight,
         pixel_tda_fg_threshold=args.pixel_tda_fg_threshold,
+        profile_run=args.profile_run,
+        profile_sizes=args.profile_sizes,
+        profile_size=None,
         output_dir=args.output_dir,
         no_save=args.no_save,
     )
@@ -2572,50 +2808,67 @@ def _validate_requested_items(requested: list[str], valid: set[str], label: str)
         raise ValueError(f"Unknown {label}: {unknown_text}. Valid {label}s: {valid_text}")
 
 
-def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    if cfg.scenario == "real_tda":
+        return run_real_tda(cfg, context)
+    if cfg.scenario == "decode_z":
+        return run_decode_z(cfg, context)
+    if cfg.scenario == "geo_real_tda":
+        return run_geo_real_tda(cfg, context)
+    if cfg.scenario == "topo_real_tda":
+        return run_topo_real_tda(cfg, context)
+    if cfg.scenario == "latent_tda":
+        return run_latent_tda(cfg, context)
+    if cfg.scenario == "latent_stability":
+        return run_latent_stability(cfg, context)
+    if cfg.scenario == "geo_latent_stability":
+        return run_latent_stability(cfg, context, encoder_kind="geo")
+    if cfg.scenario == "topo_latent_stability":
+        return run_latent_stability(cfg, context, encoder_kind="topo")
+    if cfg.scenario == "geo_latent_tda":
+        return run_geo_latent_tda(cfg, context)
+    if cfg.scenario == "topo_latent_tda":
+        return run_topo_latent_tda(cfg, context)
+    if cfg.scenario == "vae_latent_tda":
+        return run_vae_latent_tda(cfg, context)
+    if cfg.scenario == "byol_latent_tda":
+        return run_byol_latent_tda(cfg, context)
+    if cfg.scenario == "vjepa_latent_tda":
+        return run_vjepa_latent_tda(cfg, context)
+    if cfg.scenario == "simvp":
+        return run_simvp(cfg, context)
+    if cfg.scenario == "video3d_tda":
+        return run_video3d_tda(cfg, context)
+    if cfg.scenario == "aux_tda":
+        return run_aux_tda(cfg, context)
+    if cfg.scenario == "geo_pixel_tda":
+        return run_geo_pixel_tda(cfg, context)
+    if cfg.scenario == "geo_decode_z":
+        return run_geo_decode_z(cfg, context)
+    if cfg.scenario == "topo_pixel_tda":
+        return run_topo_pixel_tda(cfg, context)
+    if cfg.scenario == "topo_decode_z":
+        return run_topo_decode_z(cfg, context)
+    if cfg.scenario == "pixel_tda":
+        return run_pixel_tda(cfg, context)
+    raise ValueError(f"Unsupported scenario: {cfg.scenario}")
+
+
+def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame | None, pd.DataFrame | None]:
     print(f"Control panel: scenario={cfg.scenario}, dataset={cfg.dataset}")
     context = load_video_context(cfg)
-    if cfg.scenario == "real_tda":
-        results_df, summary_df = run_real_tda(cfg, context)
-    elif cfg.scenario == "decode_z":
-        results_df, summary_df = run_decode_z(cfg, context)
-    elif cfg.scenario == "geo_real_tda":
-        results_df, summary_df = run_geo_real_tda(cfg, context)
-    elif cfg.scenario == "topo_real_tda":
-        results_df, summary_df = run_topo_real_tda(cfg, context)
-    elif cfg.scenario == "latent_tda":
-        results_df, summary_df = run_latent_tda(cfg, context)
-    elif cfg.scenario == "geo_latent_tda":
-        results_df, summary_df = run_geo_latent_tda(cfg, context)
-    elif cfg.scenario == "topo_latent_tda":
-        results_df, summary_df = run_topo_latent_tda(cfg, context)
-    elif cfg.scenario == "vae_latent_tda":
-        results_df, summary_df = run_vae_latent_tda(cfg, context)
-    elif cfg.scenario == "byol_latent_tda":
-        results_df, summary_df = run_byol_latent_tda(cfg, context)
-    elif cfg.scenario == "vjepa_latent_tda":
-        results_df, summary_df = run_vjepa_latent_tda(cfg, context)
-    elif cfg.scenario == "simvp":
-        results_df, summary_df = run_simvp(cfg, context)
-    elif cfg.scenario == "video3d_tda":
-        results_df, summary_df = run_video3d_tda(cfg, context)
-    elif cfg.scenario == "aux_tda":
-        results_df, summary_df = run_aux_tda(cfg, context)
-    elif cfg.scenario == "geo_pixel_tda":
-        results_df, summary_df = run_geo_pixel_tda(cfg, context)
-    elif cfg.scenario == "geo_decode_z":
-        results_df, summary_df = run_geo_decode_z(cfg, context)
-    elif cfg.scenario == "topo_pixel_tda":
-        results_df, summary_df = run_topo_pixel_tda(cfg, context)
-    elif cfg.scenario == "topo_decode_z":
-        results_df, summary_df = run_topo_decode_z(cfg, context)
-    elif cfg.scenario == "pixel_tda":
-        results_df, summary_df = run_pixel_tda(cfg, context)
-    else:  # pragma: no cover - validated before dispatch.
-        raise ValueError(f"Unsupported scenario: {cfg.scenario}")
+    profile_df = None
+    if cfg.profile_run:
+        with RunProfiler(cfg) as profiler:
+            results_df, summary_df = _run_scenario(cfg, context)
+        profile_df = pd.DataFrame([profiler.to_row(cfg, context)])
+        print("\nProfiling metrics:")
+        print(profile_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    else:
+        results_df, summary_df = _run_scenario(cfg, context)
 
-    _save_results(cfg, context, results_df, summary_df)
-    return results_df, summary_df
+    _save_results(cfg, context, results_df, summary_df, profile_df)
+    return results_df, summary_df, profile_df
 
 
 def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -2638,12 +2891,15 @@ def _tag_run_frame(df: pd.DataFrame | None, cfg: RunConfig, *, summary: bool = F
         tagged["dataset"] = cfg.dataset
     else:
         tagged.insert(0, "dataset", cfg.dataset)
-    tagged.insert(1, "scenario", cfg.scenario)
+    if "scenario" in tagged.columns:
+        tagged["scenario"] = cfg.scenario
+    else:
+        tagged.insert(1, "scenario", cfg.scenario)
     return tagged
 
 
 def _drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
-    protected_cols = {"dataset", "scenario", "seed", "mode", "horizon"}
+    protected_cols = {"dataset", "scenario", "seed", "mode", "horizon", "profile_size"}
     keep_cols = [
         col
         for col in df.columns
@@ -2710,8 +2966,9 @@ def _print_grouped_aggregate_frame(title: str, df: pd.DataFrame) -> None:
 def _print_aggregate_tables(
     result_frames: list[pd.DataFrame],
     summary_frames: list[pd.DataFrame],
+    profile_frames: list[pd.DataFrame] | None = None,
 ) -> None:
-    if not result_frames and not summary_frames:
+    if not result_frames and not summary_frames and not profile_frames:
         return
     print("\n\n================ FINAL COMBINED RESULTS ================")
     with pd.option_context("display.width", 240, "display.max_columns", None):
@@ -2722,34 +2979,53 @@ def _print_aggregate_tables(
             combined_summary = pd.concat(summary_frames, ignore_index=True, sort=False)
             combined_summary = _combine_summary_mean_std_columns(combined_summary)
             _print_grouped_aggregate_frame("All mean +/- std summaries", combined_summary)
+        if profile_frames:
+            combined_profile = pd.concat(profile_frames, ignore_index=True, sort=False)
+            _print_grouped_aggregate_frame("All profiling results", combined_profile)
 
 
 def main(argv: list[str] | None = None) -> None:
     cfg = parse_args(argv)
     scenarios = _parse_str_list(cfg.scenario) or [cfg.scenario]
     datasets = _parse_str_list(cfg.dataset) or [cfg.dataset]
+    profile_sizes = cfg.profile_sizes or [None]
     _validate_requested_items(scenarios, RUNNER_SCENARIOS, "scenario")
     _validate_requested_items(datasets, set(topo_config.DATASET_CONFIGS), "dataset")
 
-    total = len(scenarios) * len(datasets)
+    total = len(scenarios) * len(datasets) * len(profile_sizes)
     run_idx = 0
     result_frames = []
     summary_frames = []
+    profile_frames = []
     for dataset in datasets:
         for scenario in scenarios:
-            run_idx += 1
-            print(f"\n######## run {run_idx}/{total}: dataset={dataset} scenario={scenario} ########")
-            run_cfg = replace(cfg, dataset=dataset, scenario=scenario)
-            results_df, summary_df = _run_one_config(run_cfg)
-            tagged_results = _tag_run_frame(results_df, run_cfg)
-            tagged_summary = _tag_run_frame(summary_df, run_cfg, summary=True)
-            if tagged_results is not None and not tagged_results.empty:
-                result_frames.append(tagged_results)
-            if tagged_summary is not None and not tagged_summary.empty:
-                summary_frames.append(tagged_summary)
-            print("=" * 88)
+            for profile_size in profile_sizes:
+                run_idx += 1
+                size_text = "" if profile_size is None else f" profile_size={profile_size}"
+                print(f"\n######## run {run_idx}/{total}: dataset={dataset} scenario={scenario}{size_text} ########")
+                run_cfg = replace(
+                    cfg,
+                    dataset=dataset,
+                    scenario=scenario,
+                    profile_size=profile_size,
+                    num_train_clips=profile_size if profile_size is not None else cfg.num_train_clips,
+                    num_test_clips=profile_size if profile_size is not None else cfg.num_test_clips,
+                    latent_tda_max_train=profile_size if profile_size is not None else cfg.latent_tda_max_train,
+                    latent_tda_max_test=profile_size if profile_size is not None else cfg.latent_tda_max_test,
+                )
+                results_df, summary_df, profile_df = _run_one_config(run_cfg)
+                tagged_results = _tag_run_frame(results_df, run_cfg)
+                tagged_summary = _tag_run_frame(summary_df, run_cfg, summary=True)
+                tagged_profile = _tag_run_frame(profile_df, run_cfg)
+                if tagged_results is not None and not tagged_results.empty:
+                    result_frames.append(tagged_results)
+                if tagged_summary is not None and not tagged_summary.empty:
+                    summary_frames.append(tagged_summary)
+                if tagged_profile is not None and not tagged_profile.empty:
+                    profile_frames.append(tagged_profile)
+                print("=" * 88)
 
-    _print_aggregate_tables(result_frames, summary_frames)
+    _print_aggregate_tables(result_frames, summary_frames, profile_frames)
 
 
 if __name__ == "__main__":

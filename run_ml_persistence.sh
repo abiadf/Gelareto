@@ -6,6 +6,7 @@ set -euo pipefail
 # geo_real_tda: geoAE z-history + optional frame/real-space TDA -> future z
 # topo_real_tda: topoAE z-history + optional frame/real-space TDA -> future z
 # latent_tda: AE z-history + optional latent-trajectory TDA -> future z
+# latent_stability/geo_latent_stability/topo_latent_stability: noised-input diagnostic measuring latent Hausdorff and diagram bottleneck changes
 # geo_latent_tda: geoAE z-history + optional latent-trajectory TDA -> future z
 # topo_latent_tda: topoAE z-history + optional latent-trajectory TDA -> future z
 # vae_latent_tda: VAE encoder z-history + optional latent-trajectory TDA -> future z
@@ -40,11 +41,14 @@ set -euo pipefail
 #   bouncing_disks: filled objects with Lorenz-like irregular motion
 #   orbiting_rings: hollow/ring objects with periodic circular/elliptical orbit motion
 #   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
+#   moving_mnist: MNIST digits with random translation and rotation, rendered as sparkline clips
 #   lorenz96: synthetic multivariate Lorenz-96 trajectories rasterized as heatmap frames
 #   electric_devices: UCR/Aeon ElectricDevices time-series samples rendered as sparkline clips
 #   noisy_frames: iid random-frame negative control; topology should not reliably help
 #   glioblastoma/hela: CTC TIFF sequences windowed as full-frame clips by default
-#
+
+
+
 # Encoder workflow:
 #   First fair run for a scenario/dataset: add --include-retrain-encoder and list all modes.
 #   The encoder is refreshed once per seed, frozen, then reused for every mode including none/z.
@@ -53,15 +57,12 @@ set -euo pipefail
 # Use --decoder-type conv for new paper-quality decoded-image runs; default mlp preserves old results/checkpoints.
 
 args=(
-  --scenario latent_tda,geo_latent_tda,topo_latent_tda #video3d_tda # latent_tda,geo_latent_tda,topo_latent_tda #,simvp,video3d_tda,topo_latent_tda #,vae_latent_tda,byol_latent_tda,vjepa_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
-  --dataset bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist,lorenz96,electric_devices,hela,glioblastoma  #bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist,lorenz96,electric_devices,glioblastoma,hela #noisy_frames,celltracking_fluo,glioblastoma,hela,bouncing_disks,bouncing_rings,orbiting_disks,orbiting_rings,moving_mnist
-  --seeds 0,1,2,3,4                 # comma-separated seeds
-  # --modes none,h1,h2,all #,h2_shuffle,h2_noise,h2_zero #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
-  # --modes none,h2,h2_shuffle,h2_zero,h2_noise,h1,all
-  # --modes none,h0_h1,all,h2,h2_shuffle,h2_noise,h2_zero
-  --modes z,z_h1,z_pca_h1,z_fuse_h1,z_fuse_pca_h1
+  --scenario latent_tda,geo_latent_tda,topo_latent_tda # latent_tda,geo_latent_tda,topo_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
+  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela # bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela #noisy_frames
+  --seeds 0 #,1,2,3,4                 # comma-separated seeds
+  --modes z,z_fuse_h1,z_fuse_perslay_h1,z_fuse_pca_h1 #,h2_shuffle,h2_noise,h2_zero #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
   --horizon 5
-  --include-retrain-encoder         # train encoder once per seed, freeze it, then run all modes fairly
+  --include-retrain-encoder       # train encoder once per seed, freeze it, then run all modes fairly
   --ae-epochs 10                    # baseline AE pretraining epochs
   --predictor-epochs 40 #10
   --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
@@ -74,7 +75,7 @@ args=(
   --topo-ae-distance signature         # signature | wasserstein
   --decoder-type mlp                   # mlp: old flat decoder | conv: convolutional upsampling decoder
   --latent-tda-window 15
-  --recompute-latent-tda-features
+  # --stability-noise-levels 0,0.01,0.03,0.05,0.10 # use for latent_stability scenario
   # --vae-beta 0.001                 # vae_latent_tda: KL weight
   # --vae-epochs 10                  # vae_latent_tda: pretraining epochs; default falls back to --ae-epochs
   # --byol-epochs 10                 # byol_latent_tda: pretraining epochs; default falls back to --ae-epochs
@@ -91,6 +92,8 @@ args=(
   # --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
   # --num-train-clips 128 \
   # --num-test-clips 64 \
+  --profile-run                    # save profile.csv with wall time, peak memory, throughput, and topology-time fraction
+  --profile-sizes 16,32,64,128     # scaling curve: rerun with train/test and latent-TDA clip caps set to each size
 
   # --device auto                    # auto | cpu | cuda | mps
   # --horizon 5                      # override forecast horizon
@@ -125,6 +128,8 @@ args=(
   # --pixel-tda-batch-size 32        # pixel_tda: predictor batch size
   # --pixel-tda-fg-weight 10.0       # pixel_tda: foreground loss weight
   # --pixel-tda-fg-threshold 0.05    # pixel_tda: foreground threshold
+  # --profile-run                    # enable profiling metrics
+  # --profile-sizes 16,32,64,128     # profile scaling over clip caps; use one small dataset first
   # --output-dir results/ml_persistence # output folder
   # --no-save                        # print only, no CSV/config output
 )

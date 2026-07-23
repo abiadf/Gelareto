@@ -13,6 +13,11 @@ import torch.nn as nn
 import torch.optim as optim
 
 try:
+    from persim import bottleneck
+except ImportError:  # pragma: no cover - optional diagnostic dependency
+    bottleneck = None
+
+try:
     from sklearn.manifold import trustworthiness
 except ImportError:  # pragma: no cover - optional diagnostic dependency
     trustworthiness = None
@@ -176,6 +181,139 @@ def latent_window_betti_features(z_features, window=6, n_bins=16, return_diagram
     if return_diagrams:
         return torch.from_numpy(h0), torch.from_numpy(h1), {"h0": diagrams_h0, "h1": diagrams_h1}
     return torch.from_numpy(h0), torch.from_numpy(h1)
+
+
+def _standardized_latent_window_points(z_np, t, b, window):
+    start = max(0, t - window + 1)
+    pts = z_np[start:t + 1, b, :].astype(np.float32, copy=True)
+    if len(pts) < 2:
+        return None
+    pts = pts - pts.mean(axis=0, keepdims=True)
+    scale = pts.std(axis=0, keepdims=True).mean() + 1e-6
+    return pts / scale
+
+
+def _hausdorff_distance(points_a, points_b):
+    if points_a is None or points_b is None or len(points_a) == 0 or len(points_b) == 0:
+        return np.nan
+    diffs = points_a[:, None, :] - points_b[None, :, :]
+    distances = np.sqrt(np.sum(diffs * diffs, axis=-1))
+    return float(max(distances.min(axis=1).max(), distances.min(axis=0).max()))
+
+
+def _window_persistence_diagrams(points):
+    if points is None or len(points) < 2:
+        empty = np.empty((0, 2), dtype=np.float64)
+        return empty, empty
+    diffs = points[:, None, :] - points[None, :, :]
+    dmat = np.sqrt(np.sum(diffs * diffs, axis=-1)).astype(np.float32)
+    diagrams = ripser(dmat, maxdim=1, distance_matrix=True)["dgms"]
+    h0 = _finite_diagram(diagrams[0])
+    h1 = _finite_diagram(diagrams[1]) if len(diagrams) > 1 else np.empty((0, 2), dtype=np.float64)
+    return h0, h1
+
+
+def _bottleneck_distance(diagram_a, diagram_b):
+    if bottleneck is None:
+        raise ImportError("latent_stability requires persim. Install it with `pip install persim`.")
+    diagram_a = _finite_diagram(diagram_a)
+    diagram_b = _finite_diagram(diagram_b)
+    if len(diagram_a) == 0 and len(diagram_b) == 0:
+        return 0.0
+    return float(bottleneck(diagram_a, diagram_b))
+
+
+def run_latent_stability_diagnostic(
+    X_train=None,
+    X_test=None,
+    run_seeds=None,
+    noise_levels=None,
+    max_train=None,
+    max_test=None,
+    encoder_loader=None,
+    encoder_label="ae",
+):
+    """Measure latent point-cloud and VR diagram stability under input noise."""
+    if X_train is None or X_test is None:
+        empty = pd.DataFrame()
+        return empty, empty
+
+    run_seeds = list(range(3)) if run_seeds is None else list(run_seeds)
+    noise_levels = [0.01, 0.03, 0.05, 0.10] if noise_levels is None else list(noise_levels)
+    rows = []
+
+    for seed in tqdm_progress_bar(run_seeds, desc="Latent stability seeds", total=len(run_seeds), leave=True):
+        print(f"\n================ latent stability seed={seed} ================")
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        Xtr = take_batch_subset(X_train, max_train, seed=seed)
+        Xte = take_batch_subset(X_test, max_test, seed=seed + 1)
+        if encoder_loader is None:
+            encoder = load_or_train_shared_encoder_for_latent_tda(seed, Xtr, X_train)
+        else:
+            encoder = encoder_loader(seed, Xtr, X_train)
+        clean_x = ml_tda.tensor_to_model_float(Xte).clamp(0.0, 1.0)
+        clean_z = encode_video_to_z(clean_x, encoder).detach().cpu().numpy().astype(np.float32)
+
+        for sigma in noise_levels:
+            generator = torch.Generator().manual_seed(_stable_int_seed(DATASET, seed, sigma, "latent_stability"))
+            noise = torch.randn(clean_x.shape, generator=generator, dtype=clean_x.dtype) * float(sigma)
+            noisy_x = (clean_x + noise).clamp(0.0, 1.0)
+            noisy_z = encode_video_to_z(noisy_x, encoder).detach().cpu().numpy().astype(np.float32)
+
+            T, B = clean_z.shape[:2]
+            window_rows = []
+            for t in range(T):
+                for b in range(B):
+                    clean_pts = _standardized_latent_window_points(clean_z, t, b, LATENT_TDA_WINDOW)
+                    noisy_pts = _standardized_latent_window_points(noisy_z, t, b, LATENT_TDA_WINDOW)
+                    if clean_pts is None or noisy_pts is None:
+                        continue
+                    clean_h0, clean_h1 = _window_persistence_diagrams(clean_pts)
+                    noisy_h0, noisy_h1 = _window_persistence_diagrams(noisy_pts)
+                    window_rows.append(
+                        {
+                            "latent_hausdorff": _hausdorff_distance(clean_pts, noisy_pts),
+                            "h0_bottleneck": _bottleneck_distance(clean_h0, noisy_h0),
+                            "h1_bottleneck": _bottleneck_distance(clean_h1, noisy_h1),
+                        }
+                    )
+            if window_rows:
+                window_df = pd.DataFrame(window_rows)
+                latent_hausdorff = float(window_df["latent_hausdorff"].mean())
+                h0_bottleneck = float(window_df["h0_bottleneck"].mean())
+                h1_bottleneck = float(window_df["h1_bottleneck"].mean())
+                rows.append(
+                    {
+                        "dataset": DATASET,
+                        "encoder": encoder_label,
+                        "seed": seed,
+                        "sigma": float(sigma),
+                        "n_windows": int(len(window_df)),
+                        "latent_hausdorff": latent_hausdorff,
+                        "h0_bottleneck": h0_bottleneck,
+                        "h1_bottleneck": h1_bottleneck,
+                        "h0_ratio": h0_bottleneck / latent_hausdorff if latent_hausdorff > 1e-12 else np.nan,
+                        "h1_ratio": h1_bottleneck / latent_hausdorff if latent_hausdorff > 1e-12 else np.nan,
+                    }
+                )
+            print(f"latent stability sigma={float(sigma):.3f} done")
+
+    results_df = pd.DataFrame(rows)
+    if results_df.empty:
+        return results_df, results_df
+    summary_df = summarize_metric_runs(
+        results_df,
+        group_cols=["encoder", "sigma"],
+        metric_cols=["latent_hausdorff", "h0_bottleneck", "h1_bottleneck", "h0_ratio", "h1_ratio"],
+    )
+    print("\nlatent_stability per-seed results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nlatent_stability mean +/- std:")
+    print(summary_df.to_string(float_format=lambda value: f"{value:.4f}"))
+    return results_df, summary_df
 
 
 def latent_tda_cache_path(seed, split_name, X_subset):
