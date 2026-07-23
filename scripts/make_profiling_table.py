@@ -7,6 +7,7 @@ import pandas as pd
 
 INPUT_PATH = Path("latex_tables/profiling.txt")
 OUTPUT_PATH = Path("latex_tables/profiling_table.txt")
+INVALID_OUTPUT_PATH = Path("latex_tables/profiling_invalid_rows.txt")
 
 COLUMNS = [
     "dataset",
@@ -42,6 +43,11 @@ MODE_LABELS = {
     "z_fuse_pca_h1": r"\(z_{\mathrm{fuse}}+\mathrm{PCA}\)",
 }
 
+PERSISTENCE_MODES = {
+    "z_fuse_h1",
+    "z_fuse_perslay_h1",
+}
+
 
 def read_profile(path: Path) -> pd.DataFrame:
     rows = []
@@ -60,6 +66,8 @@ def read_profile(path: Path) -> pd.DataFrame:
         "profile_size",
         "wall_time_sec",
         "peak_accelerator_mem_mb",
+        "topo_time_sec",
+        "topo_fraction",
         "overhead_vs_baseline",
     ]
     for col in numeric_cols:
@@ -72,8 +80,31 @@ def make_table(df: pd.DataFrame) -> str:
     subset = df[df["profile_size"] == profile_size].copy()
     subset = subset[subset["scenario"].isin(ENCODER_LABELS)]
     subset = subset[subset["mode"].isin(MODE_LABELS)]
+    bad = subset[
+        (~subset["mode"].isin(PERSISTENCE_MODES))
+        & (subset["topo_time_sec"].astype(float) > 1e-6)
+    ].copy()
+    if not bad.empty:
+        INVALID_OUTPUT_PATH.write_text(
+            bad.to_string(
+                index=False,
+                columns=["dataset", "scenario", "mode", "profile_size", "wall_time_sec", "topo_time_sec", "topo_fraction"],
+            ),
+            encoding="utf-8",
+        )
+        bad_keys = bad[["dataset", "scenario", "profile_size"]].drop_duplicates()
+        subset = subset.merge(
+            bad_keys.assign(_bad_profile_group=True),
+            on=["dataset", "scenario", "profile_size"],
+            how="left",
+        )
+        subset = subset[subset["_bad_profile_group"].isna()].drop(columns=["_bad_profile_group"])
+    else:
+        INVALID_OUTPUT_PATH.write_text("", encoding="utf-8")
+
     subset["encoder"] = subset["scenario"].map(ENCODER_LABELS)
     subset["mode_label"] = subset["mode"].map(MODE_LABELS)
+    subset["topo_percent"] = 100.0 * subset["topo_fraction"]
 
     grouped = (
         subset.groupby(["encoder", "mode", "mode_label"], sort=False)
@@ -83,6 +114,9 @@ def make_table(df: pd.DataFrame) -> str:
             gpu_max=("peak_accelerator_mem_mb", "max"),
             overhead_mean=("overhead_vs_baseline", "mean"),
             overhead_std=("overhead_vs_baseline", "std"),
+            topo_mean=("topo_percent", "mean"),
+            topo_std=("topo_percent", "std"),
+            n_datasets=("dataset", "nunique"),
         )
         .reset_index()
     )
@@ -93,14 +127,14 @@ def make_table(df: pd.DataFrame) -> str:
     grouped = grouped.sort_values(["encoder_order", "mode_order"])
 
     lines = [
-        r"\begin{table}[t]",
+        r"\begin{table*}[t]",
         r"\centering",
         r"\small",
-        rf"\caption{{Profiling summary at profile size {profile_size}, averaged over datasets. Runtime is end-to-end wall-clock time for one profiled run. GPU memory is the maximum accelerator memory observed. Runtime/\(z\) is relative to the corresponding \(z\)-only run within the same dataset and encoder family.}}",
+        rf"\caption{{Profiling summary at profile size {profile_size}, averaged over datasets. Runtime is end-to-end wall-clock time for one profiled run, reported as mean$\pm$std across datasets. Runtime/\(z\) is relative to the corresponding \(z\)-only run within the same dataset and encoder family. TDA time is the fraction of runtime spent in persistence computations; it is zero for \(z\)-only and PCA-control modes.}}",
         r"\label{tab:profiling}",
-        r"\begin{tabular}{llrrr}",
+        r"\begin{tabular}{llrrrr}",
         r"\toprule",
-        r"Encoder & Input mode & Runtime (s) & Peak GPU mem. (MB) & Runtime / \(z\) \\",
+        r"Encoder & Input mode & Runtime (s) & Peak GPU mem. (MB) & Runtime / \(z\) & TDA time (\%) \\",
         r"\midrule",
     ]
     previous_encoder = None
@@ -109,15 +143,16 @@ def make_table(df: pd.DataFrame) -> str:
             lines.append(r"\midrule")
         runtime = f"{row.runtime_mean:.2f}$\\pm${0.0 if pd.isna(row.runtime_std) else row.runtime_std:.2f}"
         overhead = f"{row.overhead_mean:.2f}$\\pm${0.0 if pd.isna(row.overhead_std) else row.overhead_std:.2f}"
+        topo = f"{row.topo_mean:.1f}$\\pm${0.0 if pd.isna(row.topo_std) else row.topo_std:.1f}"
         lines.append(
-            f"{row.encoder} & {row.mode_label} & {runtime} & {row.gpu_max:.0f} & {overhead} " + r"\\"
+            f"{row.encoder} & {row.mode_label} & {runtime} & {row.gpu_max:.0f} & {overhead} & {topo} " + r"\\"
         )
         previous_encoder = row.encoder
     lines.extend(
         [
             r"\bottomrule",
             r"\end{tabular}",
-            r"\end{table}",
+            r"\end{table*}",
             "",
         ]
     )

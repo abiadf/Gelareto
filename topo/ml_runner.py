@@ -1300,6 +1300,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     )
 
     rows = []
+    require_persistence = ml_tda_latent._latent_modes_need_persistence(modes)
     for seed in tqdm_progress_bar(seeds, desc="geo_latent_tda seeds", total=len(seeds), leave=True):
         print(f"\n================ geo latent TDA seed={seed} ================")
         _set_all_seeds(seed)
@@ -1311,14 +1312,20 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
             "train",
             x_train_subset,
             encoder,
+            require_persistence=require_persistence,
         )
         test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
             seed,
             "test",
             x_test_subset,
             encoder,
+            require_persistence=require_persistence,
         )
-        diagnostics = ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
+        diagnostics = (
+            ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
+            if not cfg.profile_run
+            else {}
+        )
 
         for mode in modes:
             print(f"\n--- geo latent mode={mode} seed={seed} ---")
@@ -1426,6 +1433,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     )
 
     rows = []
+    require_persistence = ml_tda_latent._latent_modes_need_persistence(modes)
     for seed in tqdm_progress_bar(seeds, desc="topo_latent_tda seeds", total=len(seeds), leave=True):
         print(f"\n================ topo latent TDA seed={seed} ================")
         _set_all_seeds(seed)
@@ -1437,14 +1445,20 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
             "train",
             x_train_subset,
             encoder,
+            require_persistence=require_persistence,
         )
         test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
             seed,
             "test",
             x_test_subset,
             encoder,
+            require_persistence=require_persistence,
         )
-        diagnostics = ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
+        diagnostics = (
+            ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
+            if not cfg.profile_run
+            else {}
+        )
 
         for mode in modes:
             print(f"\n--- topo latent mode={mode} seed={seed} ---")
