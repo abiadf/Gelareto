@@ -92,7 +92,7 @@ args=(
   # --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
   # --num-train-clips 128 \
   # --num-test-clips 64 \
-  --profile-run                    # save profile.csv with wall time, peak memory, throughput, and topology-time fraction
+  --profile-run                    # save profile.csv with wall time, peak memory, throughput, topo fraction, and mode overhead
   --profile-sizes 16,32,64,128     # scaling curve: rerun with train/test and latent-TDA clip caps set to each size
 
   # --device auto                    # auto | cpu | cuda | mps
@@ -128,7 +128,7 @@ args=(
   # --pixel-tda-batch-size 32        # pixel_tda: predictor batch size
   # --pixel-tda-fg-weight 10.0       # pixel_tda: foreground loss weight
   # --pixel-tda-fg-threshold 0.05    # pixel_tda: foreground threshold
-  # --profile-run                    # enable profiling metrics
+  # --profile-run                    # enable profiling metrics; multiple --modes are profiled as separate runs
   # --profile-sizes 16,32,64,128     # profile scaling over clip caps; use one small dataset first
   # --output-dir results/ml_persistence # output folder
   # --no-save                        # print only, no CSV/config output

@@ -328,9 +328,11 @@ class RunProfiler:
         frame_w = int(context.x_train.shape[-1])
         processed_frames = sequence_len * (n_train + n_test)
         throughput = processed_frames / self.wall_time_sec if self.wall_time_sec > 0 else np.nan
+        mode_label = ",".join(cfg.modes) if cfg.modes else np.nan
         return {
             "dataset": cfg.dataset,
             "scenario": cfg.scenario,
+            "mode": mode_label,
             "profile_size": cfg.profile_size if cfg.profile_size is not None else np.nan,
             "wall_time_sec": float(self.wall_time_sec),
             "peak_cpu_rss_mb": float(self.peak_cpu_rss_mb),
@@ -2981,7 +2983,36 @@ def _print_aggregate_tables(
             _print_grouped_aggregate_frame("All mean +/- std summaries", combined_summary)
         if profile_frames:
             combined_profile = pd.concat(profile_frames, ignore_index=True, sort=False)
+            combined_profile = _add_profile_overhead(combined_profile)
             _print_grouped_aggregate_frame("All profiling results", combined_profile)
+
+
+def _add_profile_overhead(df: pd.DataFrame) -> pd.DataFrame:
+    if "mode" not in df.columns or "wall_time_sec" not in df.columns:
+        return df
+    prof = df.copy()
+    prof["profile_baseline_mode"] = None
+    prof["overhead_vs_baseline"] = np.nan
+    group_cols = [
+        col
+        for col in ["dataset", "scenario", "profile_size", "n_train_clips", "n_test_clips", "sequence_len"]
+        if col in prof.columns
+    ]
+    for _, idx in prof.groupby(group_cols, sort=False, dropna=False).groups.items():
+        group = prof.loc[idx]
+        baseline_mode = "z" if (group["mode"] == "z").any() else None
+        if baseline_mode is None and (group["mode"] == "frames").any():
+            baseline_mode = "frames"
+        if baseline_mode is None and (group["mode"] == "none").any():
+            baseline_mode = "none"
+        if baseline_mode is None:
+            continue
+        baseline_time = float(group.loc[group["mode"] == baseline_mode, "wall_time_sec"].iloc[0])
+        if baseline_time <= 0:
+            continue
+        prof.loc[idx, "profile_baseline_mode"] = baseline_mode
+        prof.loc[idx, "overhead_vs_baseline"] = prof.loc[idx, "wall_time_sec"] / baseline_time
+    return prof
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -2989,10 +3020,11 @@ def main(argv: list[str] | None = None) -> None:
     scenarios = _parse_str_list(cfg.scenario) or [cfg.scenario]
     datasets = _parse_str_list(cfg.dataset) or [cfg.dataset]
     profile_sizes = cfg.profile_sizes or [None]
+    profile_modes = cfg.modes if cfg.profile_run and cfg.modes and len(cfg.modes) > 1 else [None]
     _validate_requested_items(scenarios, RUNNER_SCENARIOS, "scenario")
     _validate_requested_items(datasets, set(topo_config.DATASET_CONFIGS), "dataset")
 
-    total = len(scenarios) * len(datasets) * len(profile_sizes)
+    total = len(scenarios) * len(datasets) * len(profile_sizes) * len(profile_modes)
     run_idx = 0
     result_frames = []
     summary_frames = []
@@ -3000,30 +3032,33 @@ def main(argv: list[str] | None = None) -> None:
     for dataset in datasets:
         for scenario in scenarios:
             for profile_size in profile_sizes:
-                run_idx += 1
-                size_text = "" if profile_size is None else f" profile_size={profile_size}"
-                print(f"\n######## run {run_idx}/{total}: dataset={dataset} scenario={scenario}{size_text} ########")
-                run_cfg = replace(
-                    cfg,
-                    dataset=dataset,
-                    scenario=scenario,
-                    profile_size=profile_size,
-                    num_train_clips=profile_size if profile_size is not None else cfg.num_train_clips,
-                    num_test_clips=profile_size if profile_size is not None else cfg.num_test_clips,
-                    latent_tda_max_train=profile_size if profile_size is not None else cfg.latent_tda_max_train,
-                    latent_tda_max_test=profile_size if profile_size is not None else cfg.latent_tda_max_test,
-                )
-                results_df, summary_df, profile_df = _run_one_config(run_cfg)
-                tagged_results = _tag_run_frame(results_df, run_cfg)
-                tagged_summary = _tag_run_frame(summary_df, run_cfg, summary=True)
-                tagged_profile = _tag_run_frame(profile_df, run_cfg)
-                if tagged_results is not None and not tagged_results.empty:
-                    result_frames.append(tagged_results)
-                if tagged_summary is not None and not tagged_summary.empty:
-                    summary_frames.append(tagged_summary)
-                if tagged_profile is not None and not tagged_profile.empty:
-                    profile_frames.append(tagged_profile)
-                print("=" * 88)
+                for profile_mode in profile_modes:
+                    run_idx += 1
+                    size_text = "" if profile_size is None else f" profile_size={profile_size}"
+                    mode_text = "" if profile_mode is None else f" mode={profile_mode}"
+                    print(f"\n######## run {run_idx}/{total}: dataset={dataset} scenario={scenario}{size_text}{mode_text} ########")
+                    run_cfg = replace(
+                        cfg,
+                        dataset=dataset,
+                        scenario=scenario,
+                        modes=[profile_mode] if profile_mode is not None else cfg.modes,
+                        profile_size=profile_size,
+                        num_train_clips=profile_size if profile_size is not None else cfg.num_train_clips,
+                        num_test_clips=profile_size if profile_size is not None else cfg.num_test_clips,
+                        latent_tda_max_train=profile_size if profile_size is not None else cfg.latent_tda_max_train,
+                        latent_tda_max_test=profile_size if profile_size is not None else cfg.latent_tda_max_test,
+                    )
+                    results_df, summary_df, profile_df = _run_one_config(run_cfg)
+                    tagged_results = _tag_run_frame(results_df, run_cfg)
+                    tagged_summary = _tag_run_frame(summary_df, run_cfg, summary=True)
+                    tagged_profile = _tag_run_frame(profile_df, run_cfg)
+                    if tagged_results is not None and not tagged_results.empty:
+                        result_frames.append(tagged_results)
+                    if tagged_summary is not None and not tagged_summary.empty:
+                        summary_frames.append(tagged_summary)
+                    if tagged_profile is not None and not tagged_profile.empty:
+                        profile_frames.append(tagged_profile)
+                    print("=" * 88)
 
     _print_aggregate_tables(result_frames, summary_frames, profile_frames)
 
