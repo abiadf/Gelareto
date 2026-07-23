@@ -234,6 +234,8 @@ class RunProfiler:
         self.topo_time_sec = 0.0
         self.peak_cpu_rss_mb = _ru_maxrss_mb()
         self.peak_accelerator_mem_mb = np.nan
+        self.phase_time_sec = {}
+        self.phase_peak_accelerator_mem_mb = {}
         self._stop = threading.Event()
         self._thread = None
 
@@ -241,6 +243,8 @@ class RunProfiler:
         self.start_time = time.perf_counter()
         self.peak_cpu_rss_mb = _ru_maxrss_mb()
         self._reset_accelerator_memory()
+        self._previous_latent_profiler = getattr(ml_tda_latent, "ACTIVE_PROFILER", None)
+        ml_tda_latent.ACTIVE_PROFILER = self
         self._thread = threading.Thread(target=self._sample_loop, daemon=True)
         self._thread.start()
         self._patch_stack = contextlib.ExitStack()
@@ -251,6 +255,7 @@ class RunProfiler:
         self.wall_time_sec = time.perf_counter() - self.start_time
         if hasattr(self, "_patch_stack"):
             self._patch_stack.close()
+        ml_tda_latent.ACTIVE_PROFILER = self._previous_latent_profiler
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=1.0)
@@ -286,13 +291,47 @@ class RunProfiler:
             else:
                 self.peak_accelerator_mem_mb = max(self.peak_accelerator_mem_mb, float(mps_mb))
 
+    def _current_accelerator_peak_mb(self) -> float:
+        if torch.cuda.is_available():
+            return float(torch.cuda.max_memory_allocated() / (1024.0 * 1024.0))
+        if hasattr(torch, "mps") and hasattr(torch.mps, "current_allocated_memory"):
+            try:
+                return float(torch.mps.current_allocated_memory() / (1024.0 * 1024.0))
+            except Exception:
+                return np.nan
+        return np.nan
+
     @contextlib.contextmanager
-    def _timed_topology(self):
+    def phase(self, name: str):
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.reset_peak_memory_stats()
         start = time.perf_counter()
         try:
             yield
         finally:
-            self.topo_time_sec += time.perf_counter() - start
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            elapsed = time.perf_counter() - start
+            peak_mb = self._current_accelerator_peak_mb()
+            self.phase_time_sec[name] = self.phase_time_sec.get(name, 0.0) + elapsed
+            if not np.isnan(peak_mb):
+                current = self.phase_peak_accelerator_mem_mb.get(name, np.nan)
+                if np.isnan(current):
+                    self.phase_peak_accelerator_mem_mb[name] = peak_mb
+                else:
+                    self.phase_peak_accelerator_mem_mb[name] = max(current, peak_mb)
+                if np.isnan(self.peak_accelerator_mem_mb):
+                    self.peak_accelerator_mem_mb = peak_mb
+                else:
+                    self.peak_accelerator_mem_mb = max(self.peak_accelerator_mem_mb, peak_mb)
+
+    @contextlib.contextmanager
+    def _timed_topology(self):
+        start = time.perf_counter()
+        with self.phase("persistence"):
+            yield
+        self.topo_time_sec += time.perf_counter() - start
 
     @contextlib.contextmanager
     def _profiled_topology_calls(self):
@@ -339,6 +378,16 @@ class RunProfiler:
             "peak_accelerator_mem_mb": float(self.peak_accelerator_mem_mb),
             "topo_time_sec": float(self.topo_time_sec),
             "topo_fraction": float(self.topo_time_sec / self.wall_time_sec) if self.wall_time_sec > 0 else np.nan,
+            "encoding_time_sec": float(self.phase_time_sec.get("encoding", 0.0)),
+            "encoder_train_time_sec": float(self.phase_time_sec.get("encoder_train", 0.0)),
+            "persistence_time_sec": float(self.phase_time_sec.get("persistence", 0.0)),
+            "fusion_time_sec": float(self.phase_time_sec.get("fusion", 0.0)),
+            "predictor_time_sec": float(self.phase_time_sec.get("predictor", 0.0)),
+            "encoding_peak_accelerator_mem_mb": float(self.phase_peak_accelerator_mem_mb.get("encoding", np.nan)),
+            "encoder_train_peak_accelerator_mem_mb": float(self.phase_peak_accelerator_mem_mb.get("encoder_train", np.nan)),
+            "persistence_peak_accelerator_mem_mb": float(self.phase_peak_accelerator_mem_mb.get("persistence", np.nan)),
+            "fusion_peak_accelerator_mem_mb": float(self.phase_peak_accelerator_mem_mb.get("fusion", np.nan)),
+            "predictor_peak_accelerator_mem_mb": float(self.phase_peak_accelerator_mem_mb.get("predictor", np.nan)),
             "throughput_frames_per_sec": float(throughput),
             "n_train_clips": n_train,
             "n_test_clips": n_test,
