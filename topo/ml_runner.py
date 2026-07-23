@@ -303,8 +303,10 @@ class RunProfiler:
 
     @contextlib.contextmanager
     def phase(self, name: str):
+        start_allocated_mb = np.nan
         if torch.cuda.is_available():
             torch.cuda.synchronize()
+            start_allocated_mb = float(torch.cuda.memory_allocated() / (1024.0 * 1024.0))
             torch.cuda.reset_peak_memory_stats()
         start = time.perf_counter()
         try:
@@ -314,6 +316,8 @@ class RunProfiler:
                 torch.cuda.synchronize()
             elapsed = time.perf_counter() - start
             peak_mb = self._current_accelerator_peak_mb()
+            if torch.cuda.is_available() and not np.isnan(start_allocated_mb) and not np.isnan(peak_mb):
+                peak_mb = max(0.0, peak_mb - start_allocated_mb)
             self.phase_time_sec[name] = self.phase_time_sec.get(name, 0.0) + elapsed
             if not np.isnan(peak_mb):
                 current = self.phase_peak_accelerator_mem_mb.get(name, np.nan)
