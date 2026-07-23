@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import random
 import resource
 import sys
@@ -22,6 +23,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import torch
+
+try:
+    import psutil
+except ImportError:  # optional profiling dependency
+    psutil = None
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -226,6 +232,15 @@ def _ru_maxrss_mb() -> float:
     return rss / 1024.0
 
 
+_PROCESS = psutil.Process(os.getpid()) if psutil is not None else None
+
+
+def _current_cpu_rss_mb() -> float:
+    if _PROCESS is not None:
+        return float(_PROCESS.memory_info().rss / (1024.0 * 1024.0))
+    return _ru_maxrss_mb()
+
+
 class RunProfiler:
     def __init__(self, cfg: RunConfig):
         self.cfg = cfg
@@ -236,6 +251,10 @@ class RunProfiler:
         self.peak_accelerator_mem_mb = np.nan
         self.phase_time_sec = {}
         self.phase_peak_accelerator_mem_mb = {}
+        self.phase_peak_cpu_rss_mb = {}
+        self._active_phases = {}
+        self._phase_counter = 0
+        self._phase_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = None
 
@@ -274,7 +293,17 @@ class RunProfiler:
             self._sample_once()
 
     def _sample_once(self):
-        self.peak_cpu_rss_mb = max(self.peak_cpu_rss_mb, _ru_maxrss_mb())
+        current_cpu_mb = _current_cpu_rss_mb()
+        self.peak_cpu_rss_mb = max(self.peak_cpu_rss_mb, _ru_maxrss_mb(), current_cpu_mb)
+        with self._phase_lock:
+            active_phases = list(self._active_phases.values())
+        for phase_name, start_cpu_mb in active_phases:
+            delta_cpu_mb = max(0.0, current_cpu_mb - start_cpu_mb)
+            current = self.phase_peak_cpu_rss_mb.get(phase_name, np.nan)
+            if np.isnan(current):
+                self.phase_peak_cpu_rss_mb[phase_name] = delta_cpu_mb
+            else:
+                self.phase_peak_cpu_rss_mb[phase_name] = max(current, delta_cpu_mb)
         if torch.cuda.is_available():
             cuda_mb = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
             if np.isnan(self.peak_accelerator_mem_mb):
@@ -303,6 +332,11 @@ class RunProfiler:
 
     @contextlib.contextmanager
     def phase(self, name: str):
+        start_cpu_mb = _current_cpu_rss_mb()
+        with self._phase_lock:
+            self._phase_counter += 1
+            phase_id = self._phase_counter
+            self._active_phases[phase_id] = (name, start_cpu_mb)
         start_allocated_mb = np.nan
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -315,6 +349,15 @@ class RunProfiler:
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
             elapsed = time.perf_counter() - start
+            current_cpu_mb = _current_cpu_rss_mb()
+            delta_cpu_mb = max(0.0, current_cpu_mb - start_cpu_mb)
+            current_cpu_peak = self.phase_peak_cpu_rss_mb.get(name, np.nan)
+            if np.isnan(current_cpu_peak):
+                self.phase_peak_cpu_rss_mb[name] = delta_cpu_mb
+            else:
+                self.phase_peak_cpu_rss_mb[name] = max(current_cpu_peak, delta_cpu_mb)
+            with self._phase_lock:
+                self._active_phases.pop(phase_id, None)
             peak_mb = self._current_accelerator_peak_mb()
             if torch.cuda.is_available() and not np.isnan(start_allocated_mb) and not np.isnan(peak_mb):
                 peak_mb = max(0.0, peak_mb - start_allocated_mb)
@@ -392,6 +435,11 @@ class RunProfiler:
             "persistence_peak_accelerator_mem_mb": float(self.phase_peak_accelerator_mem_mb.get("persistence", np.nan)),
             "fusion_peak_accelerator_mem_mb": float(self.phase_peak_accelerator_mem_mb.get("fusion", np.nan)),
             "predictor_peak_accelerator_mem_mb": float(self.phase_peak_accelerator_mem_mb.get("predictor", np.nan)),
+            "encoding_peak_cpu_rss_mb": float(self.phase_peak_cpu_rss_mb.get("encoding", np.nan)),
+            "encoder_train_peak_cpu_rss_mb": float(self.phase_peak_cpu_rss_mb.get("encoder_train", np.nan)),
+            "persistence_peak_cpu_rss_mb": float(self.phase_peak_cpu_rss_mb.get("persistence", np.nan)),
+            "fusion_peak_cpu_rss_mb": float(self.phase_peak_cpu_rss_mb.get("fusion", np.nan)),
+            "predictor_peak_cpu_rss_mb": float(self.phase_peak_cpu_rss_mb.get("predictor", np.nan)),
             "throughput_frames_per_sec": float(throughput),
             "n_train_clips": n_train,
             "n_test_clips": n_test,

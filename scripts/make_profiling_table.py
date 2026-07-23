@@ -29,6 +29,11 @@ COLUMNS = [
     "persistence_peak_accelerator_mem_mb",
     "fusion_peak_accelerator_mem_mb",
     "predictor_peak_accelerator_mem_mb",
+    "encoding_peak_cpu_rss_mb",
+    "encoder_train_peak_cpu_rss_mb",
+    "persistence_peak_cpu_rss_mb",
+    "fusion_peak_cpu_rss_mb",
+    "predictor_peak_cpu_rss_mb",
     "throughput_frames_per_sec",
     "n_train_clips",
     "n_test_clips",
@@ -73,6 +78,11 @@ OLD_COLUMNS = [
         "persistence_peak_accelerator_mem_mb",
         "fusion_peak_accelerator_mem_mb",
         "predictor_peak_accelerator_mem_mb",
+        "encoding_peak_cpu_rss_mb",
+        "encoder_train_peak_cpu_rss_mb",
+        "persistence_peak_cpu_rss_mb",
+        "fusion_peak_cpu_rss_mb",
+        "predictor_peak_cpu_rss_mb",
     }
 ]
 
@@ -125,6 +135,11 @@ def read_profile(path: Path) -> pd.DataFrame:
         "topo_fraction",
         "overhead_vs_baseline",
         *PHASE_PEAK_COLUMNS.values(),
+        "encoding_peak_cpu_rss_mb",
+        "encoder_train_peak_cpu_rss_mb",
+        "persistence_peak_cpu_rss_mb",
+        "fusion_peak_cpu_rss_mb",
+        "predictor_peak_cpu_rss_mb",
     ]
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -176,6 +191,8 @@ def make_table(df: pd.DataFrame) -> str:
             encoder_train_gpu_mean=("encoder_train_peak_accelerator_mem_mb", "mean"),
             persistence_gpu_mean=("persistence_peak_accelerator_mem_mb", "mean"),
             persistence_gpu_std=("persistence_peak_accelerator_mem_mb", "std"),
+            persistence_cpu_mean=("persistence_peak_cpu_rss_mb", "mean"),
+            persistence_cpu_std=("persistence_peak_cpu_rss_mb", "std"),
             fusion_gpu_mean=("fusion_peak_accelerator_mem_mb", "mean"),
             predictor_gpu_mean=("predictor_peak_accelerator_mem_mb", "mean"),
             predictor_gpu_std=("predictor_peak_accelerator_mem_mb", "std"),
@@ -192,13 +209,13 @@ def make_table(df: pd.DataFrame) -> str:
         r"\begin{table*}[t]",
         r"\centering",
         r"\small",
-        rf"\caption{{Profiling summary at profile size {profile_size}, averaged over datasets. Runtime and extra phase GPU memory are reported as mean$\pm$std across datasets. Runtime/\(z\) is relative to the corresponding \(z\)-only run within the same dataset and encoder family. Persistence memory is omitted for \(z\)-only and PCA-control modes, which do not compute persistence.}}",
+        rf"\caption{{Profiling summary at profile size {profile_size}, averaged over datasets. Runtime and phase memory are reported as mean$\pm$std across datasets. Runtime/\(z\) is relative to the corresponding \(z\)-only run within the same dataset and encoder family. Encoder and predictor memory are extra GPU allocations; persistence memory is extra CPU RSS because persistence runs on CPU. Persistence memory is omitted for \(z\)-only and PCA-control modes, which do not compute persistence.}}",
         r"\label{tab:profiling}",
         r"\begin{tabular}{llrrrrr}",
         r"\toprule",
-        r" &  &  &  & \multicolumn{3}{c}{Extra GPU mem. (MB)} \\",
+        r" &  &  &  & \multicolumn{3}{c}{Phase memory (MB)} \\",
         r"\cmidrule(lr){5-7}",
-        r"Encoder & Input mode & Runtime (s) & Runtime / \(z\) & Enc. & Persist. & Pred. \\",
+        r"Encoder & Input mode & Runtime (s) & Runtime / \(z\) & Enc. GPU & Persist. CPU & Pred. GPU \\",
         r"\midrule",
     ]
     previous_encoder = None
@@ -208,8 +225,8 @@ def make_table(df: pd.DataFrame) -> str:
         runtime = f"{row.runtime_mean:.2f}$\\pm${0.0 if pd.isna(row.runtime_std) else row.runtime_std:.2f}"
         overhead = f"{row.overhead_mean:.2f}$\\pm${0.0 if pd.isna(row.overhead_std) else row.overhead_std:.2f}"
         enc_gpu = f"{row.encoding_gpu_mean:.0f}$\\pm${0.0 if pd.isna(row.encoding_gpu_std) else row.encoding_gpu_std:.0f}"
-        if row.mode in PERSISTENCE_MODES and not pd.isna(row.persistence_gpu_mean):
-            persist_gpu = f"{row.persistence_gpu_mean:.0f}$\\pm${0.0 if pd.isna(row.persistence_gpu_std) else row.persistence_gpu_std:.0f}"
+        if row.mode in PERSISTENCE_MODES and not pd.isna(row.persistence_cpu_mean):
+            persist_gpu = f"{row.persistence_cpu_mean:.0f}$\\pm${0.0 if pd.isna(row.persistence_cpu_std) else row.persistence_cpu_std:.0f}"
         else:
             persist_gpu = "--"
         pred_gpu = f"{row.predictor_gpu_mean:.0f}$\\pm${0.0 if pd.isna(row.predictor_gpu_std) else row.predictor_gpu_std:.0f}"
