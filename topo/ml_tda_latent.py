@@ -327,7 +327,36 @@ def latent_tda_cache_path(seed, split_name, X_subset):
     return cache_dir / f"{tag}.pt"
 
 
-def load_or_compute_latent_tda_features(seed, split_name, X_subset, encoder):
+def latent_z_cache_path(seed, split_name, X_subset):
+    cache_dir = Path("models") / DATASET / "latent_tda_features"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    tag = (
+        f"seed{seed}_{split_name}_T{X_subset.shape[0]}_B{X_subset.shape[1]}_"
+        f"H{X_subset.shape[-2]}_W{X_subset.shape[-1]}_latent{LATENT_DIM}_zonly"
+    )
+    return cache_dir / f"{tag}.pt"
+
+
+def load_or_compute_latent_z_features(seed, split_name, X_subset, encoder):
+    cache_path = latent_z_cache_path(seed, split_name, X_subset)
+    if cache_path.exists():
+        print(f"Loading z-only cache: {cache_path}")
+        try:
+            return torch.load(cache_path, map_location="cpu")
+        except Exception:
+            return torch.load(cache_path, map_location="cpu", weights_only=False)
+
+    print(f"Computing z-only features for {split_name}...")
+    payload = {"z": encode_video_to_z(X_subset, encoder)}
+    torch.save(payload, cache_path)
+    print(f"Saved z-only cache: {cache_path}")
+    return payload
+
+
+def load_or_compute_latent_tda_features(seed, split_name, X_subset, encoder, require_persistence=True):
+    if not require_persistence:
+        return load_or_compute_latent_z_features(seed, split_name, X_subset, encoder)
+
     cache_path = latent_tda_cache_path(seed, split_name, X_subset)
     if cache_path.exists() and not RECOMPUTE_LATENT_TDA_FEATURES:
         print(f"Loading latent TDA cache: {cache_path}")
@@ -388,8 +417,10 @@ def latent_window_pca_eigenvalue_features(z, window=6, n_components=16):
             scale = pts.std(axis=0, keepdims=True).mean() + 1e-6
             pts = pts / scale
             denom = max(len(pts) - 1, 1)
-            covariance = (pts.T @ pts) / float(denom)
-            eigvals = np.linalg.eigvalsh(covariance).astype(np.float32)
+            # The window is usually much shorter than latent_dim, so the Gram
+            # matrix gives the same nonzero eigenvalues as the full covariance.
+            gram = (pts @ pts.T) / float(denom)
+            eigvals = np.linalg.eigvalsh(gram).astype(np.float32)
             eigvals = np.sort(np.maximum(eigvals, 0.0))[::-1]
             k = min(n_components, len(eigvals))
             features[t, b, :k] = eigvals[:k]
@@ -496,6 +527,29 @@ def _parse_vectorized_latent_mode(base_mode):
             if vectorizer in aliases:
                 return aliases[vectorizer], homology
     return None
+
+
+def _latent_mode_needs_persistence(mode):
+    mode = canonicalize_latent_tda_mode(mode)
+    if mode in {"z", "z_temporal_stats"}:
+        return False
+    if mode.startswith("z_temporal_stats_"):
+        suffix_mode = "z_" + mode.removeprefix("z_temporal_stats_")
+        return _latent_mode_needs_persistence(suffix_mode)
+    base_mode, _ = _split_control_suffix(mode)
+    if _parse_pca_latent_mode(base_mode) is not None:
+        return False
+    if _parse_vectorized_latent_mode(base_mode) is not None:
+        return True
+    if base_mode.startswith("z_fuse_"):
+        base_mode = "z_" + base_mode.removeprefix("z_fuse_")
+    elif base_mode.startswith("topo_"):
+        base_mode = "z_" + base_mode.removeprefix("topo_")
+    return base_mode in {"z_h0", "z_h1", "z_both"}
+
+
+def _latent_modes_need_persistence(modes):
+    return any(_latent_mode_needs_persistence(mode) for mode in modes)
 
 
 def _require_diagrams(payload):
@@ -1035,6 +1089,7 @@ def run_latent_tda_trajectory_experiment(
     max_train=None,
     max_test=None,
     display_fn=None,
+    compute_diagnostics=True,
 ):
     if X_train is None or X_test is None:
         print(
@@ -1046,6 +1101,7 @@ def run_latent_tda_trajectory_experiment(
 
     run_seeds = list(range(5)) if run_seeds is None else run_seeds
     modes = ["z", "z_h0", "z_h1", "z_both"] if modes is None else canonicalize_latent_tda_modes(modes)
+    require_persistence = _latent_modes_need_persistence(modes)
     rows = []
     for seed in tqdm_progress_bar(run_seeds, desc="Latent TDA seeds", total=len(run_seeds), leave=True):
         print(f"\n================ latent TDA seed={seed} ================")
@@ -1056,9 +1112,21 @@ def run_latent_tda_trajectory_experiment(
         Xtr = take_batch_subset(X_train, max_train, seed=seed)
         Xte = take_batch_subset(X_test, max_test, seed=seed + 1)
         encoder = load_or_train_shared_encoder_for_latent_tda(seed, Xtr, X_train)
-        train_payload = load_or_compute_latent_tda_features(seed, "train", Xtr, encoder)
-        test_payload = load_or_compute_latent_tda_features(seed, "test", Xte, encoder)
-        diagnostics = latent_geometry_diagnostics(Xte, test_payload["z"])
+        train_payload = load_or_compute_latent_tda_features(
+            seed,
+            "train",
+            Xtr,
+            encoder,
+            require_persistence=require_persistence,
+        )
+        test_payload = load_or_compute_latent_tda_features(
+            seed,
+            "test",
+            Xte,
+            encoder,
+            require_persistence=require_persistence,
+        )
+        diagnostics = latent_geometry_diagnostics(Xte, test_payload["z"]) if compute_diagnostics else {}
 
         for mode in modes:
             train_features, test_features = features_for_latent_tda_mode_pair(

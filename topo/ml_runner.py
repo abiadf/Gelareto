@@ -426,6 +426,10 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
     if x_train.dtype != torch.uint8:
         x_train = x_train.float()
         x_test = x_test.float()
+    if cfg.num_train_clips is not None and x_train.shape[1] > cfg.num_train_clips:
+        x_train = x_train[:, : cfg.num_train_clips].contiguous()
+    if cfg.num_test_clips is not None and x_test.shape[1] > cfg.num_test_clips:
+        x_test = x_test[:, : cfg.num_test_clips].contiguous()
 
     latent_dim = int(_override(cfg.latent_dim, run_config.get("LATENT_DIM", 128)))
     hidden_dim = int(_override(cfg.hidden_dim, run_config.get("HIDDEN_DIM", 128)))
@@ -1169,6 +1173,7 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
         max_train=max_train,
         max_test=max_test,
         display_fn=None,
+        compute_diagnostics=not cfg.profile_run,
     )
     return results_df, summary_df
 
