@@ -1,7 +1,8 @@
 "[INEFFICIENT CODE] sublevel persistence using water lake analogy, no numba"
 
 import torch
-from old_1d_persistence import Sublevel1D
+
+from topo.old_1d_persistence import Sublevel1D
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -218,46 +219,5 @@ def compute_1d_sublevel_persistence_lake(timeseries_values: torch.Tensor, keypoi
                 submerged_components[active_sequence_rank] = True
                 
     return birth_death_pairs_list
-
-
-
-#  ======== to run this slow method ======
-
-# 1. Extract keypoints for your baseline history (y_vals)
-sublevel_baseline = Sublevel1D(x=y_vals)
-base_keypoint_idx, base_keypoint_types = sublevel_baseline.find_extrema_in_timeseries()
-
-batch_pairs = compute_1d_sublevel_persistence_lake(y_vals, base_keypoint_idx, base_keypoint_types)
-
-print(f"Total pairs found in full batch: {len(batch_pairs)}")
-for b, d in batch_pairs:
-    print(f"Batch Pair: ({b}, {d})")
-
-# 2. INITIALIZE the online persistence engine with your baseline history
-online_tda = OnlineSublevelPersistenceLake(y_vals, base_keypoint_idx, base_keypoint_types)
-
-# 3. Extract keypoints for your incoming streaming chunk (y_new)
-sublevel_stream = Sublevel1D(x=y_new)
-stream_keypoint_idx, stream_keypoint_types = sublevel_stream.find_extrema_in_timeseries()
-
-# 4. Append the streaming chunk to process incremental changes
-# This outputs ONLY the new pairs closed by the arrival of y_new
-birth_death_pairs_list = online_tda.append_stream_data(
-    new_x_chunk=y_new, 
-    stream_keypoint_idx=stream_keypoint_idx, 
-    stream_keypoint_types=stream_keypoint_types)
-
-# 5. PRINT RESULTS (Using your exact style)
-# Note: online_tda.history_values is now automatically the unified (y_vals + y_new) tensor
-
-print("--- Persistence Pairs: (birth idx, death idx) ---")
-for birth_time_idx, death_time_idx in birth_death_pairs_list:
-    print(f"({birth_time_idx}, {death_time_idx})")
-
-print("\n--- y values: (birth, death; lifetime) ---")
-for birth_idx, death_idx in birth_death_pairs_list:
-    birth_val = online_tda.history_values[birth_idx].item()
-    death_val = online_tda.history_values[death_idx].item()
-    print(f"({birth_val:2.2f}, {death_val:2.2f}; {death_val - birth_val:2.2f})")
 
 

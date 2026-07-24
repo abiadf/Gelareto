@@ -1,3 +1,5 @@
+# Clean notebook outputs locally.
+*.ipynb filter=nbstripout
 
-*.ipynb filter=nbstripout # clean notebook outputs locally
-*.ipynb linguist-documentation # git drops it from stats 
+# Keep notebooks out of GitHub language statistics.
+*.ipynb linguist-documentation

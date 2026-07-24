@@ -442,19 +442,3 @@ class IncrementalSublevel(Sublevel1D):
             # 2) if new gmin is on OPPOSITE side as old gmin
                 # old gmin dies at gmax [prev this old gmin > inf]
                 # new gmin > inf
-
-# how to run
-sublevel_obj = Sublevel1D(x=y_vals)
-keypoint_idx, keypoint_types = sublevel_obj.find_extrema_in_timeseries()
-sublevel_obj.init_persistence_tensors()
-sublevel_obj.compute_persistence_for_gmin_and_opposite_gmin()
-sublevel_obj.compute_persistence_for_other_minima()
-
-# print("keypoint idx:", keypoint_idx)
-# print("keypoint types:", keypoint_types)
-print("persistence idx:", sublevel_obj.persistence_idx)
-print("persistence birth:", sublevel_obj.persistence_births)
-print("persistence death:", sublevel_obj.persistence_deaths)
-print(f"{sublevel_obj.gmax_idx=} {sublevel_obj.gmax_yval=}")
-print("active max idx:", sublevel_obj.active_max_idx)
-print("active max y:", sublevel_obj.active_max_y)
