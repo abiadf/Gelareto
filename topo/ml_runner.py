@@ -661,12 +661,12 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
             with torch.no_grad():
                 pred_z = model(total_test_features[:-context.horizon].to(device)).cpu()
             target_z = test_z_features[context.horizon:].cpu()
-            _, latent_r2 = _mse_r2(pred_z, target_z)
+            latent_mse, latent_r2 = _mse_r2(pred_z, target_z)
             row = {
                 "dataset": cfg.dataset,
                 "seed": seed,
                 "mode": mode,
-                "test_mse": float(test_mse),
+                "test_mse": float(latent_mse),
                 "latent_r2": float(latent_r2),
             }
             rows.append(row)
@@ -1040,14 +1040,14 @@ def run_geo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFram
             with torch.no_grad():
                 pred_z = model(total_test_features[:-context.horizon].to(device)).cpu()
             target_z = test_z_features[context.horizon:].cpu()
-            _, latent_r2 = _mse_r2(pred_z, target_z)
+            latent_mse, latent_r2 = _mse_r2(pred_z, target_z)
             row = {
                 "dataset": cfg.dataset,
                 "encoder": "geo_ae",
                 "geo_ae_lambda": cfg.geo_ae_lambda,
                 "seed": seed,
                 "mode": mode,
-                "test_mse": float(test_mse),
+                "test_mse": float(latent_mse),
                 "latent_r2": float(latent_r2),
                 "encoder_path": str(encoder_path),
                 "model_path": str(model_path),
@@ -1133,7 +1133,7 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
             with torch.no_grad():
                 pred_z = model(total_test_features[:-context.horizon].to(device)).cpu()
             target_z = test_z_features[context.horizon:].cpu()
-            _, latent_r2 = _mse_r2(pred_z, target_z)
+            latent_mse, latent_r2 = _mse_r2(pred_z, target_z)
             row = {
                 "dataset": cfg.dataset,
                 "encoder": "topo_ae",
@@ -1141,7 +1141,7 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
                 "topo_ae_distance": cfg.topo_ae_distance,
                 "seed": seed,
                 "mode": mode,
-                "test_mse": float(test_mse),
+                "test_mse": float(latent_mse),
                 "latent_r2": float(latent_r2),
                 "encoder_path": str(encoder_path),
                 "model_path": str(model_path),

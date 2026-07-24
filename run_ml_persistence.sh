@@ -47,8 +47,6 @@ set -euo pipefail
 #   noisy_frames: iid random-frame negative control; topology should not reliably help
 #   glioblastoma/hela: CTC TIFF sequences windowed as full-frame clips by default
 
-
-
 # Encoder workflow:
 #   First fair run for a scenario/dataset: add --include-retrain-encoder and list all modes.
 #   The encoder is refreshed once per seed, frozen, then reused for every mode including none/z.
@@ -57,10 +55,10 @@ set -euo pipefail
 # Use --decoder-type conv for new paper-quality decoded-image runs; default mlp preserves old results/checkpoints.
 
 args=(
-  --scenario latent_tda,geo_latent_tda,topo_latent_tda # latent_tda,geo_latent_tda,topo_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
-  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela # bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela #noisy_frames
+  --scenario real_tda #,geo_real_tda,topo_real_tda # latent_tda,geo_latent_tda,topo_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
+  --dataset bouncing_rings #,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela # bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela #noisy_frames
   --seeds 0 #,1,2,3,4                 # comma-separated seeds
-  --modes z,z_fuse_h1,z_fuse_perslay_h1,z_fuse_pca_h1 #,h2_shuffle,h2_noise,h2_zero #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
+  --modes none,h0,h1,both #z,z_fuse_h1,z_fuse_perslay_h1,z_fuse_pca_h1 #,h2_shuffle,h2_noise,h2_zero #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
   --horizon 5
   --include-retrain-encoder       # train encoder once per seed, freeze it, then run all modes fairly
   --ae-epochs 10                    # baseline AE pretraining epochs
@@ -92,8 +90,8 @@ args=(
   # --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
   # --num-train-clips 128 \
   # --num-test-clips 64 \
-  --profile-run                    # save profile.csv with wall time, peak memory, throughput, topo fraction, and mode overhead
-  --profile-sizes 16,32,64,128     # scaling curve: rerun with train/test and latent-TDA clip caps set to each size
+  # --profile-run                    # save profile.csv with wall time, peak memory, throughput, topo fraction, and mode overhead
+  # --profile-sizes 16,32,64,128     # scaling curve: rerun with train/test and latent-TDA clip caps set to each size
 
   # --device auto                    # auto | cpu | cuda | mps
   # --horizon 5                      # override forecast horizon
