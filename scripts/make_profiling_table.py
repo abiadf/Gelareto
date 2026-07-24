@@ -56,6 +56,7 @@ MODE_LABELS = {
     "z_fuse_h1": r"\(z_{\mathrm{fuse}}+H_1\)",
     "z_fuse_perslay_h1": r"\(z_{\mathrm{fuse}}+\mathrm{PersLay}\)",
     "z_fuse_pca_h1": r"\(z_{\mathrm{fuse}}+\mathrm{PCA}\)",
+    "z_fuse_kpca_h1": r"\(z_{\mathrm{fuse}}+\mathrm{KPCA}\)",
 }
 
 PERSISTENCE_MODES = {

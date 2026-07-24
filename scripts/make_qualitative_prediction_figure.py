@@ -262,9 +262,85 @@ def _plot_timeseries_row(
             ax.set_ylabel(title_prefix, fontsize=11)
 
 
+def _plot_error_curves(
+    args: argparse.Namespace,
+    errors_by_mode: dict[str, torch.Tensor],
+    selected: list[tuple[int, int]],
+    scenario_label: str,
+    out_dir: Path,
+) -> Path:
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.6), gridspec_kw={"width_ratios": [1.2, 1.0]})
+    first_err = next(iter(errors_by_mode.values()))
+    time = np.arange(first_err.shape[0]) + args.horizon_value
+    colors = {
+        args.baseline_mode: "#d55e00",
+        args.pca_direct_mode: "#cc79a7",
+        args.pca_mode: "#009e73",
+        args.topo_mode: "#0072b2",
+    }
+
+    for mode, err in errors_by_mode.items():
+        color = colors.get(mode, "#666666")
+        for _, clip_idx in selected:
+            axes[0].plot(time, err[:, clip_idx].numpy(), color=color, alpha=0.18, linewidth=1.0)
+        mean_curve = torch.stack([err[:, b] for _, b in selected], dim=0).mean(dim=0)
+        axes[0].plot(time, mean_curve.numpy(), color=color, linewidth=2.7, label=mode)
+
+    axes[0].set_title("Latent prediction error over time")
+    axes[0].set_xlabel("target time")
+    axes[0].set_ylabel("latent MSE")
+    axes[0].grid(alpha=0.25, linewidth=0.6)
+    axes[0].legend(frameon=False)
+
+    labels = list(errors_by_mode)
+    per_mode_clip_means = []
+    for mode in labels:
+        vals = torch.stack([errors_by_mode[mode][:, b] for _, b in selected], dim=0).mean(dim=1)
+        per_mode_clip_means.append(vals.numpy())
+    x = np.arange(len(labels))
+    per_clip = np.stack(per_mode_clip_means, axis=1)
+    jitter_offsets = np.linspace(-0.08, 0.08, per_clip.shape[0]) if per_clip.shape[0] > 1 else np.array([0.0])
+    for clip_i, row in enumerate(per_clip):
+        axes[1].scatter(x + jitter_offsets[clip_i], row, color="#999999", alpha=0.35, s=18, zorder=2)
+    means = per_clip.mean(axis=0)
+    for i, mode in enumerate(labels):
+        axes[1].scatter(
+            x[i],
+            means[i],
+            s=100,
+            color=colors.get(mode, "#666666"),
+            edgecolor="black",
+            linewidth=0.8,
+            zorder=4,
+            label=mode,
+        )
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(labels, rotation=15, ha="right")
+    axes[1].set_title("Per-clip mean error")
+    axes[1].set_ylabel("latent MSE")
+    axes[1].grid(axis="y", alpha=0.25, linewidth=0.6)
+
+    fig.suptitle(
+        f"{args.dataset}: latent forecasting error curves ({scenario_label}, seed={args.seed})",
+        fontsize=13,
+        y=1.03,
+    )
+    fig.tight_layout()
+    mode_tag = "_vs_".join(labels)
+    stem = f"latent_error_curves_{args.dataset}_{args.scenario}_seed{args.seed}_{mode_tag}"
+    out_path = out_dir / f"{stem}.{args.format}"
+    fig.savefig(out_path, bbox_inches="tight", dpi=220)
+    if args.format != "png":
+        fig.savefig(out_dir / f"{stem}.png", bbox_inches="tight", dpi=220)
+    plt.close(fig)
+    print(f"Saved latent error curve figure: {out_path}")
+    return out_path
+
+
 def make_figure(args: argparse.Namespace) -> Path:
     dataset_cfg = topo_config.DATASET_CONFIGS[args.dataset]
     horizon = int(args.horizon if args.horizon is not None else dataset_cfg.get("HORIZON", 5))
+    args.horizon_value = horizon
     window = int(args.window if args.window is not None else dataset_cfg.get("LATENT_TDA_WINDOW", 20))
     bins = int(args.bins if args.bins is not None else dataset_cfg.get("LATENT_TDA_BINS", 16))
     latent_dim = int(dataset_cfg.get("LATENT_DIM", 128))
@@ -307,11 +383,35 @@ def make_figure(args: argparse.Namespace) -> Path:
         train_control_seed=args.seed,
         test_control_seed=args.seed + 10_000,
     )
+    pca_mode = args.pca_mode.strip() if args.pca_mode else ""
+    pca_direct_mode = args.pca_direct_mode.strip() if args.pca_direct_mode else ""
+    pca_modes = [mode for mode in [pca_direct_mode, pca_mode] if mode]
+    pca_feature_pairs = {}
+    for mode in pca_modes:
+        pca_feature_pairs[mode] = ml_tda_latent.features_for_latent_tda_mode_pair(
+            train_payload,
+            test_payload,
+            mode,
+            train_control_seed=args.seed,
+            test_control_seed=args.seed + 10_000,
+        )
 
     z_model_path = _predictor_path(namespace, args.seed, horizon, args.baseline_mode, args.predictor_type, window, bins)
     topo_model_path = _predictor_path(namespace, args.seed, horizon, args.topo_mode, args.predictor_type, window, bins)
     z_model = _load_predictor(z_model_path, args.baseline_mode, train_z_features.shape[-1], latent_dim, hidden_dim, args.predictor_type)
     topo_model = _load_predictor(topo_model_path, args.topo_mode, train_topo_features.shape[-1], latent_dim, hidden_dim, args.predictor_type)
+    pca_model_paths = {}
+    pca_models = {}
+    for mode, (train_features, _) in pca_feature_pairs.items():
+        pca_model_paths[mode] = _predictor_path(namespace, args.seed, horizon, mode, args.predictor_type, window, bins)
+        pca_models[mode] = _load_predictor(
+            pca_model_paths[mode],
+            mode,
+            train_features.shape[-1],
+            latent_dim,
+            hidden_dim,
+            args.predictor_type,
+        )
 
     decoder_path = _decoder_path(namespace, args.scenario, args.seed, x_train.shape[-2], x_train.shape[-1], latent_dim)
     decoder = make_spatial_decoder(args.decoder_type, latent_dim=latent_dim, output_size=x_train.shape[-2:])
@@ -319,18 +419,59 @@ def make_figure(args: argparse.Namespace) -> Path:
 
     pred_z_latent = _predict_latents(z_model, test_z_features, horizon)
     pred_topo_latent = _predict_latents(topo_model, test_topo_features, horizon)
+    pred_pca_latents = {
+        mode: _predict_latents(pca_models[mode], pca_feature_pairs[mode][1], horizon)
+        for mode in pca_models
+    }
+    target_z = test_payload["z"][horizon:]
+    latent_err_z = ((pred_z_latent - target_z) ** 2).mean(dim=-1)
+    latent_err_topo = ((pred_topo_latent - target_z) ** 2).mean(dim=-1)
+    latent_err_pcas = {
+        mode: ((pred_latent - target_z) ** 2).mean(dim=-1)
+        for mode, pred_latent in pred_pca_latents.items()
+    }
+    err_z = latent_err_z
+    err_topo = latent_err_topo
+    min_source_t = int(args.min_source_t if args.min_source_t is not None else max(0, min(window - 1, err_z.shape[0] - 1)))
+    selected = _select_examples(err_z, err_topo, args.n_examples, args.min_gain, min_source_t)
+
+    scenario_label = {
+        "latent_tda": "AE",
+        "geo_latent_tda": "GeoAE",
+        "topo_latent_tda": "TopoAE",
+    }[args.scenario]
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if args.plot_kind == "error_curve":
+        errors_by_mode = {args.baseline_mode: latent_err_z}
+        for mode in pca_modes:
+            errors_by_mode[mode] = latent_err_pcas[mode]
+        errors_by_mode[args.topo_mode] = latent_err_topo
+        out_path = _plot_error_curves(args, errors_by_mode, selected, scenario_label, out_dir)
+        for t, b in selected:
+            gain = float(latent_err_z[t, b] - latent_err_topo[t, b])
+            msg = (
+                f"selected clip={b} source_t={t} target_t={t + horizon} "
+                f"z_latent_mse={float(latent_err_z[t,b]):.6f} "
+            )
+            for mode in pca_modes:
+                msg += f"{mode}_latent_mse={float(latent_err_pcas[mode][t,b]):.6f} "
+            msg += f"topo_latent_mse={float(latent_err_topo[t,b]):.6f} gain={gain:.6f}"
+            print(
+                msg
+            )
+        return out_path
+
     pred_z_x = _decode(decoder, pred_z_latent)
     pred_topo_x = _decode(decoder, pred_topo_latent)
     if args.target_space == "decoded":
-        target_x = _decode(decoder, test_payload["z"][horizon:])
+        target_x = _decode(decoder, target_z)
         target_label = "Decoded target"
     else:
         target_x = ml_tda.tensor_to_model_float(x_test_subset[horizon:])
         target_label = "Ground truth"
-
     err_z = ((pred_z_x - target_x) ** 2).mean(dim=(2, 3, 4))
     err_topo = ((pred_topo_x - target_x) ** 2).mean(dim=(2, 3, 4))
-    min_source_t = int(args.min_source_t if args.min_source_t is not None else max(0, min(window - 1, err_z.shape[0] - 1)))
     selected = _select_examples(err_z, err_topo, args.n_examples, args.min_gain, min_source_t)
 
     is_timeseries = args.dataset in {"lorenz96", "electric_devices"}
@@ -351,11 +492,6 @@ def make_figure(args: argparse.Namespace) -> Path:
             float(err_topo[t, b]),
         )
 
-    scenario_label = {
-        "latent_tda": "AE",
-        "geo_latent_tda": "GeoAE",
-        "topo_latent_tda": "TopoAE",
-    }[args.scenario]
     fig.suptitle(
         f"{args.dataset}: qualitative next-frame prediction ({scenario_label}, {args.baseline_mode} vs {args.topo_mode}, target={args.target_space})",
         fontsize=13,
@@ -363,8 +499,6 @@ def make_figure(args: argparse.Namespace) -> Path:
     )
     axes[0, 0].set_title(target_label, fontsize=12)
     fig.tight_layout()
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"qualitative_{args.dataset}_{args.scenario}_seed{args.seed}_{args.baseline_mode}_vs_{args.topo_mode}_{args.target_space}"
     out_path = out_dir / f"{stem}.{args.format}"
     fig.savefig(out_path, bbox_inches="tight", dpi=220)
@@ -375,6 +509,8 @@ def make_figure(args: argparse.Namespace) -> Path:
     print(f"Saved qualitative figure: {out_path}")
     print(f"Decoder: {decoder_path}")
     print(f"z predictor: {z_model_path}")
+    for mode, path in pca_model_paths.items():
+        print(f"{mode} predictor: {path}")
     print(f"topo predictor: {topo_model_path}")
     for t, b in selected:
         gain = float(err_z[t, b] - err_topo[t, b])
@@ -388,6 +524,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scenario", default="geo_latent_tda", choices=["latent_tda", "geo_latent_tda", "topo_latent_tda"])
     parser.add_argument("--baseline-mode", default="z")
     parser.add_argument("--topo-mode", default="z_fuse_h1")
+    parser.add_argument("--pca-direct-mode", default="", help="Optional direct PCA-control mode, e.g. z_pca_h1.")
+    parser.add_argument("--pca-mode", default="", help="Optional fusion PCA-control mode, e.g. z_fuse_pca_h1.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--horizon", type=int, default=None)
     parser.add_argument("--window", type=int, default=15)
@@ -404,6 +542,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", default="images/qualitative")
     parser.add_argument("--format", default="pdf", choices=["pdf", "png"])
     parser.add_argument("--target-space", default="raw", choices=["raw", "decoded"], help="raw compares to X; decoded compares to decoded target z.")
+    parser.add_argument("--plot-kind", default="panels", choices=["panels", "error_curve"])
     return parser.parse_args()
 
 
