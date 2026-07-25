@@ -56,6 +56,8 @@ MODE_LABELS = {
     "z_pca_h1": r"\(z+\mathrm{PCA}\)",
     "z_kpca_h1": r"\(z+\mathrm{KPCA}\)",
     "z_fuse_h1": r"\(z_{\mathrm{fuse}}+H_1\)",
+    "z_fuse_pi_h1": r"\(z_{\mathrm{fuse}}+\mathrm{PI}\)",
+    "z_fuse_landscape_h1": r"\(z_{\mathrm{fuse}}+\mathrm{Landscape}\)",
     "z_fuse_perslay_h1": r"\(z_{\mathrm{fuse}}+\mathrm{PersLay}\)",
     "z_fuse_pca_h1": r"\(z_{\mathrm{fuse}}+\mathrm{PCA}\)",
     "z_fuse_kpca_h1": r"\(z_{\mathrm{fuse}}+\mathrm{KPCA}\)",
@@ -63,6 +65,8 @@ MODE_LABELS = {
 
 PERSISTENCE_MODES = {
     "z_fuse_h1",
+    "z_fuse_pi_h1",
+    "z_fuse_landscape_h1",
     "z_fuse_perslay_h1",
 }
 
@@ -133,9 +137,15 @@ def read_profile(path: Path) -> pd.DataFrame:
     numeric_cols = [
         "profile_size",
         "wall_time_sec",
+        "peak_cpu_rss_mb",
         "peak_accelerator_mem_mb",
         "topo_time_sec",
         "topo_fraction",
+        "encoding_time_sec",
+        "encoder_train_time_sec",
+        "persistence_time_sec",
+        "fusion_time_sec",
+        "predictor_time_sec",
         "overhead_vs_baseline",
         *PHASE_PEAK_COLUMNS.values(),
         "encoding_peak_cpu_rss_mb",
@@ -185,20 +195,20 @@ def make_table(df: pd.DataFrame) -> str:
         .agg(
             runtime_mean=("wall_time_sec", "mean"),
             runtime_std=("wall_time_sec", "std"),
-            gpu_mean=("peak_accelerator_mem_mb", "mean"),
-            gpu_std=("peak_accelerator_mem_mb", "std"),
+            cpu_mean=("peak_cpu_rss_mb", "mean"),
+            cpu_std=("peak_cpu_rss_mb", "std"),
+            accel_mean=("peak_accelerator_mem_mb", "mean"),
+            accel_std=("peak_accelerator_mem_mb", "std"),
             overhead_mean=("overhead_vs_baseline", "mean"),
             overhead_std=("overhead_vs_baseline", "std"),
-            encoding_gpu_mean=("encoding_peak_accelerator_mem_mb", "mean"),
-            encoding_gpu_std=("encoding_peak_accelerator_mem_mb", "std"),
-            encoder_train_gpu_mean=("encoder_train_peak_accelerator_mem_mb", "mean"),
-            persistence_gpu_mean=("persistence_peak_accelerator_mem_mb", "mean"),
-            persistence_gpu_std=("persistence_peak_accelerator_mem_mb", "std"),
-            persistence_cpu_mean=("persistence_peak_cpu_rss_mb", "mean"),
-            persistence_cpu_std=("persistence_peak_cpu_rss_mb", "std"),
-            fusion_gpu_mean=("fusion_peak_accelerator_mem_mb", "mean"),
-            predictor_gpu_mean=("predictor_peak_accelerator_mem_mb", "mean"),
-            predictor_gpu_std=("predictor_peak_accelerator_mem_mb", "std"),
+            encoding_time_mean=("encoding_time_sec", "mean"),
+            encoding_time_std=("encoding_time_sec", "std"),
+            persistence_time_mean=("persistence_time_sec", "mean"),
+            persistence_time_std=("persistence_time_sec", "std"),
+            fusion_time_mean=("fusion_time_sec", "mean"),
+            fusion_time_std=("fusion_time_sec", "std"),
+            predictor_time_mean=("predictor_time_sec", "mean"),
+            predictor_time_std=("predictor_time_sec", "std"),
             n_datasets=("dataset", "nunique"),
         )
         .reset_index()
@@ -208,35 +218,53 @@ def make_table(df: pd.DataFrame) -> str:
     grouped["encoder_order"] = grouped["encoder"].map(encoder_order)
     grouped["mode_order"] = grouped["mode"].map(mode_order)
     grouped = grouped.sort_values(["encoder_order", "mode_order"])
+
+    def mean_std(mean: float, std: float, digits: int = 2) -> str:
+        if pd.isna(mean):
+            return "--"
+        std = 0.0 if pd.isna(std) else std
+        return f"{mean:.{digits}f}$\\pm${std:.{digits}f}"
+
+    def phase_value(mean: float, std: float) -> str:
+        if pd.isna(mean) or mean <= 1e-6:
+            return "--"
+        return mean_std(mean, std, digits=2)
+
     lines = [
         r"\begin{table*}[t]",
         r"\centering",
         r"\small",
-        rf"\caption{{Profiling summary at profile size {profile_size}, averaged over datasets. Runtime and extra GPU memory are reported as mean$\pm$std across datasets. Runtime/\(z\) is relative to the corresponding \(z\)-only run within the same dataset and encoder family. Persistence runs on CPU in our implementation, so its cost is reflected in runtime rather than GPU memory.}}",
+        rf"\caption{{Profiling summary at profile size {profile_size}, averaged over datasets. Runtime, peak CPU RSS, peak accelerator memory, and phase times are reported as mean$\pm$std across datasets. Runtime/\(z\) is relative to the corresponding \(z\)-only run within the same dataset and encoder family. Persistence is CPU-side in our implementation, so its overhead is reflected primarily in wall time and persistence phase time rather than accelerator memory.}}",
         r"\label{tab:profiling}",
-        r"\begin{tabular}{llrrrr}",
+        r"\resizebox{\textwidth}{!}{",
+        r"\begin{tabular}{llrrrrrrr}",
         r"\toprule",
-        r" &  &  &  & \multicolumn{2}{c}{Extra GPU mem. (MB)} \\",
-        r"\cmidrule(lr){5-6}",
-        r"Encoder & Input mode & Runtime (s) & Runtime / \(z\) & Enc. & Pred. \\",
+        r" & & & & \multicolumn{2}{c}{Peak memory (MB)} & \multicolumn{3}{c}{Phase time (s)} \\",
+        r"\cmidrule(lr){5-6}\cmidrule(lr){7-9}",
+        r"Encoder & Input mode & Runtime (s) & Runtime/\(z\) & CPU RSS & Accel. & Enc. & Persist. & Pred. \\",
         r"\midrule",
     ]
     previous_encoder = None
     for row in grouped.itertuples(index=False):
         if previous_encoder is not None and row.encoder != previous_encoder:
             lines.append(r"\midrule")
-        runtime = f"{row.runtime_mean:.2f}$\\pm${0.0 if pd.isna(row.runtime_std) else row.runtime_std:.2f}"
-        overhead = f"{row.overhead_mean:.2f}$\\pm${0.0 if pd.isna(row.overhead_std) else row.overhead_std:.2f}"
-        enc_gpu = f"{row.encoding_gpu_mean:.0f}$\\pm${0.0 if pd.isna(row.encoding_gpu_std) else row.encoding_gpu_std:.0f}"
-        pred_gpu = f"{row.predictor_gpu_mean:.0f}$\\pm${0.0 if pd.isna(row.predictor_gpu_std) else row.predictor_gpu_std:.0f}"
+        runtime = mean_std(row.runtime_mean, row.runtime_std, digits=2)
+        overhead = mean_std(row.overhead_mean, row.overhead_std, digits=2)
+        cpu = mean_std(row.cpu_mean, row.cpu_std, digits=0)
+        accel = "--" if pd.isna(row.accel_mean) else mean_std(row.accel_mean, row.accel_std, digits=0)
+        encoding = phase_value(row.encoding_time_mean, row.encoding_time_std)
+        persistence = phase_value(row.persistence_time_mean, row.persistence_time_std)
+        predictor = phase_value(row.predictor_time_mean, row.predictor_time_std)
         lines.append(
-            f"{row.encoder} & {row.mode_label} & {runtime} & {overhead} & {enc_gpu} & {pred_gpu} " + r"\\"
+            f"{row.encoder} & {row.mode_label} & {runtime} & {overhead} & {cpu} & {accel} & "
+            f"{encoding} & {persistence} & {predictor} " + r"\\"
         )
         previous_encoder = row.encoder
     lines.extend(
         [
             r"\bottomrule",
             r"\end{tabular}",
+            r"}",
             r"\end{table*}",
             "",
         ]
