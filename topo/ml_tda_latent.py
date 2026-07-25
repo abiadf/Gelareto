@@ -995,8 +995,10 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
         model_dir.mkdir(parents=True, exist_ok=True)
         standardizer_tag = "gstdz" if STANDARDIZE_LATENT_PREDICTOR else "raw"
         architecture_tag = "fusion" if mode.startswith("z_fuse_") else "direct"
+        lr_tag = f"{LATENT_TDA_LR:g}".replace(".", "p").replace("-", "m")
         model_path = model_dir / (
             f"model_seed{seed}_pred{HORIZON}_{mode}_{architecture_tag}_{standardizer_tag}_{ml_tda.PREDICTOR_TYPE}_"
+            f"hidden{HIDDEN_DIM}_epochs{LATENT_TDA_PREDICTOR_EPOCHS}_lr{lr_tag}_"
             f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}.pt"
         )
         device = ml_tda.get_runtime_device()

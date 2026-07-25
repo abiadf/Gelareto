@@ -53,17 +53,22 @@ set -euo pipefail
 #   Later reruns: remove --include-retrain-encoder to reuse the existing frozen encoder checkpoint.
 # Stacked runs print each scenario/dataset as they finish, then print combined tables at the end.
 # Use --decoder-type conv for new paper-quality decoded-image runs; default mlp preserves old results/checkpoints.
+#
+# Quick hyperparameter tuning protocol:
+#   uv run python scripts/tune_latent_z_hparams.py --device auto
+#   Then uncomment --hparam-file below. The tuner selects dataset-level predictor
+#   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
   --scenario latent_tda,geo_latent_tda,topo_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
-  --dataset moving_mnist,lorenz96,electric_devices,glioblastoma,hela #bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela # bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela #noisy_frames
+  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks #,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
   --seeds 0,1,2,3,4                 # comma-separated seeds
   --modes z,z_pca_h1,z_kpca_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 #z,z_pca_h1,z_kpca_h1,z_fuse_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_perslay_h1 #,h2_shuffle,h2_noise,h2_zero #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1 #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
   --horizon 5
   --include-retrain-encoder       # train encoder once per seed, freeze it, then run all modes fairly
   --ae-epochs 10                    # baseline AE pretraining epochs
-  --predictor-epochs 40 #10
   --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
+  # --hparam-file results/hparam_search/latent_z_best_hparams.json
   --geo-ae-lambda 0.1
   --topo-ae-lambda 0.1
   --geo-ae-epochs 3
@@ -132,4 +137,6 @@ args=(
   # --no-save                        # print only, no CSV/config output
 )
 
+printf 'Running topo.ml_runner with args:\n'
+printf '  %q\n' "${args[@]}" "$@"
 uv run python -m topo.ml_runner "${args[@]}" "$@"

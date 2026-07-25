@@ -6,10 +6,10 @@ DATASET_CONFIGS = {
         "train_slice": slice(0, 1000),
         "test_slice": slice(9500, 9_700),
         "image_size": (64, 64),
-        "learning_rate": 3e-4,
+        "learning_rate": 3e-3,
         "LATENT_DIM": 48,
-        "HIDDEN_DIM": 64,
-        "PREDICTOR_EPOCHS": 10,
+        "HIDDEN_DIM": 256,
+        "PREDICTOR_EPOCHS": 40,
         "REAL_TDA_SCALE": 15,
         "REAL_TDA_BINS": 25,
         "HORIZON": 5,
@@ -18,7 +18,7 @@ DATASET_CONFIGS = {
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
-        "LATENT_TDA_PREDICTOR_EPOCHS" : 10,
+        "LATENT_TDA_PREDICTOR_EPOCHS" : 40,
 
         # params for real-space TDA ablation:
         "REAL_TDA_MODES": ["none", "h0", "h0_shuffle", "h0_noise", "h0_shift"],
@@ -92,10 +92,10 @@ DATASET_CONFIGS = {
         "normalize": "minmax",
         "train_seed_offset": 0,
         "test_seed_offset": 50000,
-        "learning_rate": 3e-4,
+        "learning_rate": 5e-3,
         "LATENT_DIM": 64,
-        "HIDDEN_DIM": 96,
-        "PREDICTOR_EPOCHS": 4,
+        "HIDDEN_DIM": 256,
+        "PREDICTOR_EPOCHS": 40,
         "AE_FRAME_BATCH_SIZE": 256,
         "AE_MAX_FRAMES_PER_EPOCH": 8192,
         "REAL_TDA_SCALE": 5,
@@ -106,7 +106,7 @@ DATASET_CONFIGS = {
         # params for TDA-on-latents:
         "LATENT_TDA_WINDOW": 20,
         "LATENT_TDA_BINS": 16,
-        "LATENT_TDA_PREDICTOR_EPOCHS": 8,
+        "LATENT_TDA_PREDICTOR_EPOCHS": 40,
 
         # params for auxiliary topology prediction:
         "AUX_TDA_MODES": ["none", "aux_h0", "aux_h1", "aux_both"],
@@ -145,8 +145,10 @@ DATASET_CONFIGS = {
             "datasets/2D/glioblastoma/glioblastoma_test/01",
             "datasets/2D/glioblastoma/glioblastoma_test/02",
         ],
-        "learning_rate": 3e-4,
+        "learning_rate": 1e-2,
         "LATENT_DIM": 128,
+        "HIDDEN_DIM": 256,
+        "PREDICTOR_EPOCHS": 40,
         "REAL_TDA_SCALE": 15,
         "REAL_TDA_BINS": 25,
 
@@ -186,6 +188,7 @@ DATASET_CONFIGS = {
         # params for TDA-on-latents: 
         "LATENT_TDA_WINDOW" : 20,
         "LATENT_TDA_BINS"   : 16,
+        "LATENT_TDA_PREDICTOR_EPOCHS": 40,
     },
     "hela": {
         "kind": "ctc_tif_clips",
@@ -198,8 +201,10 @@ DATASET_CONFIGS = {
             "datasets/2D/hela/HeLa_DIC-C2DH_test/01",
             "datasets/2D/hela/HeLa_DIC-C2DH_test/02",
         ],
-        "learning_rate": 3e-4,
+        "learning_rate": 1e-2,
         "LATENT_DIM": 128,
+        "HIDDEN_DIM": 256,
+        "PREDICTOR_EPOCHS": 40,
         "REAL_TDA_SCALE": 15,
         "REAL_TDA_BINS": 25,
 
@@ -239,6 +244,7 @@ DATASET_CONFIGS = {
         # params for TDA-on-latents:
         "LATENT_TDA_WINDOW": 20,
         "LATENT_TDA_BINS": 16,
+        "LATENT_TDA_PREDICTOR_EPOCHS": 40,
     },}
 
 DATASET_CONFIGS["lorenz96"] = {
@@ -259,10 +265,10 @@ DATASET_CONFIGS["lorenz96"] = {
     "normalize": "none",
     "train_seed_offset": 0,
     "test_seed_offset": 50000,
-    "learning_rate": 3e-4,
+    "learning_rate": 1e-2,
     "LATENT_DIM": 64,
-    "HIDDEN_DIM": 96,
-    "PREDICTOR_EPOCHS": 10,
+    "HIDDEN_DIM": 128,
+    "PREDICTOR_EPOCHS": 40,
     "AE_FRAME_BATCH_SIZE": 256,
     "AE_MAX_FRAMES_PER_EPOCH": 8192,
     "REAL_TDA_SCALE": 5,
@@ -271,7 +277,7 @@ DATASET_CONFIGS["lorenz96"] = {
     "RUN_SEEDS": list(range(5)),
     "LATENT_TDA_WINDOW": 20,
     "LATENT_TDA_BINS": 16,
-    "LATENT_TDA_PREDICTOR_EPOCHS": 10,
+    "LATENT_TDA_PREDICTOR_EPOCHS": 40,
     "PIXEL_TDA_MODES": ["none", "h0", "h1", "both"],
     "PIXEL_TDA_PREDICTOR_EPOCHS": 10,
     "PIXEL_TDA_BATCH_SIZE": 32,
@@ -324,10 +330,10 @@ DATASET_CONFIGS["electric_devices"] = {
     "max_train_clips": 1024,
     "max_test_clips": 512,
     "subset_seed": 0,
-    "learning_rate": 3e-4,
+    "learning_rate": 5e-3,
     "LATENT_DIM": 64,
-    "HIDDEN_DIM": 96,
-    "PREDICTOR_EPOCHS": 10,
+    "HIDDEN_DIM": 256,
+    "PREDICTOR_EPOCHS": 40,
     "AE_FRAME_BATCH_SIZE": 256,
     "AE_MAX_FRAMES_PER_EPOCH": 8192,
     "REAL_TDA_SCALE": 5,
@@ -336,7 +342,7 @@ DATASET_CONFIGS["electric_devices"] = {
     "RUN_SEEDS": list(range(5)),
     "LATENT_TDA_WINDOW": 10,
     "LATENT_TDA_BINS": 16,
-    "LATENT_TDA_PREDICTOR_EPOCHS": 10,
+    "LATENT_TDA_PREDICTOR_EPOCHS": 40,
     "PIXEL_TDA_MODES": ["none", "h0", "h1", "both"],
     "PIXEL_TDA_PREDICTOR_EPOCHS": 10,
     "PIXEL_TDA_BATCH_SIZE": 32,
@@ -348,6 +354,7 @@ DATASET_CONFIGS["electric_devices"] = {
 DATASET_CONFIGS["bouncing_disks"] = {
     **DATASET_CONFIGS["bouncing_rings"],
     "shape": "disk",
+    "learning_rate": 5e-3,
     "cache_dir": "datasets/2D/bouncing_disks/processed",
 }
 
@@ -370,10 +377,10 @@ _ORBITING_BASE = {
     "normalize": "minmax",
     "train_seed_offset": 0,
     "test_seed_offset": 50000,
-    "learning_rate": 3e-4,
+    "learning_rate": 3e-3,
     "LATENT_DIM": 64,
-    "HIDDEN_DIM": 96,
-    "PREDICTOR_EPOCHS": 4,
+    "HIDDEN_DIM": 256,
+    "PREDICTOR_EPOCHS": 40,
     "AE_FRAME_BATCH_SIZE": 256,
     "AE_MAX_FRAMES_PER_EPOCH": 8192,
     "REAL_TDA_SCALE": 5,
@@ -382,7 +389,7 @@ _ORBITING_BASE = {
     "RUN_SEEDS": list(range(5)),
     "LATENT_TDA_WINDOW": 20,
     "LATENT_TDA_BINS": 16,
-    "LATENT_TDA_PREDICTOR_EPOCHS": 8,
+    "LATENT_TDA_PREDICTOR_EPOCHS": 40,
     "AUX_TDA_MODES": ["none", "aux_h0", "aux_h1", "aux_both"],
     "AUX_TDA_LAMBDA": 0.1,
     "AUX_TDA_PREDICTOR_EPOCHS": 4,

@@ -155,6 +155,7 @@ class RunConfig:
     profile_run: bool
     profile_sizes: list[int] | None
     profile_size: int | None
+    hparam_file: Path | None
     output_dir: Path
     no_save: bool
 
@@ -205,6 +206,35 @@ def _make_output_dir(base_dir: Path) -> Path:
         suffix += 1
     out_dir.mkdir(parents=True, exist_ok=False)
     return out_dir
+
+
+def _apply_tuned_hparams(cfg: RunConfig) -> RunConfig:
+    if cfg.hparam_file is None:
+        return cfg
+    if not cfg.hparam_file.exists():
+        raise FileNotFoundError(f"Hyperparameter file not found: {cfg.hparam_file}")
+    payload = json.loads(cfg.hparam_file.read_text())
+    params_by_dataset = payload.get("best_by_dataset", payload)
+    params = params_by_dataset.get(cfg.dataset)
+    if not params:
+        print(f"No tuned hyperparameters for dataset={cfg.dataset} in {cfg.hparam_file}; using config/defaults.")
+        return cfg
+    updates: dict[str, Any] = {}
+    if cfg.hidden_dim is None and "hidden_dim" in params:
+        updates["hidden_dim"] = int(params["hidden_dim"])
+    if cfg.predictor_epochs is None and "predictor_epochs" in params:
+        updates["predictor_epochs"] = int(params["predictor_epochs"])
+    if cfg.learning_rate is None and "learning_rate" in params:
+        updates["learning_rate"] = float(params["learning_rate"])
+    if not updates:
+        return cfg
+    tuned = replace(cfg, **updates)
+    print(
+        f"Using tuned hyperparameters for dataset={cfg.dataset}: "
+        f"hidden_dim={tuned.hidden_dim}, predictor_epochs={tuned.predictor_epochs}, "
+        f"learning_rate={tuned.learning_rate}"
+    )
+    return tuned
 
 
 def _json_default(value):
@@ -2858,6 +2888,12 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         default=None,
         help="Comma-separated clip caps for scaling runs, e.g. 16,32,64,128. Applies to num/latent train-test clip caps.",
     )
+    parser.add_argument(
+        "--hparam-file",
+        type=Path,
+        default=None,
+        help="JSON file from scripts/tune_latent_z_hparams.py. Dataset-specific params are used unless overridden on CLI.",
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("results/ml_persistence"))
     parser.add_argument("--no-save", action="store_true")
 
@@ -2917,6 +2953,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         profile_run=args.profile_run,
         profile_sizes=args.profile_sizes,
         profile_size=None,
+        hparam_file=args.hparam_file,
         output_dir=args.output_dir,
         no_save=args.no_save,
     )
@@ -3168,6 +3205,7 @@ def main(argv: list[str] | None = None) -> None:
                         latent_tda_max_train=profile_size if profile_size is not None else cfg.latent_tda_max_train,
                         latent_tda_max_test=profile_size if profile_size is not None else cfg.latent_tda_max_test,
                     )
+                    run_cfg = _apply_tuned_hparams(run_cfg)
                     results_df, summary_df, profile_df = _run_one_config(run_cfg)
                     tagged_results = _tag_run_frame(results_df, run_cfg)
                     tagged_summary = _tag_run_frame(summary_df, run_cfg, summary=True)
