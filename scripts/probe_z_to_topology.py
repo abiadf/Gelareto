@@ -499,9 +499,27 @@ def main() -> None:
         for dataset in datasets:
             for scenario in scenarios:
                 for seed in seeds:
+                    if not args.quiet:
+                        print(
+                            f"[probe] dataset={dataset} scenario={scenario} seed={seed} "
+                            f"model={args.model} target={args.target}",
+                            flush=True,
+                        )
                     row = _run_one(dataset, scenario, seed, args)
                     if row is not None:
                         rows.append(row)
+                        if not args.quiet:
+                            print(
+                                f"[probe] done dataset={dataset} scenario={scenario} seed={seed} "
+                                f"r2={row['r2_variance_weighted']:.4f}",
+                                flush=True,
+                            )
+                    elif not args.quiet:
+                        print(
+                            f"[probe] skipped dataset={dataset} scenario={scenario} seed={seed} "
+                            "(missing cached payload)",
+                            flush=True,
+                        )
         if not rows:
             raise SystemExit("No probe rows produced. Check cached latent-TDA payloads.")
         results = pd.DataFrame(rows)
