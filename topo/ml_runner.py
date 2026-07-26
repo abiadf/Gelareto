@@ -73,6 +73,7 @@ RUNNER_SCENARIOS = {
     "byol_latent_tda",
     "vjepa_latent_tda",
     "dinov2_latent_tda",
+    "dinov2_finetune_latent_tda",
     "simvp",
     "video3d_tda",
     "aux_tda",
@@ -149,6 +150,10 @@ class RunConfig:
     dinov2_repo: str
     dinov2_batch_size: int
     dinov2_image_size: int
+    dinov2_trainable_blocks: int
+    dinov2_finetune_epochs: int
+    dinov2_encoder_lr: float
+    dinov2_clip_batch_size: int
     simvp_input_frames: int
     video3d_tda_bins: int | None
     video3d_tda_scale: float | None
@@ -1847,7 +1852,62 @@ def _load_or_compute_dinov2_payload(
     return payload
 
 
-def run_dinov2_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _load_or_compute_dinov2_payload_from_model(
+    *,
+    namespace: str,
+    repo: str,
+    seed: int,
+    split_name: str,
+    video_tensor: torch.Tensor,
+    model: torch.nn.Module,
+    device: str,
+    batch_size: int,
+    image_size: int,
+    window: int,
+    bins: int,
+    recompute: bool,
+) -> dict[str, Any]:
+    cache_path = ml_tda_dinov2.dinov2_feature_cache_path(
+        namespace=namespace,
+        repo=repo,
+        seed=seed,
+        split_name=split_name,
+        video_tensor=video_tensor,
+        image_size=image_size,
+    )
+    if cache_path.exists() and not recompute:
+        print(f"Loading fine-tuned DINOv2 feature cache: {cache_path}")
+        try:
+            return torch.load(cache_path, map_location="cpu")
+        except Exception:
+            return torch.load(cache_path, map_location="cpu", weights_only=False)
+
+    print(f"Computing fine-tuned DINOv2 z + latent-window TDA for {split_name}...")
+    z = ml_tda_dinov2.encode_video_tensor_with_dinov2_model(
+        model,
+        video_tensor,
+        device=device,
+        batch_size=batch_size,
+        image_size=image_size,
+    )
+    h0, h1, diagrams = ml_tda_latent.latent_window_betti_features(
+        z,
+        window=window,
+        n_bins=bins,
+        return_diagrams=True,
+    )
+    payload = {"z": z, "h0": h0, "h1": h1, "diagrams": diagrams}
+    torch.save(payload, cache_path)
+    print(f"Saved fine-tuned DINOv2 feature cache: {cache_path}")
+    return payload
+
+
+def run_dinov2_latent_tda(
+    cfg: RunConfig,
+    context: VideoContext,
+    *,
+    fine_tune: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
         context.dataset_config.get(
@@ -1864,7 +1924,15 @@ def run_dinov2_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Dat
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     repo = str(cfg.dinov2_repo)
-    dinov2_namespace = f"{cfg.dataset}_dinov2_{repo.replace('/', '__')}"
+    scenario_name = "dinov2_finetune_latent_tda" if fine_tune else "dinov2_latent_tda"
+    if fine_tune:
+        lr_tag = f"{cfg.dinov2_encoder_lr:g}".replace(".", "p").replace("-", "m")
+        dinov2_namespace = (
+            f"{cfg.dataset}_dinov2_ft_{repo.replace('/', '__')}_"
+            f"blocks{cfg.dinov2_trainable_blocks}_epochs{cfg.dinov2_finetune_epochs}_elr{lr_tag}"
+        )
+    else:
+        dinov2_namespace = f"{cfg.dataset}_dinov2_{repo.replace('/', '__')}"
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
         True,
@@ -1873,44 +1941,92 @@ def run_dinov2_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Dat
     dinov2_device = selected_device.type if cfg.device == "auto" else cfg.device
 
     print(
-        f"dinov2_latent_tda config: dataset={cfg.dataset}, namespace={dinov2_namespace}, repo={repo}, "
+        f"{scenario_name} config: dataset={cfg.dataset}, namespace={dinov2_namespace}, repo={repo}, "
         f"seeds={seeds}, modes={modes}, image_size={cfg.dinov2_image_size}, "
         f"batch_size={cfg.dinov2_batch_size}, window={window}, bins={bins}, "
         f"predictor_epochs={latent_epochs}, lr={latent_lr}, horizon={context.horizon}"
     )
 
     rows = []
-    for seed in tqdm_progress_bar(seeds, desc="dinov2_latent_tda seeds", total=len(seeds), leave=True):
-        print(f"\n================ dinov2_latent_tda seed={seed} ================")
+    for seed in tqdm_progress_bar(seeds, desc=f"{scenario_name} seeds", total=len(seeds), leave=True):
+        print(f"\n================ {scenario_name} seed={seed} ================")
         _set_all_seeds(seed)
         x_train_subset = ml_tda_latent.take_batch_subset(context.x_train, max_train, seed=seed)
         x_test_subset = ml_tda_latent.take_batch_subset(context.x_test, max_test, seed=seed + 1)
-        train_payload = _load_or_compute_dinov2_payload(
-            namespace=dinov2_namespace,
-            repo=repo,
-            seed=seed,
-            split_name="train",
-            video_tensor=x_train_subset,
-            device=dinov2_device,
-            batch_size=cfg.dinov2_batch_size,
-            image_size=cfg.dinov2_image_size,
-            window=window,
-            bins=bins,
-            recompute=recompute_features,
-        )
-        test_payload = _load_or_compute_dinov2_payload(
-            namespace=dinov2_namespace,
-            repo=repo,
-            seed=seed,
-            split_name="test",
-            video_tensor=x_test_subset,
-            device=dinov2_device,
-            batch_size=cfg.dinov2_batch_size,
-            image_size=cfg.dinov2_image_size,
-            window=window,
-            bins=bins,
-            recompute=recompute_features,
-        )
+        if fine_tune:
+            dinov2_model, encoder_path = ml_tda_dinov2.load_or_finetune_dinov2_model(
+                x_train_subset,
+                namespace=dinov2_namespace,
+                repo=repo,
+                seed=seed,
+                device=dinov2_device,
+                batch_size=cfg.dinov2_batch_size,
+                image_size=cfg.dinov2_image_size,
+                trainable_blocks=cfg.dinov2_trainable_blocks,
+                epochs=cfg.dinov2_finetune_epochs,
+                encoder_lr=cfg.dinov2_encoder_lr,
+                predictor_lr=latent_lr,
+                hidden_dim=context.hidden_dim,
+                horizon=context.horizon,
+                clip_batch_size=cfg.dinov2_clip_batch_size,
+                retrain=cfg.retrain_encoder,
+            )
+            train_payload = _load_or_compute_dinov2_payload_from_model(
+                namespace=dinov2_namespace,
+                repo=repo,
+                seed=seed,
+                split_name="train",
+                video_tensor=x_train_subset,
+                model=dinov2_model,
+                device=dinov2_device,
+                batch_size=cfg.dinov2_batch_size,
+                image_size=cfg.dinov2_image_size,
+                window=window,
+                bins=bins,
+                recompute=recompute_features,
+            )
+            test_payload = _load_or_compute_dinov2_payload_from_model(
+                namespace=dinov2_namespace,
+                repo=repo,
+                seed=seed,
+                split_name="test",
+                video_tensor=x_test_subset,
+                model=dinov2_model,
+                device=dinov2_device,
+                batch_size=cfg.dinov2_batch_size,
+                image_size=cfg.dinov2_image_size,
+                window=window,
+                bins=bins,
+                recompute=recompute_features,
+            )
+        else:
+            encoder_path = ""
+            train_payload = _load_or_compute_dinov2_payload(
+                namespace=dinov2_namespace,
+                repo=repo,
+                seed=seed,
+                split_name="train",
+                video_tensor=x_train_subset,
+                device=dinov2_device,
+                batch_size=cfg.dinov2_batch_size,
+                image_size=cfg.dinov2_image_size,
+                window=window,
+                bins=bins,
+                recompute=recompute_features,
+            )
+            test_payload = _load_or_compute_dinov2_payload(
+                namespace=dinov2_namespace,
+                repo=repo,
+                seed=seed,
+                split_name="test",
+                video_tensor=x_test_subset,
+                device=dinov2_device,
+                batch_size=cfg.dinov2_batch_size,
+                image_size=cfg.dinov2_image_size,
+                window=window,
+                bins=bins,
+                recompute=recompute_features,
+            )
         dinov2_latent_dim = int(train_payload["z"].shape[-1])
         ml_tda.configure_runtime(
             DATASET=dinov2_namespace,
@@ -1937,7 +2053,7 @@ def run_dinov2_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Dat
         diagnostics = ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
 
         for mode in modes:
-            print(f"\n--- dinov2_latent_tda mode={mode} seed={seed} ---")
+            print(f"\n--- {scenario_name} mode={mode} seed={seed} ---")
             train_features, test_features = ml_tda_latent.features_for_latent_tda_mode_pair(
                 train_payload,
                 test_payload,
@@ -1957,11 +2073,13 @@ def run_dinov2_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Dat
                 "latent_r2": float(latent_r2),
                 "dinov2_repo": repo,
                 "dinov2_image_size": int(cfg.dinov2_image_size),
+                "dinov2_trainable_blocks": int(cfg.dinov2_trainable_blocks) if fine_tune else 0,
+                "encoder_path": str(encoder_path),
                 "latent_dim": dinov2_latent_dim,
                 **diagnostics,
             }
             rows.append(row)
-            print("dinov2_latent_tda summary:", row)
+            print(f"{scenario_name} summary:", row)
 
     results_df = pd.DataFrame(rows)
     summary_df = ml_tda.summarize_metric_runs(
@@ -1970,7 +2088,7 @@ def run_dinov2_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Dat
         metric_cols=["test_mse", "latent_r2"],
         sort_metric="test_mse",
     )
-    print("\ndinov2_latent_tda mean +/- std:")
+    print(f"\n{scenario_name} mean +/- std:")
     with pd.option_context("display.float_format", "{:.4f}".format):
         print(summary_df)
     return results_df, summary_df
@@ -3041,6 +3159,10 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     )
     parser.add_argument("--dinov2-batch-size", type=int, default=64, help="DINOv2 frame encoding batch size.")
     parser.add_argument("--dinov2-image-size", type=int, default=224, help="DINOv2 frame resize dimension.")
+    parser.add_argument("--dinov2-trainable-blocks", type=int, default=1, help="Number of final DINOv2 transformer blocks to fine-tune.")
+    parser.add_argument("--dinov2-finetune-epochs", type=int, default=3, help="DINOv2 last-block fine-tuning epochs.")
+    parser.add_argument("--dinov2-encoder-lr", type=float, default=3e-5, help="Learning rate for fine-tuned DINOv2 blocks.")
+    parser.add_argument("--dinov2-clip-batch-size", type=int, default=8, help="Clip batch size for DINOv2 fine-tuning.")
     parser.add_argument(
         "--simvp-input-frames",
         type=int,
@@ -3153,6 +3275,10 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         dinov2_repo=args.dinov2_repo,
         dinov2_batch_size=args.dinov2_batch_size,
         dinov2_image_size=args.dinov2_image_size,
+        dinov2_trainable_blocks=args.dinov2_trainable_blocks,
+        dinov2_finetune_epochs=args.dinov2_finetune_epochs,
+        dinov2_encoder_lr=args.dinov2_encoder_lr,
+        dinov2_clip_batch_size=args.dinov2_clip_batch_size,
         simvp_input_frames=args.simvp_input_frames,
         video3d_tda_bins=args.video3d_tda_bins,
         video3d_tda_scale=args.video3d_tda_scale,
@@ -3211,6 +3337,8 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
         return run_vjepa_latent_tda(cfg, context)
     if cfg.scenario == "dinov2_latent_tda":
         return run_dinov2_latent_tda(cfg, context)
+    if cfg.scenario == "dinov2_finetune_latent_tda":
+        return run_dinov2_latent_tda(cfg, context, fine_tune=True)
     if cfg.scenario == "simvp":
         return run_simvp(cfg, context)
     if cfg.scenario == "video3d_tda":

@@ -69,6 +69,14 @@ def make_base_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig
             str(args.dinov2_batch_size),
             "--dinov2-image-size",
             str(args.dinov2_image_size),
+            "--dinov2-trainable-blocks",
+            str(args.dinov2_trainable_blocks),
+            "--dinov2-finetune-epochs",
+            str(args.dinov2_finetune_epochs),
+            "--dinov2-encoder-lr",
+            str(args.dinov2_encoder_lr),
+            "--dinov2-clip-batch-size",
+            str(args.dinov2_clip_batch_size),
         ]
     )
     return replace(
@@ -85,6 +93,8 @@ def run_scenario(cfg: ml_runner.RunConfig, context: ml_runner.VideoContext):
         return ml_runner.run_latent_tda(cfg, context)
     if cfg.scenario == "dinov2_latent_tda":
         return ml_runner.run_dinov2_latent_tda(cfg, context)
+    if cfg.scenario == "dinov2_finetune_latent_tda":
+        return ml_runner.run_dinov2_latent_tda(cfg, context, fine_tune=True)
     if cfg.scenario == "vjepa_latent_tda":
         return ml_runner.run_vjepa_latent_tda(cfg, context)
     raise ValueError(f"Unsupported tuning scenario: {cfg.scenario}")
@@ -139,7 +149,7 @@ def main() -> None:
     parser.add_argument(
         "--scenario",
         default="latent_tda",
-        choices=["latent_tda", "dinov2_latent_tda", "vjepa_latent_tda"],
+        choices=["latent_tda", "dinov2_latent_tda", "dinov2_finetune_latent_tda", "vjepa_latent_tda"],
         help="Scenario to tune using z-only validation MSE.",
     )
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
@@ -153,6 +163,10 @@ def main() -> None:
     parser.add_argument("--dinov2-repo", default="facebook/dinov2-small")
     parser.add_argument("--dinov2-batch-size", type=int, default=64)
     parser.add_argument("--dinov2-image-size", type=int, default=224)
+    parser.add_argument("--dinov2-trainable-blocks", type=int, default=1)
+    parser.add_argument("--dinov2-finetune-epochs", type=int, default=3)
+    parser.add_argument("--dinov2-encoder-lr", type=float, default=3e-5)
+    parser.add_argument("--dinov2-clip-batch-size", type=int, default=8)
     parser.add_argument("--output-dir", type=Path, default=Path("results/hparam_search"))
     args = parser.parse_args()
 
