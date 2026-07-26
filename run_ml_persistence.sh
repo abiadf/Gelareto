@@ -28,7 +28,7 @@ set -euo pipefail
 # Modes:
 #   real_tda:   none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_real_tda/topo_real_tda: same as real_tda
-#   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_pca_h0,z_pca_h1,z_pca_both,z_kpca_h0,z_kpca_h1,z_kpca_both,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
+#   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_pca_h0,z_pca_h1,z_pca_both,z_kpca_h0,z_kpca_h1,z_kpca_both,z_laplacian_h1,z_diffusion_h1,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
 #   geo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda/vjepa_latent_tda: same as latent_tda
 #   simvp: frames, plus latent-TDA modes such as z,z_temporal_stats,z_fuse_h1,z_fuse_pi_h1
 #   video3d_tda: none,h0,h1,h2,h0_h1,h0_h2,h1_h2,all, plus *_zero,*_shuffle,*_noise,*_shift controls
@@ -64,7 +64,7 @@ args=(
   --scenario clip_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda dinov2_latent_tda dinov2_finetune_latent_tda clip_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
   --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
   --seeds 0,1,2                 # comma-separated seeds
-  --modes z,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
+  --modes z,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
   --horizon 5
   # --include-retrain-encoder       # not used by frozen CLIP/V-JEPA/DINO scenarios
   --ae-epochs 10                    # baseline AE pretraining epochs

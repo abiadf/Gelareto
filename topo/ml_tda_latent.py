@@ -477,6 +477,76 @@ def latent_window_kpca_eigenvalue_features(z, window=6, n_components=16, kernel=
     return torch.from_numpy(features).float()
 
 
+def _window_rbf_affinity(pts, gamma=None):
+    n, d = pts.shape
+    sq_norm = np.sum(pts * pts, axis=1, keepdims=True)
+    sqdist = np.maximum(sq_norm + sq_norm.T - 2.0 * (pts @ pts.T), 0.0)
+    if gamma is None:
+        positive = sqdist[sqdist > 1e-12]
+        sigma2 = float(np.median(positive)) if len(positive) else 1.0
+        gamma_value = 1.0 / max(2.0 * sigma2, 1e-6)
+    else:
+        gamma_value = float(gamma)
+    affinity = np.exp(-gamma_value * sqdist).astype(np.float32)
+    np.fill_diagonal(affinity, 0.0)
+    return affinity
+
+
+def latent_window_laplacian_eigenvalue_features(z, window=6, n_components=16, gamma=None):
+    """Smallest normalized graph-Laplacian eigenvalues of each latent trajectory window."""
+    T, B, _ = z.shape
+    n_components = int(n_components)
+    features = np.zeros((T, B, n_components), dtype=np.float32)
+    z_np = z.detach().cpu().numpy().astype(np.float32)
+
+    for t in range(T):
+        start = max(0, t - window + 1)
+        for b in range(B):
+            pts = z_np[start:t + 1, b, :]
+            if len(pts) < 2:
+                continue
+            pts = pts - pts.mean(axis=0, keepdims=True)
+            scale = pts.std(axis=0, keepdims=True).mean() + 1e-6
+            pts = pts / scale
+            affinity = _window_rbf_affinity(pts, gamma=gamma)
+            degree = affinity.sum(axis=1)
+            inv_sqrt_degree = 1.0 / np.sqrt(np.maximum(degree, 1e-6))
+            normalized_adj = affinity * inv_sqrt_degree[:, None] * inv_sqrt_degree[None, :]
+            laplacian = np.eye(len(pts), dtype=np.float32) - normalized_adj
+            eigvals = np.linalg.eigvalsh(laplacian).astype(np.float32)
+            eigvals = np.sort(np.maximum(eigvals, 0.0))
+            k = min(n_components, len(eigvals))
+            features[t, b, :k] = eigvals[:k]
+    return torch.from_numpy(features).float()
+
+
+def latent_window_diffusion_eigenvalue_features(z, window=6, n_components=16, gamma=None):
+    """Leading diffusion-map eigenvalues of each latent trajectory window."""
+    T, B, _ = z.shape
+    n_components = int(n_components)
+    features = np.zeros((T, B, n_components), dtype=np.float32)
+    z_np = z.detach().cpu().numpy().astype(np.float32)
+
+    for t in range(T):
+        start = max(0, t - window + 1)
+        for b in range(B):
+            pts = z_np[start:t + 1, b, :]
+            if len(pts) < 2:
+                continue
+            pts = pts - pts.mean(axis=0, keepdims=True)
+            scale = pts.std(axis=0, keepdims=True).mean() + 1e-6
+            pts = pts / scale
+            affinity = _window_rbf_affinity(pts, gamma=gamma)
+            degree = affinity.sum(axis=1)
+            inv_sqrt_degree = 1.0 / np.sqrt(np.maximum(degree, 1e-6))
+            symmetric_markov = affinity * inv_sqrt_degree[:, None] * inv_sqrt_degree[None, :]
+            eigvals = np.linalg.eigvalsh(symmetric_markov).astype(np.float32)
+            eigvals = np.sort(eigvals)[::-1]
+            k = min(n_components, len(eigvals))
+            features[t, b, :k] = eigvals[:k]
+    return torch.from_numpy(features).float()
+
+
 def _control_feature_dim_for_homology(homology):
     if homology in {"h0", "h1"}:
         return int(LATENT_TDA_BINS)
@@ -500,6 +570,14 @@ def _parse_latent_control_mode(base_mode):
             return "pca", homology
         if spec == f"kpca_{homology}":
             return "kpca", homology
+        if spec == f"laplacian_{homology}":
+            return "laplacian", homology
+        if spec == f"lap_{homology}":
+            return "laplacian", homology
+        if spec == f"diffusion_{homology}":
+            return "diffusion", homology
+        if spec == f"diffmap_{homology}":
+            return "diffusion", homology
     return None
 
 
@@ -519,11 +597,31 @@ def _kpca_tensor(payload, homology):
     )
 
 
+def _laplacian_tensor(payload, homology):
+    return latent_window_laplacian_eigenvalue_features(
+        payload["z"],
+        window=LATENT_TDA_WINDOW,
+        n_components=_control_feature_dim_for_homology(homology),
+    )
+
+
+def _diffusion_tensor(payload, homology):
+    return latent_window_diffusion_eigenvalue_features(
+        payload["z"],
+        window=LATENT_TDA_WINDOW,
+        n_components=_control_feature_dim_for_homology(homology),
+    )
+
+
 def _latent_control_tensor(payload, control_kind, homology):
     if control_kind == "pca":
         return _pca_tensor(payload, homology)
     if control_kind == "kpca":
         return _kpca_tensor(payload, homology)
+    if control_kind == "laplacian":
+        return _laplacian_tensor(payload, homology)
+    if control_kind == "diffusion":
+        return _diffusion_tensor(payload, homology)
     raise ValueError(f"Unknown latent control kind: {control_kind}")
 
 
