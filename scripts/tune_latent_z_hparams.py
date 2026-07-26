@@ -51,7 +51,7 @@ def make_base_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig
     cfg = ml_runner.parse_args(
         [
             "--scenario",
-            "latent_tda",
+            args.scenario,
             "--dataset",
             dataset,
             "--device",
@@ -63,6 +63,12 @@ def make_base_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig
             "--output-dir",
             str(args.output_dir / "_internal"),
             "--no-save",
+            "--dinov2-repo",
+            args.dinov2_repo,
+            "--dinov2-batch-size",
+            str(args.dinov2_batch_size),
+            "--dinov2-image-size",
+            str(args.dinov2_image_size),
         ]
     )
     return replace(
@@ -72,6 +78,16 @@ def make_base_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig
         latent_tda_max_train=None,
         latent_tda_max_test=None,
     )
+
+
+def run_scenario(cfg: ml_runner.RunConfig, context: ml_runner.VideoContext):
+    if cfg.scenario == "latent_tda":
+        return ml_runner.run_latent_tda(cfg, context)
+    if cfg.scenario == "dinov2_latent_tda":
+        return ml_runner.run_dinov2_latent_tda(cfg, context)
+    if cfg.scenario == "vjepa_latent_tda":
+        return ml_runner.run_vjepa_latent_tda(cfg, context)
+    raise ValueError(f"Unsupported tuning scenario: {cfg.scenario}")
 
 
 def run_one_dataset(dataset: str, args: argparse.Namespace) -> tuple[list[dict], dict]:
@@ -98,7 +114,7 @@ def run_one_dataset(dataset: str, args: argparse.Namespace) -> tuple[list[dict],
             hidden_dim=int(hidden_dim),
             predictor_epochs=int(epochs),
         )
-        result_df, summary_df = ml_runner.run_latent_tda(cfg, replace(context, hidden_dim=int(hidden_dim)))
+        result_df, summary_df = run_scenario(cfg, replace(context, hidden_dim=int(hidden_dim)))
         val_mse = float(result_df["test_mse"].mean())
         val_r2 = float(result_df["latent_r2"].mean())
         row = {
@@ -120,6 +136,12 @@ def run_one_dataset(dataset: str, args: argparse.Namespace) -> tuple[list[dict],
 def main() -> None:
     parser = argparse.ArgumentParser(description="Quick z-only latent predictor hyperparameter search.")
     parser.add_argument("--datasets", default=DEFAULT_DATASETS)
+    parser.add_argument(
+        "--scenario",
+        default="latent_tda",
+        choices=["latent_tda", "dinov2_latent_tda", "vjepa_latent_tda"],
+        help="Scenario to tune using z-only validation MSE.",
+    )
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
     parser.add_argument("--seeds", type=parse_csv_ints, default=[0])
     parser.add_argument("--learning-rates", type=parse_csv_floats, default=[1e-4, 3e-4, 1e-3])
@@ -128,6 +150,9 @@ def main() -> None:
     parser.add_argument("--val-fraction", type=float, default=0.2)
     parser.add_argument("--max-train-clips", type=int, default=128)
     parser.add_argument("--max-val-clips", type=int, default=64)
+    parser.add_argument("--dinov2-repo", default="facebook/dinov2-small")
+    parser.add_argument("--dinov2-batch-size", type=int, default=64)
+    parser.add_argument("--dinov2-image-size", type=int, default=224)
     parser.add_argument("--output-dir", type=Path, default=Path("results/hparam_search"))
     args = parser.parse_args()
 
@@ -161,6 +186,7 @@ def main() -> None:
             "selected dataset-level params for all feature modes and encoder scenarios."
         ),
         "grid": {
+            "scenario": args.scenario,
             "learning_rates": args.learning_rates,
             "hidden_dims": args.hidden_dims,
             "predictor_epochs": args.predictor_epochs,
