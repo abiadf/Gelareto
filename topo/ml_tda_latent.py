@@ -547,6 +547,36 @@ def latent_window_diffusion_eigenvalue_features(z, window=6, n_components=16, ga
     return torch.from_numpy(features).float()
 
 
+def latent_window_random_fourier_features(z, window=6, n_components=16, seed=0):
+    """Fixed RBF random Fourier features of standardized latent windows."""
+    T, B, D = z.shape
+    window = int(window)
+    n_components = int(n_components)
+    features = np.zeros((T, B, n_components), dtype=np.float32)
+    z_np = z.detach().cpu().numpy().astype(np.float32)
+    rng = np.random.default_rng(int(seed))
+    input_dim = window * D
+    frequencies = rng.normal(
+        loc=0.0,
+        scale=np.sqrt(2.0 / max(input_dim, 1)),
+        size=(input_dim, n_components),
+    ).astype(np.float32)
+    phases = rng.uniform(0.0, 2.0 * np.pi, size=n_components).astype(np.float32)
+    output_scale = np.sqrt(2.0 / max(n_components, 1))
+
+    for t in range(T):
+        start = max(0, t - window + 1)
+        for b in range(B):
+            pts = z_np[start:t + 1, b, :]
+            pts = pts - pts.mean(axis=0, keepdims=True)
+            scale = pts.std(axis=0, keepdims=True).mean() + 1e-6
+            pts = pts / scale
+            padded = np.zeros((window, D), dtype=np.float32)
+            padded[-len(pts):] = pts
+            features[t, b] = output_scale * np.cos(padded.reshape(-1) @ frequencies + phases)
+    return torch.from_numpy(features).float()
+
+
 def _control_feature_dim_for_homology(homology):
     if homology in {"h0", "h1"}:
         return int(LATENT_TDA_BINS)
@@ -578,6 +608,10 @@ def _parse_latent_control_mode(base_mode):
             return "diffusion", homology
         if spec == f"diffmap_{homology}":
             return "diffusion", homology
+        if spec == f"rff_{homology}":
+            return "rff", homology
+        if spec == f"random_fourier_{homology}":
+            return "rff", homology
     return None
 
 
@@ -613,7 +647,16 @@ def _diffusion_tensor(payload, homology):
     )
 
 
-def _latent_control_tensor(payload, control_kind, homology):
+def _random_fourier_tensor(payload, homology, seed=0):
+    return latent_window_random_fourier_features(
+        payload["z"],
+        window=LATENT_TDA_WINDOW,
+        n_components=_control_feature_dim_for_homology(homology),
+        seed=seed,
+    )
+
+
+def _latent_control_tensor(payload, control_kind, homology, seed=0):
     if control_kind == "pca":
         return _pca_tensor(payload, homology)
     if control_kind == "kpca":
@@ -622,6 +665,8 @@ def _latent_control_tensor(payload, control_kind, homology):
         return _laplacian_tensor(payload, homology)
     if control_kind == "diffusion":
         return _diffusion_tensor(payload, homology)
+    if control_kind == "rff":
+        return _random_fourier_tensor(payload, homology, seed=seed)
     raise ValueError(f"Unknown latent control kind: {control_kind}")
 
 
@@ -634,8 +679,10 @@ def _latent_control_tensor_pair(
     test_control_seed=10_000,
     control="real",
 ):
-    train_features = _latent_control_tensor(train_payload, control_kind, homology)
-    test_features = _latent_control_tensor(test_payload, control_kind, homology)
+    # A random-feature control must use one fixed map for both splits.
+    feature_seed = int(train_control_seed)
+    train_features = _latent_control_tensor(train_payload, control_kind, homology, seed=feature_seed)
+    test_features = _latent_control_tensor(test_payload, control_kind, homology, seed=feature_seed)
     train_features = ml_tda.apply_tda_control(train_features, control=control, seed=int(train_control_seed), shift=1)
     test_features = ml_tda.apply_tda_control(test_features, control=control, seed=int(test_control_seed), shift=1)
     return train_features, test_features
@@ -895,8 +942,8 @@ def features_for_latent_tda_mode(payload, mode):
     parsed_control = _parse_latent_control_mode(base_mode)
     if parsed_control is not None:
         control_kind, homology = parsed_control
-        tda = _latent_control_tensor(payload, control_kind, homology)
         control_seed = globals().get("CONTROL_SEED", 0)
+        tda = _latent_control_tensor(payload, control_kind, homology, seed=int(control_seed))
         tda = ml_tda.apply_tda_control(tda, control=control, seed=int(control_seed), shift=1)
         return torch.cat([z, tda], dim=-1)
 

@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-INPUT_PATH = Path("latex_tables/hyperparam_tuned.txt")
+INPUT_PATH = Path("latex_tables/final_final_main_results.txt")
+if not INPUT_PATH.exists():
+    INPUT_PATH = Path("latex_tables/hyperparam_tuned.txt")
 OUT_DIR = Path("latex_tables")
 
 DATASET_ORDER = [
@@ -47,6 +49,21 @@ FUSE_TOPO_MODES = {
     "z_fuse_pi_h1": "PI",
     "z_fuse_landscape_h1": "Landscape",
     "z_fuse_perslay_h1": "PersLay",
+}
+
+SPECTRAL_MODES = {
+    "z_laplacian_h1": "Laplacian",
+    "z_diffusion_h1": "Diffusion",
+    "z_fuse_laplacian_h1": "Fuse Laplacian",
+    "z_fuse_diffusion_h1": "Fuse Diffusion",
+}
+LAPLACIAN_MODES = {
+    "z_laplacian_h1": "Laplacian",
+    "z_fuse_laplacian_h1": "Fuse Laplacian",
+}
+DIFFUSION_MODES = {
+    "z_diffusion_h1": "Diffusion",
+    "z_fuse_diffusion_h1": "Fuse Diffusion",
 }
 
 DIRECT_TOPO_LABELS = {
@@ -149,7 +166,7 @@ def best(rows: list[Row]) -> Row | None:
 def is_topology_direct(mode: str) -> bool:
     if mode == "z" or mode.startswith("topo_") or mode.startswith("z_fuse_"):
         return False
-    if "pca" in mode or "kpca" in mode or "temporal" in mode or "corrupt" in mode:
+    if "pca" in mode or "kpca" in mode or "laplacian" in mode or "diffusion" in mode or "temporal" in mode or "corrupt" in mode:
         return False
     return mode.startswith(("z_h", "z_both", "z_pi_", "z_landscape_", "z_perslay_"))
 
@@ -171,9 +188,9 @@ def make_main_table(rows_by_key: dict[tuple[str, str, str], Row], rows: list[Row
         r"\caption{Main latent-forecasting results after selecting predictor hyperparameters on z-only validation MSE. Each dataset is evaluated with a standard AE, a geometry-regularized AE (GeoAE), and a topology-regularized AE (TopoAE). ``Direct'' denotes fixed topology descriptors appended to the latent state, while ``Fusion'' learns $z_{\mathrm{topo}}=\mathrm{MLP}([z,B])$ jointly with the predictor. Bold marks the best entry within each encoder row; $^\star$ marks the best result for the dataset. Lower MSE is better.}",
         r"\label{tab:main_latent_topology}",
         r"\resizebox{\textwidth}{!}{",
-        r"\begin{tabular}{llcccc}",
+        r"\begin{tabular}{llccc}",
         r"\toprule",
-        r"Dataset & Encoder & $z$ only & Topology only & Best direct $z+$topology & Best fusion \\",
+        r"Dataset & Encoder & $z$ only & Best direct $z+$topology & Best fusion \\",
         r"\midrule",
     ]
 
@@ -183,21 +200,19 @@ def make_main_table(rows_by_key: dict[tuple[str, str, str], Row], rows: list[Row
         for scenario in SCENARIO_ORDER:
             scenario_rows = [r for r in unique_rows if r.dataset == dataset and r.scenario == scenario]
             z_row = rows_by_key.get((dataset, scenario, "z"))
-            topo_only = best([r for r in scenario_rows if r.mode.startswith("topo_")])
             direct = best([r for r in scenario_rows if is_topology_direct(r.mode)])
             fusion = best([r for r in scenario_rows if r.mode in FUSE_TOPO_MODES])
-            payload = (ENCODER_LABELS[scenario], z_row, topo_only, direct, fusion)
+            payload = (ENCODER_LABELS[scenario], z_row, direct, fusion)
             row_payloads.append(payload)
-            dataset_candidates.extend([r for r in [z_row, topo_only, direct, fusion] if r is not None])
+            dataset_candidates.extend([r for r in [z_row, direct, fusion] if r is not None])
         dataset_best = best(dataset_candidates)
 
-        for enc_idx, (encoder, z_row, topo_only, direct, fusion) in enumerate(row_payloads):
-            row_entries = [r for r in [z_row, topo_only, direct, fusion] if r is not None]
+        for enc_idx, (encoder, z_row, direct, fusion) in enumerate(row_payloads):
+            row_entries = [r for r in [z_row, direct, fusion] if r is not None]
             row_best = best(row_entries)
             label = DATASET_LABELS[dataset] if enc_idx == 0 else ""
             cells = [
                 fmt(z_row, digits=4, bold=z_row == row_best, star=z_row == dataset_best),
-                fmt(topo_only, digits=4, bold=topo_only == row_best, star=topo_only == dataset_best),
                 fmt(direct, digits=4, bold=direct == row_best, star=direct == dataset_best),
                 fmt(fusion, digits=4, bold=fusion == row_best, star=fusion == dataset_best),
             ]
@@ -215,12 +230,12 @@ def make_pca_control(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
         r"\begin{table*}[t]",
         r"\centering",
         r"\small",
-        r"\caption{Linear and nonlinear latent-window controls after z-only hyperparameter selection. PCA and KPCA replace the persistence descriptor with features computed from the same latent-window point cloud. ``Best topology'' is the best persistence descriptor among the evaluated direct and fused topology variants. Lower MSE is better.}",
+        r"\caption{Latent-window geometric controls after z-only hyperparameter selection. PCA, KPCA, graph-Laplacian, and diffusion-map features replace the persistence descriptor with non-topological summaries computed from the same latent-window point cloud. ``Best topology'' is the best persistence descriptor among the evaluated direct and fused topology variants. Lower MSE is better.}",
         r"\label{tab:pca_control}",
         r"\resizebox{\textwidth}{!}{",
-        r"\begin{tabular}{llccccccc}",
+        r"\begin{tabular}{llcccccc}",
         r"\toprule",
-        r"Dataset & Encoder & $z$ & $z+$PCA & $z+$KPCA & Fuse $H_1$ & Fuse PCA & Fuse KPCA & Best topology \\",
+        r"Dataset & Encoder & $z$ & Fuse PCA & Fuse KPCA & Best spectral & Fuse $H_1$ & Best topology \\",
         r"\midrule",
     ]
 
@@ -230,6 +245,21 @@ def make_pca_control(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
             z = rows_by_key.get((dataset, scenario, "z"))
             z_pca = rows_by_key.get((dataset, scenario, "z_pca_h1"))
             z_kpca = rows_by_key.get((dataset, scenario, "z_kpca_h1"))
+            spectral_candidates = [
+                rows_by_key.get((dataset, scenario, mode))
+                for mode in SPECTRAL_MODES
+            ]
+            best_spectral = best([row for row in spectral_candidates if row is not None])
+            laplacian_candidates = [
+                rows_by_key.get((dataset, scenario, mode))
+                for mode in LAPLACIAN_MODES
+            ]
+            diffusion_candidates = [
+                rows_by_key.get((dataset, scenario, mode))
+                for mode in DIFFUSION_MODES
+            ]
+            best_laplacian = best([row for row in laplacian_candidates if row is not None])
+            best_diffusion = best([row for row in diffusion_candidates if row is not None])
             fuse_h1 = rows_by_key.get((dataset, scenario, "z_fuse_h1"))
             fuse_pca = rows_by_key.get((dataset, scenario, "z_fuse_pca_h1"))
             fuse_kpca = rows_by_key.get((dataset, scenario, "z_fuse_kpca_h1"))
@@ -238,17 +268,20 @@ def make_pca_control(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
             topo_candidates = [(mode, rows_by_key.get((dataset, scenario, mode))) for mode in topo_modes]
             topo_candidates = [(mode, row) for mode, row in topo_candidates if row is not None]
             best_mode, best_topo = min(topo_candidates, key=lambda item: item[1].mse_mean)
-            displayed = [r for r in [z, z_pca, z_kpca, fuse_h1, fuse_pca, fuse_kpca, best_topo] if r is not None]
+            displayed = [r for r in [z, z_pca, z_kpca, best_spectral, fuse_h1, fuse_pca, fuse_kpca, best_topo] if r is not None]
             row_best = best(displayed)
             label = DATASET_LABELS[dataset] if enc_idx == 0 else ""
             best_suffix = f"({topology_label(best_mode)})"
+            spectral_mode = next((mode for mode in SPECTRAL_MODES if rows_by_key.get((dataset, scenario, mode)) == best_spectral), None)
+            laplacian_mode = next((mode for mode in LAPLACIAN_MODES if rows_by_key.get((dataset, scenario, mode)) == best_laplacian), None)
+            diffusion_mode = next((mode for mode in DIFFUSION_MODES if rows_by_key.get((dataset, scenario, mode)) == best_diffusion), None)
+            spectral_suffix = f"({SPECTRAL_MODES[spectral_mode]})" if spectral_mode else ""
             cells = [
                 fmt(z, digits=4, bold=z == row_best),
-                fmt(z_pca, digits=4, bold=z_pca == row_best),
-                fmt(z_kpca, digits=4, bold=z_kpca == row_best),
-                fmt(fuse_h1, digits=4, bold=fuse_h1 == row_best),
                 fmt(fuse_pca, digits=4, bold=fuse_pca == row_best),
                 fmt(fuse_kpca, digits=4, bold=fuse_kpca == row_best),
+                fmt(best_spectral, digits=4, bold=best_spectral == row_best, suffix=spectral_suffix),
+                fmt(fuse_h1, digits=4, bold=fuse_h1 == row_best),
                 fmt(best_topo, digits=4, bold=best_topo == row_best, suffix=best_suffix),
             ]
             lines.append(f"{label} & {encoder} & " + " & ".join(cells) + r" \\")
@@ -264,6 +297,16 @@ def make_pca_control(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
                     "z_pca_std": z_pca.mse_std if z_pca else "",
                     "z_kpca_mean": z_kpca.mse_mean if z_kpca else "",
                     "z_kpca_std": z_kpca.mse_std if z_kpca else "",
+                    "best_spectral_mean": best_spectral.mse_mean if best_spectral else "",
+                    "best_spectral_std": best_spectral.mse_std if best_spectral else "",
+                    "best_spectral_mode": spectral_mode or "",
+                    "best_spectral_label": spectral_suffix.strip("()"),
+                    "best_laplacian_mean": best_laplacian.mse_mean if best_laplacian else "",
+                    "best_laplacian_std": best_laplacian.mse_std if best_laplacian else "",
+                    "best_laplacian_mode": laplacian_mode or "",
+                    "best_diffusion_mean": best_diffusion.mse_mean if best_diffusion else "",
+                    "best_diffusion_std": best_diffusion.mse_std if best_diffusion else "",
+                    "best_diffusion_mode": diffusion_mode or "",
                     "fuse_h1_mean": fuse_h1.mse_mean if fuse_h1 else "",
                     "fuse_h1_std": fuse_h1.mse_std if fuse_h1 else "",
                     "fuse_pca_mean": fuse_pca.mse_mean if fuse_pca else "",

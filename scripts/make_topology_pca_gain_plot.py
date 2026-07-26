@@ -49,8 +49,11 @@ def read_pca_control_table(path: Path) -> pd.DataFrame:
     df["z_only"] = df["z_mean"]
     df["best_pca"] = df[["z_pca_mean", "fuse_pca_mean"]].min(axis=1)
     df["best_kpca"] = df[["z_kpca_mean", "fuse_kpca_mean"]].min(axis=1)
+    df["best_spectral"] = pd.to_numeric(df["best_spectral_mean"], errors="coerce")
+    df["best_laplacian"] = pd.to_numeric(df["best_laplacian_mean"], errors="coerce")
+    df["best_diffusion"] = pd.to_numeric(df["best_diffusion_mean"], errors="coerce")
     df["best_topology"] = df[["fuse_h1_mean", "best_topo_mean"]].min(axis=1)
-    for col in ["z_only", "best_pca", "best_kpca", "best_topology"]:
+    for col in ["z_only", "best_pca", "best_kpca", "best_laplacian", "best_diffusion", "best_topology"]:
         df[f"{col}_gain"] = 100.0 * (df["z_only"] - df[col]) / df["z_only"]
     return df
 
@@ -64,8 +67,8 @@ def make_plot(df: pd.DataFrame) -> None:
     n_datasets = len(DATASET_ORDER)
     n_encoders = len(ENCODER_ORDER)
     section_gap = 0.45
-    encoder_gap = 0.74
-    bar_width = 0.23
+    encoder_gap = 0.78
+    bar_width = 0.26
 
     centers = []
     dataset_centers = []
@@ -78,28 +81,25 @@ def make_plot(df: pd.DataFrame) -> None:
         dataset_centers.append((start + x - encoder_gap) / 2.0)
         x += section_gap
 
-    fig, ax = plt.subplots(figsize=(13.6, 5.4))
+    fig, ax = plt.subplots(figsize=(13.0, 5.2))
     colors = {
-        "z_only_gain": "#9ca3af",
-        "best_pca_gain": "#4f46e5",
-        "best_kpca_gain": "#cc79a7",
+        "best_laplacian_gain": "#d97706",
+        "best_diffusion_gain": "#f59e0b",
         "best_topology_gain": "#059669",
     }
     labels = {
-        "z_only_gain": "_nolegend_",
-        "best_pca_gain": "Best PCA",
-        "best_kpca_gain": "Best KPCA",
+        "best_laplacian_gain": "Laplacian",
+        "best_diffusion_gain": "Diffusion",
         "best_topology_gain": "Best Topology",
     }
     offsets = {
-        "z_only_gain": -1.5 * bar_width,
-        "best_pca_gain": -0.5 * bar_width,
-        "best_kpca_gain": 0.5 * bar_width,
-        "best_topology_gain": 1.5 * bar_width,
+        "best_laplacian_gain": -1.0 * bar_width,
+        "best_diffusion_gain": 0.0 * bar_width,
+        "best_topology_gain": 1.0 * bar_width,
     }
 
     row_lookup = {(row.dataset, row.encoder): row for row in df.itertuples(index=False)}
-    for metric in ["z_only_gain", "best_pca_gain", "best_kpca_gain", "best_topology_gain"]:
+    for metric in ["best_laplacian_gain", "best_diffusion_gain", "best_topology_gain"]:
         values = []
         for dataset in DATASET_ORDER:
             for encoder in ENCODER_ORDER:
@@ -123,9 +123,9 @@ def make_plot(df: pd.DataFrame) -> None:
     ax.tick_params(axis="y", labelsize=12)
 
     ymin, ymax = ax.get_ylim()
-    top_pad = 0.12 * (ymax - ymin)
-    ax.set_ylim(ymin, ymax + top_pad)
-    label_y = ymax + 0.04 * (ymax - ymin)
+    y_top = ymax + 0.16 * (ymax - ymin)
+    ax.set_ylim(ymin, y_top)
+    label_y = ymax + 0.05 * (ymax - ymin)
     for center, dataset in zip(dataset_centers, DATASET_ORDER):
         ax.text(center, label_y, dataset, ha="center", va="bottom", fontsize=11)
 
@@ -133,7 +133,7 @@ def make_plot(df: pd.DataFrame) -> None:
         boundary = (centers[boundary_idx * n_encoders - 1] + centers[boundary_idx * n_encoders]) / 2.0
         ax.axvline(boundary, color="#d1d5db", linewidth=0.7, zorder=0)
 
-    ax.legend(ncol=4, frameon=False, loc="upper center", bbox_to_anchor=(0.5, 1.13), fontsize=13)
+    ax.legend(ncol=3, frameon=False, loc="upper center", bbox_to_anchor=(0.5, 1.13), fontsize=13)
     ax.grid(axis="y", color="#e5e7eb", linewidth=0.7)
     ax.set_axisbelow(True)
     fig.subplots_adjust(bottom=0.18, top=0.82, left=0.07, right=0.995)
