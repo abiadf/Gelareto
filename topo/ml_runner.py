@@ -42,6 +42,7 @@ import topo.ml_tda_topoae as ml_tda_topoae
 import topo.ml_tda_repr as ml_tda_repr
 import topo.ml_tda_vjepa as ml_tda_vjepa
 import topo.ml_tda_dinov2 as ml_tda_dinov2
+import topo.ml_tda_clip as ml_tda_clip
 import topo.ml_tda_simvp as ml_tda_simvp
 import topo.persistence_3d as persistence_3d
 from topo.utils import tqdm_progress_bar
@@ -74,6 +75,7 @@ RUNNER_SCENARIOS = {
     "vjepa_latent_tda",
     "dinov2_latent_tda",
     "dinov2_finetune_latent_tda",
+    "clip_latent_tda",
     "simvp",
     "video3d_tda",
     "aux_tda",
@@ -154,6 +156,9 @@ class RunConfig:
     dinov2_finetune_epochs: int
     dinov2_encoder_lr: float
     dinov2_clip_batch_size: int
+    clip_repo: str
+    clip_batch_size: int
+    clip_image_size: int
     simvp_input_frames: int
     video3d_tda_bins: int | None
     video3d_tda_scale: float | None
@@ -2094,6 +2099,184 @@ def run_dinov2_latent_tda(
     return results_df, summary_df
 
 
+def _load_or_compute_clip_payload(
+    *,
+    namespace: str,
+    repo: str,
+    seed: int,
+    split_name: str,
+    video_tensor: torch.Tensor,
+    device: str,
+    batch_size: int,
+    image_size: int,
+    window: int,
+    bins: int,
+    recompute: bool,
+) -> dict[str, Any]:
+    cache_path = ml_tda_clip.clip_feature_cache_path(
+        namespace=namespace,
+        repo=repo,
+        seed=seed,
+        split_name=split_name,
+        video_tensor=video_tensor,
+        image_size=image_size,
+    )
+    if cache_path.exists() and not recompute:
+        print(f"Loading CLIP feature cache: {cache_path}")
+        try:
+            return torch.load(cache_path, map_location="cpu")
+        except Exception:
+            return torch.load(cache_path, map_location="cpu", weights_only=False)
+
+    print(f"Computing CLIP z + latent-window TDA for {split_name}...")
+    z = ml_tda_clip.encode_video_tensor_with_clip(
+        video_tensor,
+        repo=repo,
+        device=device,
+        batch_size=batch_size,
+        image_size=image_size,
+    )
+    h0, h1, diagrams = ml_tda_latent.latent_window_betti_features(
+        z,
+        window=window,
+        n_bins=bins,
+        return_diagrams=True,
+    )
+    payload = {"z": z, "h0": h0, "h1": h1, "diagrams": diagrams}
+    torch.save(payload, cache_path)
+    print(f"Saved CLIP feature cache: {cache_path}")
+    return payload
+
+
+def run_clip_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get(
+            "LATENT_TDA_MODES",
+            ["z", "z_fuse_h1", "z_fuse_pi_h1", "z_fuse_perslay_h1"],
+        ),
+    )
+    modes = ml_tda_latent.canonicalize_latent_tda_modes(modes)
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
+    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
+    max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
+    repo = str(cfg.clip_repo)
+    clip_namespace = f"{cfg.dataset}_clip_{repo.replace('/', '__')}"
+    recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
+        "RECOMPUTE_LATENT_TDA_FEATURES",
+        True,
+    )
+    selected_device = _select_device(cfg.device)
+    clip_device = selected_device.type if cfg.device == "auto" else cfg.device
+
+    print(
+        f"clip_latent_tda config: dataset={cfg.dataset}, namespace={clip_namespace}, repo={repo}, "
+        f"seeds={seeds}, modes={modes}, image_size={cfg.clip_image_size}, "
+        f"batch_size={cfg.clip_batch_size}, window={window}, bins={bins}, "
+        f"predictor_epochs={latent_epochs}, lr={latent_lr}, horizon={context.horizon}"
+    )
+
+    rows = []
+    for seed in tqdm_progress_bar(seeds, desc="clip_latent_tda seeds", total=len(seeds), leave=True):
+        print(f"\n================ clip_latent_tda seed={seed} ================")
+        _set_all_seeds(seed)
+        x_train_subset = ml_tda_latent.take_batch_subset(context.x_train, max_train, seed=seed)
+        x_test_subset = ml_tda_latent.take_batch_subset(context.x_test, max_test, seed=seed + 1)
+        train_payload = _load_or_compute_clip_payload(
+            namespace=clip_namespace,
+            repo=repo,
+            seed=seed,
+            split_name="train",
+            video_tensor=x_train_subset,
+            device=clip_device,
+            batch_size=cfg.clip_batch_size,
+            image_size=cfg.clip_image_size,
+            window=window,
+            bins=bins,
+            recompute=recompute_features,
+        )
+        test_payload = _load_or_compute_clip_payload(
+            namespace=clip_namespace,
+            repo=repo,
+            seed=seed,
+            split_name="test",
+            video_tensor=x_test_subset,
+            device=clip_device,
+            batch_size=cfg.clip_batch_size,
+            image_size=cfg.clip_image_size,
+            window=window,
+            bins=bins,
+            recompute=recompute_features,
+        )
+        clip_latent_dim = int(train_payload["z"].shape[-1])
+        ml_tda.configure_runtime(
+            DATASET=clip_namespace,
+            LATENT_DIM=clip_latent_dim,
+            REAL_TDA_SCALE=context.real_tda_scale,
+            REAL_TDA_BINS=context.real_tda_bins,
+            HORIZON=context.horizon,
+            DEVICE=selected_device,
+            PREDICTOR_TYPE=cfg.predictor_type,
+        )
+        ml_tda_latent.configure_runtime(
+            DATASET=clip_namespace,
+            LATENT_DIM=clip_latent_dim,
+            HIDDEN_DIM=context.hidden_dim,
+            RETRAIN_ENCODER=False,
+            HORIZON=context.horizon,
+            LATENT_TDA_WINDOW=window,
+            LATENT_TDA_BINS=bins,
+            LATENT_TDA_PREDICTOR_EPOCHS=latent_epochs,
+            LATENT_TDA_LR=latent_lr,
+            RETRAIN_LATENT_TDA_PREDICTOR=cfg.retrain_predictor,
+            RECOMPUTE_LATENT_TDA_FEATURES=recompute_features,
+        )
+        diagnostics = ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
+
+        for mode in modes:
+            print(f"\n--- clip_latent_tda mode={mode} seed={seed} ---")
+            train_features, test_features = ml_tda_latent.features_for_latent_tda_mode_pair(
+                train_payload,
+                test_payload,
+                mode,
+                train_control_seed=seed,
+                test_control_seed=seed + 10_000,
+            )
+            model = ml_tda_latent.train_or_load_latent_tda_predictor(seed, mode, train_features, train_payload["z"])
+            test_mse, _, latent_r2 = ml_tda_latent.eval_latent_tda_predictor(model, test_features, test_payload["z"])
+            row = {
+                "dataset": cfg.dataset,
+                "encoder": "clip",
+                "seed": seed,
+                "mode": mode,
+                "horizon": context.horizon,
+                "test_mse": float(test_mse),
+                "latent_r2": float(latent_r2),
+                "clip_repo": repo,
+                "clip_image_size": int(cfg.clip_image_size),
+                "latent_dim": clip_latent_dim,
+                **diagnostics,
+            }
+            rows.append(row)
+            print("clip_latent_tda summary:", row)
+
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols="mode",
+        metric_cols=["test_mse", "latent_r2"],
+        sort_metric="test_mse",
+    )
+    print("\nclip_latent_tda mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
 def _load_or_compute_vjepa_payload(
     *,
     namespace: str,
@@ -3164,6 +3347,13 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument("--dinov2-encoder-lr", type=float, default=3e-5, help="Learning rate for fine-tuned DINOv2 blocks.")
     parser.add_argument("--dinov2-clip-batch-size", type=int, default=8, help="Clip batch size for DINOv2 fine-tuning.")
     parser.add_argument(
+        "--clip-repo",
+        default=ml_tda_clip.DEFAULT_CLIP_REPO,
+        help="Hugging Face repo for clip_latent_tda.",
+    )
+    parser.add_argument("--clip-batch-size", type=int, default=64, help="CLIP frame encoding batch size.")
+    parser.add_argument("--clip-image-size", type=int, default=224, help="CLIP frame resize dimension.")
+    parser.add_argument(
         "--simvp-input-frames",
         type=int,
         default=5,
@@ -3279,6 +3469,9 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         dinov2_finetune_epochs=args.dinov2_finetune_epochs,
         dinov2_encoder_lr=args.dinov2_encoder_lr,
         dinov2_clip_batch_size=args.dinov2_clip_batch_size,
+        clip_repo=args.clip_repo,
+        clip_batch_size=args.clip_batch_size,
+        clip_image_size=args.clip_image_size,
         simvp_input_frames=args.simvp_input_frames,
         video3d_tda_bins=args.video3d_tda_bins,
         video3d_tda_scale=args.video3d_tda_scale,
@@ -3339,6 +3532,8 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
         return run_dinov2_latent_tda(cfg, context)
     if cfg.scenario == "dinov2_finetune_latent_tda":
         return run_dinov2_latent_tda(cfg, context, fine_tune=True)
+    if cfg.scenario == "clip_latent_tda":
+        return run_clip_latent_tda(cfg, context)
     if cfg.scenario == "simvp":
         return run_simvp(cfg, context)
     if cfg.scenario == "video3d_tda":

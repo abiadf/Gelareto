@@ -77,6 +77,12 @@ def make_base_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig
             str(args.dinov2_encoder_lr),
             "--dinov2-clip-batch-size",
             str(args.dinov2_clip_batch_size),
+            "--clip-repo",
+            args.clip_repo,
+            "--clip-batch-size",
+            str(args.clip_batch_size),
+            "--clip-image-size",
+            str(args.clip_image_size),
         ]
     )
     return replace(
@@ -97,6 +103,8 @@ def run_scenario(cfg: ml_runner.RunConfig, context: ml_runner.VideoContext):
         return ml_runner.run_dinov2_latent_tda(cfg, context, fine_tune=True)
     if cfg.scenario == "vjepa_latent_tda":
         return ml_runner.run_vjepa_latent_tda(cfg, context)
+    if cfg.scenario == "clip_latent_tda":
+        return ml_runner.run_clip_latent_tda(cfg, context)
     raise ValueError(f"Unsupported tuning scenario: {cfg.scenario}")
 
 
@@ -149,7 +157,7 @@ def main() -> None:
     parser.add_argument(
         "--scenario",
         default="latent_tda",
-        choices=["latent_tda", "dinov2_latent_tda", "dinov2_finetune_latent_tda", "vjepa_latent_tda"],
+        choices=["latent_tda", "dinov2_latent_tda", "dinov2_finetune_latent_tda", "vjepa_latent_tda", "clip_latent_tda"],
         help="Scenario to tune using z-only validation MSE.",
     )
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
@@ -167,6 +175,9 @@ def main() -> None:
     parser.add_argument("--dinov2-finetune-epochs", type=int, default=3)
     parser.add_argument("--dinov2-encoder-lr", type=float, default=3e-5)
     parser.add_argument("--dinov2-clip-batch-size", type=int, default=8)
+    parser.add_argument("--clip-repo", default="openai/clip-vit-base-patch32")
+    parser.add_argument("--clip-batch-size", type=int, default=64)
+    parser.add_argument("--clip-image-size", type=int, default=224)
     parser.add_argument("--output-dir", type=Path, default=Path("results/hparam_search"))
     args = parser.parse_args()
 

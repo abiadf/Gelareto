@@ -12,6 +12,7 @@ set -euo pipefail
 # vae_latent_tda: VAE encoder z-history + optional latent-trajectory TDA -> future z
 # byol_latent_tda: BYOL-style encoder z-history + optional latent-trajectory TDA -> future z
 # vjepa_latent_tda: frozen V-JEPA video embeddings + optional latent-trajectory TDA -> future V-JEPA embedding
+# clip_latent_tda: frozen CLIP frame embeddings + optional latent-trajectory TDA -> future CLIP embedding
 # simvp: SimVP-style pixel predictor; frames is the standard pixel baseline, z_* modes add AE latent/TDA conditioning
 # video3d_tda: AE z-history + streaming 3D cubical H0/H1/H2 features from growing frame volumes -> future X
 # decode_z: AE z-history -> future z -> decoded future X
@@ -22,7 +23,7 @@ set -euo pipefail
 # topo_pixel_tda: topoAE z-history + optional frame TDA -> future X
 # aux_tda: AE z-history -> future z, with optional auxiliary Betti prediction head/loss
 # geo_* models use the old pairwise-distance geometry proxy; topo_* models use H0 persistence-signature AE.
-# VAE/BYOL/V-JEPA are representation baselines for latent_tda; SimVP/video3d_tda are pixel-space video prediction baselines.
+# VAE/BYOL/V-JEPA/CLIP are representation baselines for latent_tda; SimVP/video3d_tda are pixel-space video prediction baselines.
 
 # Modes:
 #   real_tda:   none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
@@ -60,12 +61,12 @@ set -euo pipefail
 #   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
-  --scenario latent_tda,geo_latent_tda,topo_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
-  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks #,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
-  --seeds 0,1,2,3,4                 # comma-separated seeds
-  --modes z,z_pca_h1,z_kpca_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 #z,z_pca_h1,z_kpca_h1,z_fuse_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_perslay_h1 #,h2_shuffle,h2_noise,h2_zero #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1 #z,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,topo_h1,topo_pi_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
+  --scenario clip_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda dinov2_latent_tda dinov2_finetune_latent_tda clip_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
+  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
+  --seeds 0,1,2                 # comma-separated seeds
+  --modes z,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
   --horizon 5
-  --include-retrain-encoder       # train encoder once per seed, freeze it, then run all modes fairly
+  # --include-retrain-encoder       # not used by frozen CLIP/V-JEPA/DINO scenarios
   --ae-epochs 10                    # baseline AE pretraining epochs
   --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
   # --hparam-file results/hparam_search/latent_z_best_hparams.json
@@ -86,6 +87,9 @@ args=(
   # --vjepa-repo facebook/vjepa2-vitl-fpc64-256 # vjepa_latent_tda: Hugging Face checkpoint
   # --vjepa-batch-size 1             # vjepa_latent_tda: lower this if GPU memory is tight
   # --vjepa-num-frames 16            # vjepa_latent_tda: frames per context window ending at each time step
+  --clip-repo openai/clip-vit-base-patch32 # clip_latent_tda: lightweight frozen CLIP frame encoder
+  --clip-batch-size 64
+  --clip-image-size 224
   # --simvp-input-frames 5           # simvp: past frames used to predict the horizon frame
   # --video3d-tda-bins 16            # video3d_tda: bins per H0/H1/H2 Betti curve
   # --video3d-tda-scale 15           # video3d_tda: normalizes Betti counts before concatenation
