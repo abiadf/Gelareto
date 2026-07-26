@@ -18,5 +18,7 @@ uv run python -m topo.ml_runner \
   --latent-tda-bins 16 \
   --profile-run \
   --profile-sizes 128 \
+  --profile-warmup-runs 1 \
+  --profile-repeats 3 \
   --reuse-predictor \
   "$@" | tee latex_tables/profiling.txt

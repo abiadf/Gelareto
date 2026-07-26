@@ -155,6 +155,10 @@ class RunConfig:
     profile_run: bool
     profile_sizes: list[int] | None
     profile_size: int | None
+    profile_warmup_runs: int
+    profile_repeats: int
+    profile_repeat: int | None
+    profile_is_warmup: bool
     hparam_file: Path | None
     output_dir: Path
     no_save: bool
@@ -450,6 +454,8 @@ class RunProfiler:
             "scenario": cfg.scenario,
             "mode": mode_label,
             "profile_size": cfg.profile_size if cfg.profile_size is not None else np.nan,
+            "profile_repeat": cfg.profile_repeat if cfg.profile_repeat is not None else np.nan,
+            "profile_is_warmup": bool(cfg.profile_is_warmup),
             "wall_time_sec": float(self.wall_time_sec),
             "peak_cpu_rss_mb": float(self.peak_cpu_rss_mb),
             "peak_accelerator_mem_mb": float(self.peak_accelerator_mem_mb),
@@ -2889,6 +2895,18 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         help="Comma-separated clip caps for scaling runs, e.g. 16,32,64,128. Applies to num/latent train-test clip caps.",
     )
     parser.add_argument(
+        "--profile-warmup-runs",
+        type=int,
+        default=0,
+        help="Number of profiling warmup runs to execute and discard for each dataset/scenario/mode/size.",
+    )
+    parser.add_argument(
+        "--profile-repeats",
+        type=int,
+        default=1,
+        help="Number of measured profiling repeats for each dataset/scenario/mode/size.",
+    )
+    parser.add_argument(
         "--hparam-file",
         type=Path,
         default=None,
@@ -2953,6 +2971,10 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         profile_run=args.profile_run,
         profile_sizes=args.profile_sizes,
         profile_size=None,
+        profile_warmup_runs=max(0, int(args.profile_warmup_runs)),
+        profile_repeats=max(1, int(args.profile_repeats)),
+        profile_repeat=None,
+        profile_is_warmup=False,
         hparam_file=args.hparam_file,
         output_dir=args.output_dir,
         no_save=args.no_save,
@@ -3150,9 +3172,10 @@ def _add_profile_overhead(df: pd.DataFrame) -> pd.DataFrame:
     prof = df.copy()
     prof["profile_baseline_mode"] = None
     prof["overhead_vs_baseline"] = np.nan
+    prof["added_time_vs_baseline_sec"] = np.nan
     group_cols = [
         col
-        for col in ["dataset", "scenario", "profile_size", "n_train_clips", "n_test_clips", "sequence_len"]
+        for col in ["dataset", "scenario", "profile_size", "profile_repeat", "n_train_clips", "n_test_clips", "sequence_len"]
         if col in prof.columns
     ]
     for _, idx in prof.groupby(group_cols, sort=False, dropna=False).groups.items():
@@ -3169,6 +3192,7 @@ def _add_profile_overhead(df: pd.DataFrame) -> pd.DataFrame:
             continue
         prof.loc[idx, "profile_baseline_mode"] = baseline_mode
         prof.loc[idx, "overhead_vs_baseline"] = prof.loc[idx, "wall_time_sec"] / baseline_time
+        prof.loc[idx, "added_time_vs_baseline_sec"] = prof.loc[idx, "wall_time_sec"] - baseline_time
     return prof
 
 
@@ -3181,7 +3205,8 @@ def main(argv: list[str] | None = None) -> None:
     _validate_requested_items(scenarios, RUNNER_SCENARIOS, "scenario")
     _validate_requested_items(datasets, set(topo_config.DATASET_CONFIGS), "dataset")
 
-    total = len(scenarios) * len(datasets) * len(profile_sizes) * len(profile_modes)
+    repeats_per_config = (cfg.profile_warmup_runs + cfg.profile_repeats) if cfg.profile_run else 1
+    total = len(scenarios) * len(datasets) * len(profile_sizes) * len(profile_modes) * repeats_per_config
     run_idx = 0
     result_frames = []
     summary_frames = []
@@ -3190,33 +3215,51 @@ def main(argv: list[str] | None = None) -> None:
         for scenario in scenarios:
             for profile_size in profile_sizes:
                 for profile_mode in profile_modes:
-                    run_idx += 1
-                    size_text = "" if profile_size is None else f" profile_size={profile_size}"
-                    mode_text = "" if profile_mode is None else f" mode={profile_mode}"
-                    print(f"\n######## run {run_idx}/{total}: dataset={dataset} scenario={scenario}{size_text}{mode_text} ########")
-                    run_cfg = replace(
-                        cfg,
-                        dataset=dataset,
-                        scenario=scenario,
-                        modes=[profile_mode] if profile_mode is not None else cfg.modes,
-                        profile_size=profile_size,
-                        num_train_clips=profile_size if profile_size is not None else cfg.num_train_clips,
-                        num_test_clips=profile_size if profile_size is not None else cfg.num_test_clips,
-                        latent_tda_max_train=profile_size if profile_size is not None else cfg.latent_tda_max_train,
-                        latent_tda_max_test=profile_size if profile_size is not None else cfg.latent_tda_max_test,
+                    repeat_labels = (
+                        [("warmup", i + 1, True) for i in range(cfg.profile_warmup_runs)]
+                        + [("repeat", i + 1, False) for i in range(cfg.profile_repeats)]
+                        if cfg.profile_run
+                        else [("run", None, False)]
                     )
-                    run_cfg = _apply_tuned_hparams(run_cfg)
-                    results_df, summary_df, profile_df = _run_one_config(run_cfg)
-                    tagged_results = _tag_run_frame(results_df, run_cfg)
-                    tagged_summary = _tag_run_frame(summary_df, run_cfg, summary=True)
-                    tagged_profile = _tag_run_frame(profile_df, run_cfg)
-                    if tagged_results is not None and not tagged_results.empty:
-                        result_frames.append(tagged_results)
-                    if tagged_summary is not None and not tagged_summary.empty:
-                        summary_frames.append(tagged_summary)
-                    if tagged_profile is not None and not tagged_profile.empty:
-                        profile_frames.append(tagged_profile)
-                    print("=" * 88)
+                    for repeat_label, repeat_idx, is_warmup in repeat_labels:
+                        run_idx += 1
+                        size_text = "" if profile_size is None else f" profile_size={profile_size}"
+                        mode_text = "" if profile_mode is None else f" mode={profile_mode}"
+                        repeat_text = "" if repeat_idx is None else f" {repeat_label}={repeat_idx}"
+                        print(
+                            f"\n######## run {run_idx}/{total}: dataset={dataset} scenario={scenario}"
+                            f"{size_text}{mode_text}{repeat_text} ########"
+                        )
+                        run_cfg = replace(
+                            cfg,
+                            dataset=dataset,
+                            scenario=scenario,
+                            modes=[profile_mode] if profile_mode is not None else cfg.modes,
+                            profile_size=profile_size,
+                            profile_repeat=repeat_idx if cfg.profile_run else None,
+                            profile_is_warmup=is_warmup,
+                            no_save=cfg.no_save or is_warmup,
+                            num_train_clips=profile_size if profile_size is not None else cfg.num_train_clips,
+                            num_test_clips=profile_size if profile_size is not None else cfg.num_test_clips,
+                            latent_tda_max_train=profile_size if profile_size is not None else cfg.latent_tda_max_train,
+                            latent_tda_max_test=profile_size if profile_size is not None else cfg.latent_tda_max_test,
+                        )
+                        run_cfg = _apply_tuned_hparams(run_cfg)
+                        results_df, summary_df, profile_df = _run_one_config(run_cfg)
+                        if is_warmup:
+                            print("Discarded profiling warmup run.")
+                            print("=" * 88)
+                            continue
+                        tagged_results = _tag_run_frame(results_df, run_cfg)
+                        tagged_summary = _tag_run_frame(summary_df, run_cfg, summary=True)
+                        tagged_profile = _tag_run_frame(profile_df, run_cfg)
+                        if tagged_results is not None and not tagged_results.empty:
+                            result_frames.append(tagged_results)
+                        if tagged_summary is not None and not tagged_summary.empty:
+                            summary_frames.append(tagged_summary)
+                        if tagged_profile is not None and not tagged_profile.empty:
+                            profile_frames.append(tagged_profile)
+                        print("=" * 88)
 
     _print_aggregate_tables(result_frames, summary_frames, profile_frames)
 

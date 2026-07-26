@@ -14,6 +14,8 @@ COLUMNS = [
     "scenario",
     "mode",
     "profile_size",
+    "profile_repeat",
+    "profile_is_warmup",
     "wall_time_sec",
     "peak_cpu_rss_mb",
     "peak_accelerator_mem_mb",
@@ -43,6 +45,7 @@ COLUMNS = [
     "device",
     "profile_baseline_mode",
     "overhead_vs_baseline",
+    "added_time_vs_baseline_sec",
 ]
 
 ENCODER_LABELS = {
@@ -136,6 +139,7 @@ def read_profile(path: Path) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=COLUMNS)
     numeric_cols = [
         "profile_size",
+        "profile_repeat",
         "wall_time_sec",
         "peak_cpu_rss_mb",
         "peak_accelerator_mem_mb",
@@ -147,6 +151,7 @@ def read_profile(path: Path) -> pd.DataFrame:
         "fusion_time_sec",
         "predictor_time_sec",
         "overhead_vs_baseline",
+        "added_time_vs_baseline_sec",
         *PHASE_PEAK_COLUMNS.values(),
         "encoding_peak_cpu_rss_mb",
         "encoder_train_peak_cpu_rss_mb",
@@ -162,6 +167,7 @@ def read_profile(path: Path) -> pd.DataFrame:
 def make_table(df: pd.DataFrame) -> str:
     profile_size = int(df["profile_size"].max())
     subset = df[df["profile_size"] == profile_size].copy()
+    subset = subset[~subset["profile_is_warmup"].astype(str).str.lower().isin({"true", "1"})]
     subset = subset[subset["scenario"].isin(ENCODER_LABELS)]
     subset = subset[subset["mode"].isin(MODE_LABELS)]
     bad = subset[
@@ -176,10 +182,15 @@ def make_table(df: pd.DataFrame) -> str:
             ),
             encoding="utf-8",
         )
-        bad_keys = bad[["dataset", "scenario", "profile_size"]].drop_duplicates()
+        bad_group_cols = [
+            col
+            for col in ["dataset", "scenario", "profile_size", "profile_repeat"]
+            if col in bad.columns
+        ]
+        bad_keys = bad[bad_group_cols].drop_duplicates()
         subset = subset.merge(
             bad_keys.assign(_bad_profile_group=True),
-            on=["dataset", "scenario", "profile_size"],
+            on=bad_group_cols,
             how="left",
         )
         subset = subset[subset["_bad_profile_group"].isna()].drop(columns=["_bad_profile_group"])
@@ -189,6 +200,25 @@ def make_table(df: pd.DataFrame) -> str:
     subset["encoder"] = subset["scenario"].map(ENCODER_LABELS)
     subset["mode_label"] = subset["mode"].map(MODE_LABELS)
     subset["topo_percent"] = 100.0 * subset["topo_fraction"]
+    if subset["added_time_vs_baseline_sec"].isna().all():
+        subset["added_time_vs_baseline_sec"] = pd.NA
+        group_cols = [
+            col
+            for col in ["dataset", "scenario", "profile_size", "profile_repeat", "n_train_clips", "n_test_clips", "sequence_len"]
+            if col in subset.columns
+        ]
+        for _, idx in subset.groupby(group_cols, sort=False, dropna=False).groups.items():
+            group = subset.loc[idx]
+            if not (group["mode"] == "z").any():
+                continue
+            baseline_time = float(group.loc[group["mode"] == "z", "wall_time_sec"].iloc[0])
+            if baseline_time <= 0:
+                continue
+            subset.loc[idx, "added_time_vs_baseline_sec"] = subset.loc[idx, "wall_time_sec"] - baseline_time
+            missing_overhead = subset.loc[idx, "overhead_vs_baseline"].isna()
+            subset.loc[missing_overhead[missing_overhead].index, "overhead_vs_baseline"] = (
+                subset.loc[missing_overhead[missing_overhead].index, "wall_time_sec"] / baseline_time
+            )
 
     grouped = (
         subset.groupby(["encoder", "mode", "mode_label"], sort=False)
@@ -199,6 +229,8 @@ def make_table(df: pd.DataFrame) -> str:
             cpu_std=("peak_cpu_rss_mb", "std"),
             accel_mean=("peak_accelerator_mem_mb", "mean"),
             accel_std=("peak_accelerator_mem_mb", "std"),
+            added_mean=("added_time_vs_baseline_sec", "mean"),
+            added_std=("added_time_vs_baseline_sec", "std"),
             overhead_mean=("overhead_vs_baseline", "mean"),
             overhead_std=("overhead_vs_baseline", "std"),
             encoding_time_mean=("encoding_time_sec", "mean"),
@@ -234,14 +266,14 @@ def make_table(df: pd.DataFrame) -> str:
         r"\begin{table*}[t]",
         r"\centering",
         r"\small",
-        rf"\caption{{Profiling summary at profile size {profile_size}, averaged over datasets. Runtime, peak CPU RSS, peak accelerator memory, and phase times are reported as mean$\pm$std across datasets. Runtime/\(z\) is relative to the corresponding \(z\)-only run within the same dataset and encoder family. Persistence is CPU-side in our implementation, so its overhead is reflected primarily in wall time and persistence phase time rather than accelerator memory.}}",
+        rf"\caption{{Profiling summary at profile size {profile_size}, averaged over datasets after discarding profiling warmup runs. Runtime, added time, peak CPU RSS, peak accelerator memory, and phase times are reported as mean$\pm$std across datasets and measured repeats. Added time and Runtime/\(z\) are relative to the corresponding \(z\)-only run within the same dataset, encoder family, and profiling repeat. Persistence is CPU-side in our implementation, so its overhead is reflected primarily in wall time and persistence phase time rather than accelerator memory.}}",
         r"\label{tab:profiling}",
         r"\resizebox{\textwidth}{!}{",
-        r"\begin{tabular}{llrrrrrrr}",
+        r"\begin{tabular}{llrrrrrrrr}",
         r"\toprule",
-        r" & & & & \multicolumn{2}{c}{Peak memory (MB)} & \multicolumn{3}{c}{Phase time (s)} \\",
-        r"\cmidrule(lr){5-6}\cmidrule(lr){7-9}",
-        r"Encoder & Input mode & Runtime (s) & Runtime/\(z\) & CPU RSS & Accel. & Enc. & Persist. & Pred. \\",
+        r" & & & & & \multicolumn{2}{c}{Peak memory (MB)} & \multicolumn{3}{c}{Phase time (s)} \\",
+        r"\cmidrule(lr){6-7}\cmidrule(lr){8-10}",
+        r"Encoder & Input mode & Runtime (s) & Added time (s) & Runtime/\(z\) & CPU RSS & Accel. & Enc. & Persist. & Pred. \\",
         r"\midrule",
     ]
     previous_encoder = None
@@ -249,6 +281,7 @@ def make_table(df: pd.DataFrame) -> str:
         if previous_encoder is not None and row.encoder != previous_encoder:
             lines.append(r"\midrule")
         runtime = mean_std(row.runtime_mean, row.runtime_std, digits=2)
+        added = mean_std(row.added_mean, row.added_std, digits=2)
         overhead = mean_std(row.overhead_mean, row.overhead_std, digits=2)
         cpu = mean_std(row.cpu_mean, row.cpu_std, digits=0)
         accel = "--" if pd.isna(row.accel_mean) else mean_std(row.accel_mean, row.accel_std, digits=0)
@@ -256,7 +289,7 @@ def make_table(df: pd.DataFrame) -> str:
         persistence = phase_value(row.persistence_time_mean, row.persistence_time_std)
         predictor = phase_value(row.predictor_time_mean, row.predictor_time_std)
         lines.append(
-            f"{row.encoder} & {row.mode_label} & {runtime} & {overhead} & {cpu} & {accel} & "
+            f"{row.encoder} & {row.mode_label} & {runtime} & {added} & {overhead} & {cpu} & {accel} & "
             f"{encoding} & {persistence} & {predictor} " + r"\\"
         )
         previous_encoder = row.encoder
