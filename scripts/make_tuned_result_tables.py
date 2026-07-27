@@ -13,6 +13,7 @@ if not INPUT_PATH.exists():
     INPUT_PATH = Path("latex_tables/final_final_main_results.txt")
 if not INPUT_PATH.exists():
     INPUT_PATH = Path("latex_tables/hyperparam_tuned.txt")
+PERTURBATION_INPUT_PATH = Path("latex_tables/raw_appendix_b_summary.txt")
 OUT_DIR = Path("latex_tables")
 
 DATASET_ORDER = [
@@ -171,6 +172,8 @@ def best(rows: list[Row]) -> Row | None:
 
 def is_topology_direct(mode: str) -> bool:
     if mode == "z" or mode.startswith("topo_") or mode.startswith("z_fuse_"):
+        return False
+    if mode.endswith(("_zero", "_shuffle", "_noise", "_shift")):
         return False
     if "pca" in mode or "kpca" in mode or "laplacian" in mode or "diffusion" in mode or "rff" in mode or "temporal" in mode or "corrupt" in mode:
         return False
@@ -350,134 +353,201 @@ def make_pca_control(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
 
 def make_diagram_vectorization(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
     lines = [
-        r"\begin{table}[t]",
+        r"\begin{table*}[t]",
         r"\centering",
         r"\small",
-        r"\caption{Ablation over fused persistence-diagram vectorizations using the standard AE encoder. Lower MSE is better.}",
+        r"\caption{Ablation over fused persistence-diagram vectorizations for the standard, geometry-regularized, and topology-regularized autoencoders. Bold marks the best vectorization within each dataset--encoder row. Lower MSE is better.}",
         r"\label{tab:diagram_vectorization}",
-        r"\begin{tabular}{lcccc}",
+        r"\resizebox{\textwidth}{!}{",
+        r"\begin{tabular}{llcccc}",
         r"\toprule",
-        r"Dataset & Betti $H_1$ & PI $H_1$ & Landscape $H_1$ & PersLay-style $H_1$ \\",
+        r"Dataset & Encoder & Betti $H_1$ & PI $H_1$ & Landscape $H_1$ & PersLay-style $H_1$ \\",
         r"\midrule",
     ]
-    for dataset in DATASET_ORDER:
-        rows = [rows_by_key.get((dataset, "latent_tda", mode)) for mode in DIAGRAM_MODES]
-        present = [r for r in rows if r is not None]
-        row_best = best(present)
-        cells = [fmt(r, digits=4, bold=r == row_best) for r in rows]
-        lines.append(f"{DATASET_LABELS[dataset]} & " + " & ".join(cells) + r" \\")
-    lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
+    for dataset_idx, dataset in enumerate(DATASET_ORDER):
+        for encoder_idx, scenario in enumerate(SCENARIO_ORDER):
+            rows = [rows_by_key.get((dataset, scenario, mode)) for mode in DIAGRAM_MODES]
+            present = [row for row in rows if row is not None]
+            row_best = best(present)
+            cells = [fmt(row, digits=4, bold=row == row_best) for row in rows]
+            dataset_label = DATASET_LABELS[dataset] if encoder_idx == 0 else ""
+            lines.append(
+                f"{dataset_label} & {ENCODER_LABELS[scenario]} & "
+                + " & ".join(cells)
+                + r" \\"
+            )
+        if dataset_idx != len(DATASET_ORDER) - 1:
+            lines.append(r"\midrule")
+    lines.extend([r"\bottomrule", r"\end{tabular}", r"}", r"\end{table*}"])
     (OUT_DIR / "final_table_encoder_benchmark.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def make_perturbation_tables(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
+    corrupt_modes = {
+        "Laplacian": [f"z_fuse_laplacian_h1_{control}" for control in ("zero", "shuffle", "noise", "shift")],
+        "Diffusion": [f"z_fuse_diffusion_h1_{control}" for control in ("zero", "shuffle", "noise", "shift")],
+        "RFF": [f"z_fuse_rff_h1_{control}" for control in ("zero", "shuffle", "noise", "shift")],
+    }
     lines = [
-        r"\begin{table*}[t]",
+        r"\begin{table*}[!t]",
         r"\centering",
-        r"\small",
-        r"\caption{$H_1$ perturbation controls after z-only hyperparameter selection. ``Best corrupt'' is the best of zero, shuffle, noise, and temporal-shift controls. Corrupted controls can remain competitive, so this table is a diagnostic control rather than evidence that exact $H_1$ semantics alone explain the gains. Lower MSE is better.}",
+        r"\scriptsize",
+        r"\setlength{\tabcolsep}{2.5pt}",
+        r"\renewcommand{\arraystretch}{0.88}",
+        r"\caption{Corrupted-feature capacity controls after z-only hyperparameter selection. Entries are mean MSE over five seeds; the full mean$\pm$SD sweep is reported in Table~\ref{tab:appendix_perturbation_sweep}. For each family, the best of zero, shuffle, noise, and temporal-shift variants is shown. Bold marks the best entry within each encoder group. Lower is better.}",
         r"\label{tab:perturbation_sanity}",
         r"\resizebox{\textwidth}{!}{",
-        r"\begin{tabular}{llccc}",
+        r"\begin{tabular}{l*{12}{r}}",
         r"\toprule",
-        r"Dataset & Encoder & $z$ & $z+H_1$ & $z+$best corrupt $H_1$ \\",
+        r" & \multicolumn{4}{c}{AE} & \multicolumn{4}{c}{GeoAE} & \multicolumn{4}{c}{TopoAE} \\",
+        r"\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}",
+        r"Dataset & \(z\) & Lap. & Diff. & RFF & \(z\) & Lap. & Diff. & RFF & \(z\) & Lap. & Diff. & RFF \\",
         r"\midrule",
     ]
 
-    for dataset_idx, dataset in enumerate(DATASET_ORDER):
-        for enc_idx, scenario in enumerate(SCENARIO_ORDER):
+    for dataset in DATASET_ORDER:
+        cells = []
+        for scenario in SCENARIO_ORDER:
             z = rows_by_key.get((dataset, scenario, "z"))
-            h1 = rows_by_key.get((dataset, scenario, "z_h1"))
-            corrupt = best([rows_by_key[(dataset, scenario, mode)] for mode in CORRUPT_H1_MODES if (dataset, scenario, mode) in rows_by_key])
-            row_best = best([r for r in [z, h1, corrupt] if r is not None])
-            label = DATASET_LABELS[dataset] if enc_idx == 0 else ""
-            cells = [
-                fmt(z, digits=4, bold=z == row_best),
-                fmt(h1, digits=4, bold=h1 == row_best),
-                fmt(corrupt, digits=4, bold=corrupt == row_best),
+            corrupt_rows = [
+                best(
+                    [
+                        rows_by_key[(dataset, scenario, mode)]
+                        for mode in modes
+                        if (dataset, scenario, mode) in rows_by_key
+                    ]
+                )
+                for modes in corrupt_modes.values()
             ]
-            lines.append(f"{label} & {ENCODER_LABELS[scenario]} & " + " & ".join(cells) + r" \\")
-        if dataset_idx != len(DATASET_ORDER) - 1:
-            lines.append(r"\midrule")
+            row_best = best([row for row in [z, *corrupt_rows] if row is not None])
+            for row in [z, *corrupt_rows]:
+                if row is None:
+                    cells.append("--")
+                elif row == row_best:
+                    cells.append(rf"\(\mathbf{{{row.mse_mean:.4f}}}\)")
+                else:
+                    cells.append(rf"\({row.mse_mean:.4f}\)")
+        lines.append(f"{DATASET_LABELS[dataset]} & " + " & ".join(cells) + r" \\")
 
     lines.extend([r"\bottomrule", r"\end{tabular}", r"}", r"\end{table*}"])
     (OUT_DIR / "final_table_perturbation_sanity.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+    controls = ("zero", "shuffle", "noise", "shift")
+    sweep_modes = [
+        "z",
+        *[f"z_fuse_laplacian_h1_{control}" for control in controls],
+        *[f"z_fuse_diffusion_h1_{control}" for control in controls],
+        *[f"z_fuse_rff_h1_{control}" for control in controls],
+    ]
     sweep_lines = [
-        r"\begin{scriptsize}",
-        r"\begin{longtable}{lllccc}",
-        r"\caption{Perturbation sweep over $H_1$ topology controls after z-only hyperparameter selection. Lower MSE and higher latent $R^2$ are better.}",
-        r"\label{tab:appendix_perturbation_sweep}\\",
+        r"\begin{table*}[!t]",
+        r"\centering",
+        r"\tiny",
+        r"\setlength{\tabcolsep}{1.5pt}",
+        r"\renewcommand{\arraystretch}{0.78}",
+        r"\caption{Full corrupted-feature capacity-control sweep. Entries are mean MSE over five seeds. Z, S, N, and T denote zero, shuffle, noise, and temporal-shift corruptions, respectively. Lower is better.}",
+        r"\label{tab:appendix_perturbation_sweep}",
+        r"\resizebox{\textwidth}{!}{",
+        r"\begin{tabular}{lrrrrrrrrrrrrr}",
         r"\toprule",
-        r"Dataset & Scenario & Mode & $n$ & MSE & Latent $R^2$ \\",
+        r" & & \multicolumn{4}{c}{Laplacian} & \multicolumn{4}{c}{Diffusion} & \multicolumn{4}{c}{RFF} \\",
+        r"\cmidrule(lr){3-6}\cmidrule(lr){7-10}\cmidrule(lr){11-14}",
+        r"Dataset & \(z\) & Z & S & N & T & Z & S & N & T & Z & S & N & T \\",
         r"\midrule",
-        r"\endfirsthead",
-        r"\toprule",
-        r"Dataset & Scenario & Mode & $n$ & MSE & Latent $R^2$ \\",
-        r"\midrule",
-        r"\endhead",
     ]
-    perturb_rows = [
-        row
-        for row in rows_by_key.values()
-        if row.dataset in DATASET_ORDER and row.scenario in SCENARIO_ORDER and row.mode in PERTURBATION_MODES
-    ]
-    ordered = sorted(
-        perturb_rows,
-        key=lambda r: (
-            DATASET_ORDER.index(r.dataset),
-            SCENARIO_ORDER.index(r.scenario),
-            r.mse_mean,
-            r.mode,
-        ),
-    )
-    last_dataset = None
-    for row in ordered:
-        if last_dataset is not None and row.dataset != last_dataset:
-            sweep_lines.append(r"\midrule")
-        last_dataset = row.dataset
+    for scenario_idx, scenario in enumerate(SCENARIO_ORDER):
         sweep_lines.append(
-            f"{tex_escape(row.dataset)} & {tex_escape(row.scenario)} & {tex_escape(row.mode)} & {row.n_runs} & "
-            f"${row.mse_mean:.4f}\\pm{row.mse_std:.4f}$ & ${row.r2_mean:.4f}\\pm{row.r2_std:.4f}$ \\\\"
+            rf"\multicolumn{{14}}{{l}}{{\textbf{{{ENCODER_LABELS[scenario]}}}}} \\"
         )
-    sweep_lines.extend([r"\bottomrule", r"\end{longtable}", r"\end{scriptsize}"])
+        for dataset in DATASET_ORDER:
+            cells = []
+            for mode in sweep_modes:
+                row = rows_by_key.get((dataset, scenario, mode))
+                cells.append("--" if row is None else f"{row.mse_mean:.4f}")
+            sweep_lines.append(f"{DATASET_LABELS[dataset]} & " + " & ".join(cells) + r" \\")
+        if scenario_idx != len(SCENARIO_ORDER) - 1:
+            sweep_lines.append(r"\midrule")
+    sweep_lines.extend(
+        [r"\bottomrule", r"\end{tabular}", r"}", r"\end{table*}"]
+    )
     (OUT_DIR / "final_table_appendix_b.txt").write_text("\n".join(sweep_lines) + "\n", encoding="utf-8")
 
 
 def make_full_sweep(rows: list[Row]) -> None:
+    rows_by_key = row_map(rows)
+    non_topology_control_modes = {
+        "z_pca_h1",
+        "z_kpca_h1",
+        "z_laplacian_h1",
+        "z_diffusion_h1",
+        "z_rff_h1",
+        "z_fuse_pca_h1",
+        "z_fuse_kpca_h1",
+        "z_fuse_laplacian_h1",
+        "z_fuse_diffusion_h1",
+        "z_fuse_rff_h1",
+    }
+
+    def mean_cell(row: Row | None, row_best: Row | None) -> str:
+        if row is None:
+            return "--"
+        value = f"{row.mse_mean:.4f}"
+        return rf"\(\mathbf{{{value}}}\)" if row == row_best else rf"\({value}\)"
+
     lines = [
-        r"\begin{scriptsize}",
-        r"\begin{longtable}{lllccc}",
-        r"\caption{Full tuned sweep over datasets, encoder families, and topology/fusion modes. Lower MSE and higher latent $R^2$ are better.}",
-        r"\label{tab:appendix_full_sweep}\\",
+        r"\begin{table*}[!t]",
+        r"\centering",
+        r"\scriptsize",
+        r"\setlength{\tabcolsep}{3pt}",
+        r"\renewcommand{\arraystretch}{0.82}",
+        r"\caption{Compact summary of the full tuned sweep. Entries are mean MSE; the complete mode-level mean$\pm$SD results are retained in the supplementary raw summary. ``Topology only'' excludes \(z\), while direct and fusion combine topology with \(z\). ``Control'' is the best PCA, KPCA, Laplacian, diffusion, or RFF variant. Bold marks the best entry in each dataset--encoder row. Lower is better.}",
+        r"\label{tab:appendix_full_sweep}",
+        r"\resizebox{\textwidth}{!}{",
+        r"\begin{tabular}{llccccc}",
         r"\toprule",
-        r"Dataset & Scenario & Mode & $n$ & MSE & Latent $R^2$ \\",
+        r"Dataset & Encoder & \(z\) & Topology only & Best direct & Best fusion & Best control \\",
         r"\midrule",
-        r"\endfirsthead",
-        r"\toprule",
-        r"Dataset & Scenario & Mode & $n$ & MSE & Latent $R^2$ \\",
-        r"\midrule",
-        r"\endhead",
     ]
-    ordered = sorted(
-        rows,
-        key=lambda r: (
-            DATASET_ORDER.index(r.dataset) if r.dataset in DATASET_ORDER else len(DATASET_ORDER),
-            SCENARIO_ORDER.index(r.scenario) if r.scenario in SCENARIO_ORDER else len(SCENARIO_ORDER),
-            r.mse_mean,
-            r.mode,
-        ),
-    )
-    last_dataset = None
-    for row in ordered:
-        if last_dataset is not None and row.dataset != last_dataset:
+    for dataset_idx, dataset in enumerate(DATASET_ORDER):
+        for encoder_idx, scenario in enumerate(SCENARIO_ORDER):
+            scenario_rows = [
+                row for row in rows
+                if row.dataset == dataset and row.scenario == scenario
+            ]
+            z = rows_by_key.get((dataset, scenario, "z"))
+            topology_only = best(
+                [
+                    row for row in scenario_rows
+                    if row.mode.startswith("topo_")
+                    and not row.mode.endswith(("_zero", "_shuffle", "_noise", "_shift"))
+                ]
+            )
+            direct = best([row for row in scenario_rows if is_topology_direct(row.mode)])
+            fusion = best(
+                [
+                    rows_by_key[(dataset, scenario, mode)]
+                    for mode in FUSE_TOPO_MODES
+                    if (dataset, scenario, mode) in rows_by_key
+                ]
+            )
+            control = best(
+                [
+                    rows_by_key[(dataset, scenario, mode)]
+                    for mode in non_topology_control_modes
+                    if (dataset, scenario, mode) in rows_by_key
+                ]
+            )
+            selected = [z, topology_only, direct, fusion, control]
+            row_best = best([row for row in selected if row is not None])
+            dataset_label = DATASET_LABELS[dataset] if encoder_idx == 0 else ""
+            lines.append(
+                f"{dataset_label} & {ENCODER_LABELS[scenario]} & "
+                + " & ".join(mean_cell(row, row_best) for row in selected)
+                + r" \\"
+            )
+        if dataset_idx != len(DATASET_ORDER) - 1:
             lines.append(r"\midrule")
-        last_dataset = row.dataset
-        lines.append(
-            f"{tex_escape(row.dataset)} & {tex_escape(row.scenario)} & {tex_escape(row.mode)} & {row.n_runs} & "
-            f"${row.mse_mean:.4f}\\pm{row.mse_std:.4f}$ & ${row.r2_mean:.4f}\\pm{row.r2_std:.4f}$ \\\\"
-        )
-    lines.extend([r"\bottomrule", r"\end{longtable}", r"\end{scriptsize}"])
+    lines.extend([r"\bottomrule", r"\end{tabular}", r"}", r"\end{table*}"])
     (OUT_DIR / "final_table_appendix_full_sweep.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -489,7 +559,9 @@ def main() -> None:
     make_main_table(rows_by_key, rows)
     make_pca_control(rows_by_key)
     make_diagram_vectorization(rows_by_key)
-    make_perturbation_tables(rows_by_key)
+    perturbation_rows = parse_rows(PERTURBATION_INPUT_PATH)
+    perturbation_rows_by_key = row_map(perturbation_rows)
+    make_perturbation_tables(perturbation_rows_by_key)
     make_full_sweep(unique_rows)
     print(f"Parsed {len(rows)} rows from {INPUT_PATH} ({len(unique_rows)} unique dataset/scenario/mode rows)")
     print("Wrote final_table_main.txt")
@@ -497,6 +569,10 @@ def main() -> None:
     print("Wrote final_table_encoder_benchmark.txt")
     print("Wrote final_table_perturbation_sanity.txt")
     print("Wrote final_table_appendix_b.txt")
+    print(
+        f"Parsed {len(perturbation_rows)} perturbation rows from {PERTURBATION_INPUT_PATH} "
+        f"({len(perturbation_rows_by_key)} unique dataset/scenario/mode rows)"
+    )
     print("Wrote final_table_appendix_full_sweep.txt")
     print("Wrote pca_kpca_control_summary.csv")
 

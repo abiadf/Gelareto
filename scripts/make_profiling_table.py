@@ -64,6 +64,9 @@ MODE_LABELS = {
     "z_fuse_perslay_h1": r"\(z_{\mathrm{fuse}}+\mathrm{PersLay}\)",
     "z_fuse_pca_h1": r"\(z_{\mathrm{fuse}}+\mathrm{PCA}\)",
     "z_fuse_kpca_h1": r"\(z_{\mathrm{fuse}}+\mathrm{KPCA}\)",
+    "z_fuse_laplacian_h1": r"\(z_{\mathrm{fuse}}+\mathrm{Laplacian}\)",
+    "z_fuse_diffusion_h1": r"\(z_{\mathrm{fuse}}+\mathrm{Diffusion}\)",
+    "z_fuse_rff_h1": r"\(z_{\mathrm{fuse}}+\mathrm{RFF}\)",
 }
 
 PERSISTENCE_MODES = {
@@ -170,6 +173,8 @@ def make_table(df: pd.DataFrame) -> str:
     subset = subset[~subset["profile_is_warmup"].astype(str).str.lower().isin({"true", "1"})]
     subset = subset[subset["scenario"].isin(ENCODER_LABELS)]
     subset = subset[subset["mode"].isin(MODE_LABELS)]
+    # The console log repeats rows in per-run and final aggregate tables.
+    subset = subset.drop_duplicates()
     bad = subset[
         (~subset["mode"].isin(PERSISTENCE_MODES))
         & (subset["topo_time_sec"].astype(float) > 1e-6)
@@ -266,14 +271,14 @@ def make_table(df: pd.DataFrame) -> str:
         r"\begin{table*}[t]",
         r"\centering",
         r"\small",
-        rf"\caption{{Profiling summary at profile size {profile_size}, averaged over datasets after discarding profiling warmup runs. Runtime, added time, peak CPU RSS, peak accelerator memory, and phase times are reported as mean$\pm$std across datasets and measured repeats. Added time and Runtime/\(z\) are relative to the corresponding \(z\)-only run within the same dataset, encoder family, and profiling repeat. Persistence is CPU-side in our implementation, so its overhead is reflected primarily in wall time and persistence phase time rather than accelerator memory.}}",
+        rf"\caption{{GPU profiling summary at profile size {profile_size}, averaged over datasets after discarding profiling warmup runs. Runtime, added time, peak CPU RSS, peak accelerator memory, and phase times are reported as mean$\pm$std across datasets and measured repeats. Added time and Runtime/\(z\) are relative to the corresponding \(z\)-only run within the same dataset, encoder family, and profiling repeat. Persistence is CPU-side in our implementation.}}",
         r"\label{tab:profiling}",
         r"\resizebox{\textwidth}{!}{",
-        r"\begin{tabular}{llrrrrrrrr}",
+        r"\begin{tabular}{llrrrrrrrrr}",
         r"\toprule",
-        r" & & & & & \multicolumn{2}{c}{Peak memory (MB)} & \multicolumn{3}{c}{Phase time (s)} \\",
-        r"\cmidrule(lr){6-7}\cmidrule(lr){8-10}",
-        r"Encoder & Input mode & Runtime (s) & Added time (s) & Runtime/\(z\) & CPU RSS & Accel. & Enc. & Persist. & Pred. \\",
+        r" & & & & & \multicolumn{2}{c}{Peak memory (MB)} & \multicolumn{4}{c}{Phase time (s)} \\",
+        r"\cmidrule(lr){6-7}\cmidrule(lr){8-11}",
+        r"Encoder & Input mode & Runtime (s) & Added time (s) & Runtime/\(z\) & CPU RSS & Accel. & Enc. & Feature/fuse & Persist. & Pred. \\",
         r"\midrule",
     ]
     previous_encoder = None
@@ -286,11 +291,12 @@ def make_table(df: pd.DataFrame) -> str:
         cpu = mean_std(row.cpu_mean, row.cpu_std, digits=0)
         accel = "--" if pd.isna(row.accel_mean) else mean_std(row.accel_mean, row.accel_std, digits=0)
         encoding = phase_value(row.encoding_time_mean, row.encoding_time_std)
+        fusion = phase_value(row.fusion_time_mean, row.fusion_time_std)
         persistence = phase_value(row.persistence_time_mean, row.persistence_time_std)
         predictor = phase_value(row.predictor_time_mean, row.predictor_time_std)
         lines.append(
             f"{row.encoder} & {row.mode_label} & {runtime} & {added} & {overhead} & {cpu} & {accel} & "
-            f"{encoding} & {persistence} & {predictor} " + r"\\"
+            f"{encoding} & {fusion} & {persistence} & {predictor} " + r"\\"
         )
         previous_encoder = row.encoder
     lines.extend(
