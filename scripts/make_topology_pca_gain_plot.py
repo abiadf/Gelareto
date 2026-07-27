@@ -52,8 +52,9 @@ def read_pca_control_table(path: Path) -> pd.DataFrame:
     df["best_spectral"] = pd.to_numeric(df["best_spectral_mean"], errors="coerce")
     df["best_laplacian"] = pd.to_numeric(df["best_laplacian_mean"], errors="coerce")
     df["best_diffusion"] = pd.to_numeric(df["best_diffusion_mean"], errors="coerce")
+    df["best_rff"] = pd.to_numeric(df["best_rff_mean"], errors="coerce")
     df["best_topology"] = df[["fuse_h1_mean", "best_topo_mean"]].min(axis=1)
-    for col in ["z_only", "best_pca", "best_kpca", "best_laplacian", "best_diffusion", "best_topology"]:
+    for col in ["z_only", "best_pca", "best_kpca", "best_laplacian", "best_diffusion", "best_rff", "best_topology"]:
         df[f"{col}_gain"] = 100.0 * (df["z_only"] - df[col]) / df["z_only"]
     return df
 
@@ -67,8 +68,8 @@ def make_plot(df: pd.DataFrame) -> None:
     n_datasets = len(DATASET_ORDER)
     n_encoders = len(ENCODER_ORDER)
     section_gap = 0.45
-    encoder_gap = 0.78
-    bar_width = 0.26
+    encoder_gap = 0.92
+    bar_width = 0.22
 
     centers = []
     dataset_centers = []
@@ -85,21 +86,24 @@ def make_plot(df: pd.DataFrame) -> None:
     colors = {
         "best_laplacian_gain": "#d97706",
         "best_diffusion_gain": "#f59e0b",
+        "best_rff_gain": "#7c3aed",
         "best_topology_gain": "#059669",
     }
     labels = {
         "best_laplacian_gain": "Laplacian",
         "best_diffusion_gain": "Diffusion",
+        "best_rff_gain": "RFF",
         "best_topology_gain": "Best Topology",
     }
     offsets = {
-        "best_laplacian_gain": -1.0 * bar_width,
-        "best_diffusion_gain": 0.0 * bar_width,
-        "best_topology_gain": 1.0 * bar_width,
+        "best_laplacian_gain": -1.5 * bar_width,
+        "best_diffusion_gain": -0.5 * bar_width,
+        "best_rff_gain": 0.5 * bar_width,
+        "best_topology_gain": 1.5 * bar_width,
     }
 
     row_lookup = {(row.dataset, row.encoder): row for row in df.itertuples(index=False)}
-    for metric in ["best_laplacian_gain", "best_diffusion_gain", "best_topology_gain"]:
+    for metric in ["best_laplacian_gain", "best_diffusion_gain", "best_rff_gain", "best_topology_gain"]:
         values = []
         for dataset in DATASET_ORDER:
             for encoder in ENCODER_ORDER:
@@ -133,7 +137,7 @@ def make_plot(df: pd.DataFrame) -> None:
         boundary = (centers[boundary_idx * n_encoders - 1] + centers[boundary_idx * n_encoders]) / 2.0
         ax.axvline(boundary, color="#d1d5db", linewidth=0.7, zorder=0)
 
-    ax.legend(ncol=3, frameon=False, loc="upper center", bbox_to_anchor=(0.5, 1.13), fontsize=13)
+    ax.legend(ncol=4, frameon=False, loc="upper center", bbox_to_anchor=(0.5, 1.13), fontsize=13)
     ax.grid(axis="y", color="#e5e7eb", linewidth=0.7)
     ax.set_axisbelow(True)
     fig.subplots_adjust(bottom=0.18, top=0.82, left=0.07, right=0.995)

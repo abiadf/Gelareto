@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paired significance tests for topology vs. KPCA controls.
+"""Paired significance tests for topology vs. all non-topological controls.
 
 The primary test averages each method over encoder families within a dataset,
 then runs a paired Wilcoxon signed-rank test over datasets. This avoids treating
@@ -40,6 +40,15 @@ DATASET_ORDER = [
     "electric_devices",
 ]
 
+CONTROLS = {
+    r"$z$ only": "z_mean",
+    "PCA": "best_pca_mean",
+    "KPCA": "best_kpca_mean",
+    "Laplacian": "best_laplacian_mean",
+    "Diffusion": "best_diffusion_mean",
+    "RFF": "best_rff_mean",
+}
+
 
 def _fmt_num(x: float, digits: int = 4) -> str:
     if not np.isfinite(x):
@@ -53,27 +62,30 @@ def _fmt_pct(x: float) -> str:
     return f"{100.0 * x:.1f}\\%"
 
 
-def _paired_stats(topology: np.ndarray, kpca: np.ndarray) -> dict[str, float]:
-    diff = topology - kpca
+def _paired_stats(topology: np.ndarray, control: np.ndarray) -> dict[str, float]:
+    valid = np.isfinite(topology) & np.isfinite(control)
+    topology = topology[valid]
+    control = control[valid]
+    diff = topology - control
     nonzero = np.abs(diff) > 1e-12
     if nonzero.sum() == 0:
         stat = 0.0
         p_less = 1.0
         p_two_sided = 1.0
     else:
-        stat, p_less = wilcoxon(topology, kpca, alternative="less", zero_method="wilcox")
-        _, p_two_sided = wilcoxon(topology, kpca, alternative="two-sided", zero_method="wilcox")
-    rel_gain = (kpca - topology) / np.maximum(kpca, 1e-12)
+        stat, p_less = wilcoxon(topology, control, alternative="less", zero_method="wilcox")
+        _, p_two_sided = wilcoxon(topology, control, alternative="two-sided", zero_method="wilcox")
+    rel_gain = (control - topology) / np.maximum(control, 1e-12)
     return {
         "n": int(len(diff)),
         "wins": int((diff < 0).sum()),
         "ties": int((np.abs(diff) <= 1e-12).sum()),
         "losses": int((diff > 0).sum()),
         "mean_topology_mse": float(np.mean(topology)),
-        "mean_kpca_mse": float(np.mean(kpca)),
+        "mean_control_mse": float(np.mean(control)),
         "mean_relative_gain": float(np.mean(rel_gain)),
         "median_relative_gain": float(np.median(rel_gain)),
-        "mean_abs_delta": float(np.mean(kpca - topology)),
+        "mean_abs_delta": float(np.mean(control - topology)),
         "wilcoxon_stat": float(stat),
         "p_less": float(p_less),
         "p_two_sided": float(p_two_sided),
@@ -82,70 +94,52 @@ def _paired_stats(topology: np.ndarray, kpca: np.ndarray) -> dict[str, float]:
 
 def _prepare(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
+    df["best_pca_mean"] = df[["z_pca_mean", "fuse_pca_mean"]].min(axis=1)
     df["best_kpca_mean"] = df[["z_kpca_mean", "fuse_kpca_mean"]].min(axis=1)
     df["best_topology_mean"] = df[["fuse_h1_mean", "best_topo_mean"]].min(axis=1)
-    df["topology_minus_kpca"] = df["best_topology_mean"] - df["best_kpca_mean"]
-    df["topology_rel_gain"] = (df["best_kpca_mean"] - df["best_topology_mean"]) / df["best_kpca_mean"]
     df["dataset_label"] = df["dataset"].map(DATASET_LABELS).fillna(df["dataset"])
     return df
 
 
-def _write_latex(summary: pd.DataFrame, detail: pd.DataFrame, out_dir: Path) -> None:
-    primary = summary[summary["level"] == "dataset_mean"].iloc[0]
-    row_level = summary[summary["level"] == "dataset_encoder"].iloc[0]
-    lines = [
-        r"\begin{table}[t]",
-        r"\centering",
-        r"\small",
-        r"\caption{Post-hoc paired comparison between the best observed topology descriptor and the best observed KPCA control. ``Best'' denotes the lowest test MSE among the evaluated variants for each dataset--encoder setting. The primary consistency check averages MSE across encoder families within each dataset, then applies a one-sided Wilcoxon signed-rank test over datasets. Lower MSE is better.}",
-        r"\label{tab:topology-kpca-significance}",
-        r"\begin{tabular}{lccccc}",
-        r"\toprule",
-        r"Level & $n$ & Wins & Avg. gain & Wilcoxon $p$ & Two-sided $p$ \\",
-        r"\midrule",
-        (
-            "Dataset mean"
-            f" & {int(primary.n)}"
-            f" & {int(primary.wins)}/{int(primary.n)}"
-            f" & {_fmt_pct(float(primary.mean_relative_gain))}"
-            f" & {_fmt_num(float(primary.p_less), 4)}"
-            f" & {_fmt_num(float(primary.p_two_sided), 4)} \\\\"
-        ),
-        (
-            "Dataset--encoder"
-            f" & {int(row_level.n)}"
-            f" & {int(row_level.wins)}/{int(row_level.n)}"
-            f" & {_fmt_pct(float(row_level.mean_relative_gain))}"
-            f" & {_fmt_num(float(row_level.p_less), 4)}"
-            f" & {_fmt_num(float(row_level.p_two_sided), 4)} \\\\"
-        ),
-        r"\bottomrule",
-        r"\end{tabular}",
-        r"\end{table}",
-    ]
-    (out_dir / "final_table_topology_kpca_significance.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+def _holm_adjust(p_values: pd.Series) -> np.ndarray:
+    values = p_values.to_numpy(dtype=float)
+    order = np.argsort(values)
+    adjusted = np.empty_like(values)
+    running = 0.0
+    count = len(values)
+    for rank, idx in enumerate(order):
+        running = max(running, (count - rank) * values[idx])
+        adjusted[idx] = min(running, 1.0)
+    return adjusted
 
-    detail_lines = [
+
+def _write_latex(summary: pd.DataFrame, out_dir: Path) -> None:
+    lines = [
         r"\begin{table*}[t]",
         r"\centering",
         r"\small",
-        r"\caption{Dataset-level paired comparison used for the primary topology-vs-KPCA Wilcoxon test. Values average over AE, GeoAE, and TopoAE rows. Lower MSE is better.}",
-        r"\label{tab:topology-kpca-significance-by-dataset}",
-        r"\resizebox{\textwidth}{!}{",
-        r"\begin{tabular}{lcccc}",
+        r"\caption{Post-hoc paired comparisons between the best observed persistence descriptor and non-topological controls. ``Best'' denotes the lowest test MSE among the evaluated direct and fused variants within each dataset--encoder setting. The primary test averages MSE across encoder families within each dataset and applies a one-sided Wilcoxon signed-rank test over nine datasets; Holm-adjusted values correct across the six controls. Lower MSE is better.}",
+        r"\label{tab:topology-control-significance}",
+        r"\begin{tabular}{lcccccc}",
         r"\toprule",
-        r"Dataset & Best topology MSE & Best KPCA MSE & Relative gain & Topology wins? \\",
+        r"Control & Dataset wins & Avg. gain & $p$ & Holm $p$ & Dataset--encoder wins & $p$ \\",
         r"\midrule",
     ]
-    for row in detail.itertuples(index=False):
-        detail_lines.append(
-            f"{row.dataset_label} & {_fmt_num(row.best_topology_mean, 4)} & {_fmt_num(row.best_kpca_mean, 4)} & "
-            f"{_fmt_pct(row.topology_rel_gain)} & {'Yes' if row.topology_minus_kpca < 0 else 'No'} \\\\"
+    for control in CONTROLS:
+        dataset_row = summary[(summary["control"] == control) & (summary["level"] == "dataset_mean")].iloc[0]
+        encoder_row = summary[(summary["control"] == control) & (summary["level"] == "dataset_encoder")].iloc[0]
+        lines.append(
+            f"{control} & {int(dataset_row.wins)}/{int(dataset_row.n)} & "
+            f"{_fmt_pct(float(dataset_row.mean_relative_gain))} & "
+            f"{_fmt_num(float(dataset_row.p_less), 4)} & "
+            f"{_fmt_num(float(dataset_row.p_holm), 4)} & "
+            f"{int(encoder_row.wins)}/{int(encoder_row.n)} & "
+            f"{_fmt_num(float(encoder_row.p_less), 4)} \\\\"
         )
-    detail_lines.extend([r"\bottomrule", r"\end{tabular}", r"}", r"\end{table*}"])
-    (out_dir / "final_table_topology_kpca_significance_by_dataset.txt").write_text(
-        "\n".join(detail_lines) + "\n", encoding="utf-8"
-    )
+    lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table*}"])
+    text = "\n".join(lines) + "\n"
+    (out_dir / "final_table_topology_control_significance.txt").write_text(text, encoding="utf-8")
+    (out_dir / "final_table_topology_kpca_significance.txt").write_text(text, encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
@@ -160,32 +154,57 @@ def main() -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     rows = _prepare(pd.read_csv(args.input))
 
-    dataset_level = (
-        rows.groupby(["dataset", "dataset_label"], sort=False)[["best_topology_mean", "best_kpca_mean"]]
-        .mean()
-        .reset_index()
-    )
+    columns = ["best_topology_mean", *CONTROLS.values()]
+    dataset_level = rows.groupby(["dataset", "dataset_label"], sort=False)[columns].mean().reset_index()
     order = {DATASET_LABELS.get(name, name): idx for idx, name in enumerate(DATASET_ORDER)}
     dataset_level["order"] = dataset_level["dataset_label"].map(order).fillna(len(order))
     dataset_level = dataset_level.sort_values("order").drop(columns="order")
-    dataset_level["topology_minus_kpca"] = dataset_level["best_topology_mean"] - dataset_level["best_kpca_mean"]
-    dataset_level["topology_rel_gain"] = (
-        dataset_level["best_kpca_mean"] - dataset_level["best_topology_mean"]
-    ) / dataset_level["best_kpca_mean"]
-
     summary_rows = []
-    summary_rows.append({"level": "dataset_mean", **_paired_stats(dataset_level["best_topology_mean"].to_numpy(), dataset_level["best_kpca_mean"].to_numpy())})
-    summary_rows.append({"level": "dataset_encoder", **_paired_stats(rows["best_topology_mean"].to_numpy(), rows["best_kpca_mean"].to_numpy())})
+    detail_rows = []
+    for control, column in CONTROLS.items():
+        summary_rows.append(
+            {
+                "control": control,
+                "control_column": column,
+                "level": "dataset_mean",
+                **_paired_stats(dataset_level["best_topology_mean"].to_numpy(), dataset_level[column].to_numpy()),
+            }
+        )
+        summary_rows.append(
+            {
+                "control": control,
+                "control_column": column,
+                "level": "dataset_encoder",
+                **_paired_stats(rows["best_topology_mean"].to_numpy(), rows[column].to_numpy()),
+            }
+        )
+        for item in dataset_level.itertuples(index=False):
+            topology = float(item.best_topology_mean)
+            control_mse = float(getattr(item, column))
+            detail_rows.append(
+                {
+                    "dataset": item.dataset,
+                    "dataset_label": item.dataset_label,
+                    "control": control,
+                    "best_topology_mean": topology,
+                    "control_mean": control_mse,
+                    "relative_gain": (control_mse - topology) / max(control_mse, 1e-12),
+                    "topology_wins": topology < control_mse,
+                }
+            )
     summary = pd.DataFrame(summary_rows)
+    for level in summary["level"].unique():
+        mask = summary["level"] == level
+        summary.loc[mask, "p_holm"] = _holm_adjust(summary.loc[mask, "p_less"])
+    detail = pd.DataFrame(detail_rows)
 
-    rows.to_csv(args.out_dir / "topology_kpca_significance_rows.csv", index=False)
-    dataset_level.to_csv(args.out_dir / "topology_kpca_significance_by_dataset.csv", index=False)
-    summary.to_csv(args.out_dir / "topology_kpca_significance_summary.csv", index=False)
-    _write_latex(summary, dataset_level, args.out_dir)
+    rows.to_csv(args.out_dir / "topology_control_significance_rows.csv", index=False)
+    detail.to_csv(args.out_dir / "topology_control_significance_by_dataset.csv", index=False)
+    summary.to_csv(args.out_dir / "topology_control_significance_summary.csv", index=False)
+    _write_latex(summary, args.out_dir)
 
     print(summary.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
-    print(f"Wrote {args.out_dir / 'final_table_topology_kpca_significance.txt'}")
-    print(f"Wrote {args.out_dir / 'final_table_topology_kpca_significance_by_dataset.txt'}")
+    print(f"Wrote {args.out_dir / 'final_table_topology_control_significance.txt'}")
 
 
 if __name__ == "__main__":

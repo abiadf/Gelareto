@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate paper tables from latex_tables/hyperparam_tuned.txt."""
+"""Generate paper tables from the latest consolidated result summary."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-INPUT_PATH = Path("latex_tables/final_final_main_results.txt")
+INPUT_PATH = Path("latex_tables/raw_appendix_a_summary.txt")
+if not INPUT_PATH.exists():
+    INPUT_PATH = Path("latex_tables/final_final_main_results.txt")
 if not INPUT_PATH.exists():
     INPUT_PATH = Path("latex_tables/hyperparam_tuned.txt")
 OUT_DIR = Path("latex_tables")
@@ -64,6 +66,10 @@ LAPLACIAN_MODES = {
 DIFFUSION_MODES = {
     "z_diffusion_h1": "Diffusion",
     "z_fuse_diffusion_h1": "Fuse Diffusion",
+}
+RFF_MODES = {
+    "z_rff_h1": "RFF",
+    "z_fuse_rff_h1": "Fuse RFF",
 }
 
 DIRECT_TOPO_LABELS = {
@@ -166,7 +172,7 @@ def best(rows: list[Row]) -> Row | None:
 def is_topology_direct(mode: str) -> bool:
     if mode == "z" or mode.startswith("topo_") or mode.startswith("z_fuse_"):
         return False
-    if "pca" in mode or "kpca" in mode or "laplacian" in mode or "diffusion" in mode or "temporal" in mode or "corrupt" in mode:
+    if "pca" in mode or "kpca" in mode or "laplacian" in mode or "diffusion" in mode or "rff" in mode or "temporal" in mode or "corrupt" in mode:
         return False
     return mode.startswith(("z_h", "z_both", "z_pi_", "z_landscape_", "z_perslay_"))
 
@@ -230,12 +236,12 @@ def make_pca_control(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
         r"\begin{table*}[t]",
         r"\centering",
         r"\small",
-        r"\caption{Latent-window geometric controls after z-only hyperparameter selection. PCA, KPCA, graph-Laplacian, and diffusion-map features replace the persistence descriptor with non-topological summaries computed from the same latent-window point cloud. ``Best topology'' is the best persistence descriptor among the evaluated direct and fused topology variants. Lower MSE is better.}",
+        r"\caption{Latent-window controls after z-only hyperparameter selection. PCA, KPCA, graph-Laplacian, diffusion-map, and dimension-matched random Fourier features replace the persistence descriptor with non-topological summaries computed from the same latent window. ``Best topology'' is the best persistence descriptor among the evaluated direct and fused topology variants. Lower MSE is better.}",
         r"\label{tab:pca_control}",
         r"\resizebox{\textwidth}{!}{",
-        r"\begin{tabular}{llcccccc}",
+        r"\begin{tabular}{llccccccc}",
         r"\toprule",
-        r"Dataset & Encoder & $z$ & Fuse PCA & Fuse KPCA & Best spectral & Fuse $H_1$ & Best topology \\",
+        r"Dataset & Encoder & $z$ & Fuse PCA & Fuse KPCA & Best RFF & Best spectral & Fuse $H_1$ & Best topology \\",
         r"\midrule",
     ]
 
@@ -263,12 +269,15 @@ def make_pca_control(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
             fuse_h1 = rows_by_key.get((dataset, scenario, "z_fuse_h1"))
             fuse_pca = rows_by_key.get((dataset, scenario, "z_fuse_pca_h1"))
             fuse_kpca = rows_by_key.get((dataset, scenario, "z_fuse_kpca_h1"))
+            fuse_rff = rows_by_key.get((dataset, scenario, "z_fuse_rff_h1"))
+            direct_rff = rows_by_key.get((dataset, scenario, "z_rff_h1"))
+            best_rff = best([row for row in [direct_rff, fuse_rff] if row is not None])
             direct_modes = [mode for (_d, _s, mode) in rows_by_key if _d == dataset and _s == scenario and is_topology_direct(mode)]
             topo_modes = sorted(set(direct_modes) | set(FUSE_TOPO_MODES))
             topo_candidates = [(mode, rows_by_key.get((dataset, scenario, mode))) for mode in topo_modes]
             topo_candidates = [(mode, row) for mode, row in topo_candidates if row is not None]
             best_mode, best_topo = min(topo_candidates, key=lambda item: item[1].mse_mean)
-            displayed = [r for r in [z, z_pca, z_kpca, best_spectral, fuse_h1, fuse_pca, fuse_kpca, best_topo] if r is not None]
+            displayed = [r for r in [z, z_pca, z_kpca, best_spectral, fuse_h1, fuse_pca, fuse_kpca, best_rff, best_topo] if r is not None]
             row_best = best(displayed)
             label = DATASET_LABELS[dataset] if enc_idx == 0 else ""
             best_suffix = f"({topology_label(best_mode)})"
@@ -280,6 +289,7 @@ def make_pca_control(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
                 fmt(z, digits=4, bold=z == row_best),
                 fmt(fuse_pca, digits=4, bold=fuse_pca == row_best),
                 fmt(fuse_kpca, digits=4, bold=fuse_kpca == row_best),
+                fmt(best_rff, digits=4, bold=best_rff == row_best),
                 fmt(best_spectral, digits=4, bold=best_spectral == row_best, suffix=spectral_suffix),
                 fmt(fuse_h1, digits=4, bold=fuse_h1 == row_best),
                 fmt(best_topo, digits=4, bold=best_topo == row_best, suffix=best_suffix),
@@ -313,6 +323,13 @@ def make_pca_control(rows_by_key: dict[tuple[str, str, str], Row]) -> None:
                     "fuse_pca_std": fuse_pca.mse_std if fuse_pca else "",
                     "fuse_kpca_mean": fuse_kpca.mse_mean if fuse_kpca else "",
                     "fuse_kpca_std": fuse_kpca.mse_std if fuse_kpca else "",
+                    "fuse_rff_mean": fuse_rff.mse_mean if fuse_rff else "",
+                    "fuse_rff_std": fuse_rff.mse_std if fuse_rff else "",
+                    "direct_rff_mean": direct_rff.mse_mean if direct_rff else "",
+                    "direct_rff_std": direct_rff.mse_std if direct_rff else "",
+                    "best_rff_mean": best_rff.mse_mean if best_rff else "",
+                    "best_rff_std": best_rff.mse_std if best_rff else "",
+                    "best_rff_mode": best_rff.mode if best_rff else "",
                     "best_topo_mean": best_topo.mse_mean,
                     "best_topo_std": best_topo.mse_std,
                     "best_topo_mode": best_mode,

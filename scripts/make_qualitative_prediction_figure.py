@@ -169,6 +169,11 @@ def _best_modes_for_dataset_encoder(args: argparse.Namespace, scenario: str) -> 
 
 
 def _load_predictor(path: Path, mode: str, input_dim: int, latent_dim: int, hidden_dim: int, predictor_type: str):
+    checkpoint = _safe_load(path)
+    state_dict = checkpoint["model_state_dict"] if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint else checkpoint
+    recurrent_key = "predictor.lstm.weight_hh_l0" if mode.startswith("z_fuse_") else "lstm.weight_hh_l0"
+    if recurrent_key in state_dict:
+        hidden_dim = int(state_dict[recurrent_key].shape[1])
     ml_tda.configure_runtime(LATENT_DIM=latent_dim, PREDICTOR_TYPE=predictor_type)
     ml_tda_latent.configure_runtime(LATENT_DIM=latent_dim, HIDDEN_DIM=hidden_dim)
     if mode.startswith("z_fuse_"):
@@ -182,7 +187,6 @@ def _load_predictor(path: Path, mode: str, input_dim: int, latent_dim: int, hidd
     else:
         model = make_predictor(input_dim=input_dim, hidden_dim=hidden_dim, predictor_type=predictor_type)
 
-    checkpoint = _safe_load(path)
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         model.load_state_dict(checkpoint["model_state_dict"])
         ml_tda_latent._attach_latent_standardizers(
@@ -360,6 +364,54 @@ def _plot_timeseries_row(
             ax.set_title(title, fontsize=12)
         if col == 0:
             ax.set_ylabel(title_prefix, fontsize=11)
+
+
+def _plot_paper_prediction_grid(
+    args: argparse.Namespace,
+    selected: list[tuple[int, int]],
+    target_x: torch.Tensor,
+    pred_z_x: torch.Tensor,
+    pred_topo_x: torch.Tensor,
+    horizon: int,
+    out_dir: Path,
+) -> Path:
+    is_timeseries = args.dataset in {"lorenz96", "electric_devices"}
+    fig, axes = plt.subplots(3, len(selected), figsize=(2.65 * len(selected), 6.7), squeeze=False)
+    row_labels = ["Ground truth", r"$z$-only prediction", r"$z+$topology prediction"]
+    tensors = [target_x, pred_z_x, pred_topo_x]
+    colors = ["#222222", "#d55e00", "#0072b2"]
+    for col, (t, b) in enumerate(selected):
+        axes[0, col].set_title(f"Test sequence {col + 1}\n(target $t={t + horizon}$)", fontsize=11)
+        for row, tensor in enumerate(tensors):
+            ax = axes[row, col]
+            if is_timeseries:
+                ax.plot(_to_image(tensor[t, b]).mean(axis=0), color=colors[row], linewidth=2)
+                ax.set_ylim(-0.05, 1.05)
+                ax.grid(alpha=0.25, linewidth=0.5)
+            else:
+                ax.imshow(_to_image(tensor[t, b]), cmap="gray", vmin=0, vmax=1)
+                ax.set_xticks([])
+                ax.set_yticks([])
+            if col == 0:
+                ax.set_ylabel(row_labels[row], fontsize=11)
+
+    fig.suptitle(
+        f"{_display_dataset(args.dataset)}: qualitative next-frame predictions",
+        fontsize=13,
+        y=1.01,
+    )
+    fig.tight_layout(rect=(0.12, 0.0, 1.0, 0.97))
+    stem = (
+        f"qualitative_paper_{args.dataset}_{args.scenario}_seed{args.seed}_"
+        f"{args.baseline_mode}_vs_{args.topo_mode}_{args.target_space}"
+    )
+    out_path = out_dir / f"{stem}.{args.format}"
+    fig.savefig(out_path, bbox_inches="tight", dpi=300)
+    if args.format != "png":
+        fig.savefig(out_dir / f"{stem}.png", bbox_inches="tight", dpi=300)
+    plt.close(fig)
+    print(f"Saved paper qualitative figure: {out_path}")
+    return out_path
 
 
 def _plot_error_curves(
@@ -726,6 +778,24 @@ def make_figure(args: argparse.Namespace) -> Path:
     selected = _select_examples(err_z, err_topo, args.n_examples, args.min_gain, min_source_t)
 
     is_timeseries = args.dataset in {"lorenz96", "electric_devices"}
+    if args.paper_layout:
+        out_path = _plot_paper_prediction_grid(
+            args,
+            selected,
+            target_x,
+            pred_z_x,
+            pred_topo_x,
+            horizon,
+            out_dir,
+        )
+        for t, b in selected:
+            gain = float(err_z[t, b] - err_topo[t, b])
+            print(
+                f"selected clip={b} source_t={t} target_t={t + horizon} "
+                f"z_mse={float(err_z[t,b]):.6f} topo_mse={float(err_topo[t,b]):.6f} gain={gain:.6f}"
+            )
+        return out_path
+
     fig, axes = plt.subplots(args.n_examples, 3, figsize=(7.2, 2.35 * args.n_examples), squeeze=False)
     plot_row = _plot_timeseries_row if is_timeseries else _plot_frame_row
     for row, (t, b) in enumerate(selected):
@@ -797,6 +867,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--format", default="pdf", choices=["pdf", "png"])
     parser.add_argument("--target-space", default="raw", choices=["raw", "decoded"], help="raw compares to X; decoded compares to decoded target z.")
     parser.add_argument("--plot-kind", default="panels", choices=["panels", "error_curve"])
+    parser.add_argument("--paper-layout", action="store_true", help="Use rows=methods and columns=examples without metric annotations.")
     parser.add_argument("--error-yscale", default="linear", choices=["linear", "log"], help="Y-axis scale for error-curve plots.")
     return parser.parse_args()
 
