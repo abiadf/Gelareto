@@ -61,12 +61,15 @@ set -euo pipefail
 #   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
-  --scenario clip_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda dinov2_latent_tda dinov2_finetune_latent_tda clip_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
+  --scenario latent_tda #,geo_latent_tda,topo_latent_tda #latent_tda,geo_latent_tda,topo_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda dinov2_latent_tda dinov2_finetune_latent_tda clip_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
   --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
-  --seeds 0,1,2                 # comma-separated seeds
-  --modes z,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1 # plus *_zero,*_shuffle,*_noise,*_shift controls
-  --horizon 5
-  # --include-retrain-encoder       # not used by frozen CLIP/V-JEPA/DINO scenarios
+  --seeds 0,1,2,3,4                 # comma-separated seeds
+  # --modes z,z_h0,z_h1,z_both,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1,z_landscape_h1,z_diffusion_h1,z_perslay_h1,z_fuse_perslay_h1,z_pi_h1,z_laplacian_h1,z_landscape_h0,z_landscape_both,z_perslay_h0,z_perslay_both,z_pi_h0,z_pi_both,z_rff_h1,topo_h1,topo_pi_h1 #topo_pca_h1,topo_kpca_h1
+  # --modes z,z_fuse_laplacian_h1_zero,z_fuse_laplacian_h1_shuffle,z_fuse_laplacian_h1_noise,z_fuse_laplacian_h1_shift,z_fuse_diffusion_h1_zero,z_fuse_diffusion_h1_shuffle,z_fuse_diffusion_h1_noise,z_fuse_diffusion_h1_shift,z_fuse_rff_h1_zero,z_fuse_rff_h1_shuffle,z_fuse_rff_h1_noise,z_fuse_rff_h1_shift
+  --modes z
+
+  --horizon 18 #5
+  --include-retrain-encoder       # not used by frozen CLIP/V-JEPA/DINO scenarios
   --ae-epochs 10                    # baseline AE pretraining epochs
   --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
   # --hparam-file results/hparam_search/latent_z_best_hparams.json
@@ -87,9 +90,9 @@ args=(
   # --vjepa-repo facebook/vjepa2-vitl-fpc64-256 # vjepa_latent_tda: Hugging Face checkpoint
   # --vjepa-batch-size 1             # vjepa_latent_tda: lower this if GPU memory is tight
   # --vjepa-num-frames 16            # vjepa_latent_tda: frames per context window ending at each time step
-  --clip-repo openai/clip-vit-base-patch32 # clip_latent_tda: lightweight frozen CLIP frame encoder
-  --clip-batch-size 64
-  --clip-image-size 224
+  # --clip-repo openai/clip-vit-base-patch32 # clip_latent_tda: lightweight frozen CLIP frame encoder
+  # --clip-batch-size 64
+  # --clip-image-size 224
   # --simvp-input-frames 5           # simvp: past frames used to predict the horizon frame
   # --video3d-tda-bins 16            # video3d_tda: bins per H0/H1/H2 Betti curve
   # --video3d-tda-scale 15           # video3d_tda: normalizes Betti counts before concatenation
