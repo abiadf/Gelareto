@@ -27,15 +27,26 @@ def _read_many(paths: list[Path]) -> pd.DataFrame:
 
 def _ensure_encoder(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
+    mapping = {
+        "latent_tda": "ae",
+        "representation_fidelity": "ae",
+        "geo_latent_tda": "geo_ae",
+        "geo_representation_fidelity": "geo_ae",
+        "topo_latent_tda": "topo_ae",
+        "topo_representation_fidelity": "topo_ae",
+    }
     if "encoder" not in result:
         if "scenario" not in result:
             raise ValueError("Input needs an encoder or scenario column")
-        mapping = {
-            "latent_tda": "ae",
-            "geo_latent_tda": "geo_ae",
-            "topo_latent_tda": "topo_ae",
-        }
         result["encoder"] = result["scenario"].map(mapping)
+    elif "scenario" in result:
+        # Concatenating AE, GeoAE, and TopoAE frames creates an encoder column,
+        # but baseline AE rows may be empty because only regularized scenarios
+        # originally recorded that field. Fill those rows from the scenario.
+        result["encoder"] = result["encoder"].fillna(result["scenario"].map(mapping))
+    if result["encoder"].isna().any():
+        scenarios = sorted(result.loc[result["encoder"].isna(), "scenario"].dropna().astype(str).unique())
+        raise ValueError(f"Could not infer encoder for scenarios: {', '.join(scenarios)}")
     if "encoder_variant" not in result:
         result["encoder_variant"] = result["encoder"].astype(str)
         geo_mask = result["encoder"].eq("geo_ae")
@@ -188,7 +199,9 @@ def write_text_report(merged: pd.DataFrame, correlations: pd.DataFrame, path: Pa
         "",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(report), encoding="utf-8")
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text("\n".join(report), encoding="utf-8")
+    temporary.replace(path)
 
 
 def parse_args() -> argparse.Namespace:

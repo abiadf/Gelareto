@@ -1,5 +1,7 @@
 import numpy as np
+import pandas as pd
 
+from scripts.analyze_representation_fidelity import _ensure_encoder
 from topo.ml_tda_latent import (
     mean_normalized_distance_matrix,
     metric_distortion,
@@ -33,3 +35,15 @@ def test_distorted_geometry_has_positive_distortion():
     distance_x, _ = mean_normalized_distance_matrix(points)
     distance_z, _ = mean_normalized_distance_matrix(distorted)
     assert metric_distortion(distance_x, distance_z) > 0.1
+
+
+def test_encoder_is_filled_for_baseline_rows_in_mixed_results():
+    mixed = pd.DataFrame(
+        {
+            "scenario": ["latent_tda", "geo_latent_tda", "topo_latent_tda"],
+            "encoder": [np.nan, "geo_ae", "topo_ae"],
+        }
+    )
+    fixed = _ensure_encoder(mixed)
+    assert fixed["encoder"].tolist() == ["ae", "geo_ae", "topo_ae"]
+    assert fixed["encoder_variant"].tolist() == ["ae", "geo_ae", "topo_ae"]

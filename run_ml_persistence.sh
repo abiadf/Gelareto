@@ -74,6 +74,7 @@ args=(
   # Reuse the existing encoder checkpoints so forecasting and fidelity evaluate
   # exactly the same trained representations. Add --include-retrain-encoder only
   # when intentionally rebuilding every encoder.
+  --reuse-predictor                   # reuse the z and z_h1 models from the completed run
   --ae-epochs 10                    # baseline AE pretraining epochs
   --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
   # --hparam-file results/hparam_search/latent_z_best_hparams.json
