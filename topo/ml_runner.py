@@ -68,6 +68,9 @@ RUNNER_SCENARIOS = {
     "latent_stability",
     "geo_latent_stability",
     "topo_latent_stability",
+    "representation_fidelity",
+    "geo_representation_fidelity",
+    "topo_representation_fidelity",
     "geo_latent_tda",
     "topo_latent_tda",
     "vae_latent_tda",
@@ -133,6 +136,7 @@ class RunConfig:
     latent_tda_max_test: int | None
     recompute_latent_tda_features: bool
     stability_noise_levels: list[float] | None
+    fidelity_windows: int
     geo_ae_lambda: float
     geo_ae_epochs: int | None
     geo_ae_pair_batch_size: int
@@ -538,9 +542,11 @@ def _save_results(
         encoding="utf-8",
     )
     if results_df is not None:
-        results_df.to_csv(out_dir / "results.csv", index=False, float_format="%.4f")
+        float_format = "%.8g" if "representation_fidelity" in cfg.scenario else "%.4f"
+        results_df.to_csv(out_dir / "results.csv", index=False, float_format=float_format)
     if summary_df is not None:
-        summary_df.to_csv(out_dir / "summary.csv", float_format="%.4f")
+        float_format = "%.8g" if "representation_fidelity" in cfg.scenario else "%.4f"
+        summary_df.to_csv(out_dir / "summary.csv", float_format=float_format)
     if profile_df is not None:
         profile_df.to_csv(out_dir / "profile.csv", index=False, float_format="%.4f")
     print(f"\nSaved run outputs to {out_dir}")
@@ -1394,6 +1400,84 @@ def run_latent_stability(cfg: RunConfig, context: VideoContext, encoder_kind: st
         encoder_loader=encoder_loader,
         encoder_label=encoder_label,
     )
+
+
+def run_representation_fidelity(
+    cfg: RunConfig,
+    context: VideoContext,
+    encoder_kind: str = "ae",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    ml_tda.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HORIZON=context.horizon,
+        DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_latent.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HORIZON=context.horizon,
+        RETRAIN_ENCODER=cfg.retrain_encoder,
+        AE_EPOCHS=context.ae_epochs,
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+
+    if encoder_kind == "ae":
+        encoder_label = "ae"
+
+        def encoder_loader(seed):
+            return ml_tda_latent.load_or_train_shared_encoder_for_latent_tda(
+                seed, context.x_train, context.x_train
+            )
+
+    elif encoder_kind == "geo":
+        encoder_label = "geo_ae"
+
+        def encoder_loader(seed):
+            encoder, _, _ = _load_geo_encoder_for_seed(cfg, context, seed)
+            return encoder
+
+    elif encoder_kind == "topo":
+        encoder_label = "topo_ae"
+
+        def encoder_loader(seed):
+            encoder, _, _ = _load_topo_encoder_for_seed(cfg, context, seed)
+            return encoder
+
+    else:
+        raise ValueError(f"Unknown fidelity encoder kind: {encoder_kind}")
+
+    print(
+        f"Representation fidelity config: dataset={cfg.dataset}, encoder={encoder_label}, "
+        f"seeds={seeds}, window={window}, n_windows={cfg.fidelity_windows}"
+    )
+    results_df, summary_df = ml_tda_latent.run_representation_fidelity_diagnostic(
+        X_test=context.x_test,
+        run_seeds=seeds,
+        encoder_loader=encoder_loader,
+        encoder_label=encoder_label,
+        window=window,
+        n_windows=cfg.fidelity_windows,
+    )
+    if encoder_kind == "geo":
+        results_df["geo_ae_lambda"] = cfg.geo_ae_lambda
+        summary_df["geo_ae_lambda"] = cfg.geo_ae_lambda
+    elif encoder_kind == "topo":
+        results_df["topo_ae_lambda"] = cfg.topo_ae_lambda
+        results_df["topo_ae_distance"] = cfg.topo_ae_distance
+        summary_df["topo_ae_lambda"] = cfg.topo_ae_lambda
+        summary_df["topo_ae_distance"] = cfg.topo_ae_distance
+    print("\nRepresentation-fidelity per-window results:")
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nRepresentation-fidelity per-seed summaries:")
+    print(summary_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    return results_df, summary_df
 
 
 def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -3292,6 +3376,12 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         help="Comma-separated input-noise std levels for latent_stability, e.g. 0.01,0.03,0.05,0.10.",
     )
     parser.add_argument(
+        "--fidelity-windows",
+        type=int,
+        default=100,
+        help="Number of deterministic full test windows sampled per seed for representation_fidelity.",
+    )
+    parser.add_argument(
         "--recompute-latent-tda-features",
         action="store_true",
         help="Recompute latent-trajectory TDA caches even when matching cached files exist.",
@@ -3446,6 +3536,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         latent_tda_max_test=args.latent_tda_max_test,
         recompute_latent_tda_features=args.recompute_latent_tda_features,
         stability_noise_levels=args.stability_noise_levels,
+        fidelity_windows=args.fidelity_windows,
         geo_ae_lambda=args.geo_ae_lambda,
         geo_ae_epochs=args.geo_ae_epochs,
         geo_ae_pair_batch_size=args.geo_ae_pair_batch_size,
@@ -3518,6 +3609,12 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
         return run_latent_stability(cfg, context, encoder_kind="geo")
     if cfg.scenario == "topo_latent_stability":
         return run_latent_stability(cfg, context, encoder_kind="topo")
+    if cfg.scenario == "representation_fidelity":
+        return run_representation_fidelity(cfg, context)
+    if cfg.scenario == "geo_representation_fidelity":
+        return run_representation_fidelity(cfg, context, encoder_kind="geo")
+    if cfg.scenario == "topo_representation_fidelity":
+        return run_representation_fidelity(cfg, context, encoder_kind="topo")
     if cfg.scenario == "geo_latent_tda":
         return run_geo_latent_tda(cfg, context)
     if cfg.scenario == "topo_latent_tda":

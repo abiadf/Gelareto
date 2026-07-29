@@ -233,6 +233,172 @@ def _bottleneck_distance(diagram_a, diagram_b):
     return float(bottleneck(diagram_a, diagram_b))
 
 
+def mean_normalized_distance_matrix(points, eps=1e-12):
+    """Pairwise Euclidean distances normalized by their mean off-diagonal value."""
+    if torch.is_tensor(points):
+        points = points.detach().cpu().numpy()
+    points = np.asarray(points, dtype=np.float64)
+    if points.ndim != 2:
+        raise ValueError(f"Expected a 2D point matrix, got shape={points.shape}")
+    n_points = int(points.shape[0])
+    if n_points < 2:
+        return np.zeros((n_points, n_points), dtype=np.float32), 0.0
+    distances = squareform(pdist(points, metric="euclidean"))
+    off_diagonal = distances[np.triu_indices(n_points, k=1)]
+    scale = float(off_diagonal.mean())
+    if not np.isfinite(scale) or scale <= eps:
+        return np.zeros_like(distances, dtype=np.float32), scale
+    return (distances / scale).astype(np.float32), scale
+
+
+def metric_distortion(distance_x, distance_z):
+    """RMS discrepancy between corresponding upper-triangular distances."""
+    distance_x = np.asarray(distance_x, dtype=np.float64)
+    distance_z = np.asarray(distance_z, dtype=np.float64)
+    if distance_x.shape != distance_z.shape:
+        raise ValueError(f"Distance-matrix shapes differ: {distance_x.shape} != {distance_z.shape}")
+    if distance_x.ndim != 2 or distance_x.shape[0] != distance_x.shape[1]:
+        raise ValueError(f"Expected matching square matrices, got shape={distance_x.shape}")
+    if distance_x.shape[0] < 2:
+        return 0.0
+    upper = np.triu_indices(distance_x.shape[0], k=1)
+    return float(np.sqrt(np.mean((distance_x[upper] - distance_z[upper]) ** 2)))
+
+
+def _diagrams_from_distance_matrix(distances):
+    distances = np.asarray(distances, dtype=np.float32)
+    if distances.shape[0] < 2:
+        empty = np.empty((0, 2), dtype=np.float64)
+        return empty, empty
+    diagrams = ripser(distances, maxdim=1, distance_matrix=True)["dgms"]
+    h0 = _finite_diagram(diagrams[0])
+    h1 = _finite_diagram(diagrams[1]) if len(diagrams) > 1 else np.empty((0, 2), dtype=np.float64)
+    return h0, h1
+
+
+def representation_fidelity_for_window(frames, latents):
+    """Compare input- and latent-space metric/VR persistence for one window."""
+    if torch.is_tensor(frames):
+        frames = ml_tda.tensor_to_model_float(frames).detach().cpu().numpy()
+    if torch.is_tensor(latents):
+        latents = latents.detach().cpu().numpy()
+    frames = np.asarray(frames)
+    latents = np.asarray(latents)
+    if len(frames) != len(latents):
+        raise ValueError(f"Window lengths differ: {len(frames)} != {len(latents)}")
+
+    x_points = frames.reshape(len(frames), -1)
+    z_points = latents.reshape(len(latents), -1)
+    distance_x, x_scale = mean_normalized_distance_matrix(x_points)
+    distance_z, z_scale = mean_normalized_distance_matrix(z_points)
+    x_h0, x_h1 = _diagrams_from_distance_matrix(distance_x)
+    z_h0, z_h1 = _diagrams_from_distance_matrix(distance_z)
+    return {
+        "metric_distortion": metric_distortion(distance_x, distance_z),
+        "h0_bottleneck": _bottleneck_distance(x_h0, z_h0),
+        "h1_bottleneck": _bottleneck_distance(x_h1, z_h1),
+        "x_distance_scale": float(x_scale),
+        "z_distance_scale": float(z_scale),
+        "x_h0_count": int(len(x_h0)),
+        "z_h0_count": int(len(z_h0)),
+        "x_h1_count": int(len(x_h1)),
+        "z_h1_count": int(len(z_h1)),
+        "h1_any_nonempty": bool(len(x_h1) or len(z_h1)),
+        "h1_both_nonempty": bool(len(x_h1) and len(z_h1)),
+    }
+
+
+def _sample_full_window_indices(sequence_length, n_clips, window, n_windows, seed):
+    window = int(window)
+    if window < 2:
+        raise ValueError(f"representation fidelity requires window >= 2, got {window}")
+    if sequence_length < window:
+        raise ValueError(
+            f"Sequence length {sequence_length} is shorter than fidelity window {window}"
+        )
+    candidates = [(end, clip) for end in range(window - 1, sequence_length) for clip in range(n_clips)]
+    if n_windows is None or int(n_windows) >= len(candidates):
+        return candidates
+    if int(n_windows) <= 0:
+        raise ValueError(f"fidelity n_windows must be positive, got {n_windows}")
+    rng = np.random.default_rng(int(seed))
+    selected = np.sort(rng.choice(len(candidates), size=int(n_windows), replace=False))
+    return [candidates[int(index)] for index in selected]
+
+
+def run_representation_fidelity_diagnostic(
+    X_test,
+    run_seeds=None,
+    encoder_loader=None,
+    encoder_label="ae",
+    window=20,
+    n_windows=100,
+):
+    """Measure input-to-latent metric distortion and H0/H1 persistence fidelity."""
+    if X_test is None:
+        empty = pd.DataFrame()
+        return empty, empty
+    if bottleneck is None:
+        raise ImportError("representation_fidelity requires persim. Install it with `pip install persim`.")
+
+    run_seeds = list(range(5)) if run_seeds is None else list(run_seeds)
+    rows = []
+    T, B = X_test.shape[:2]
+    for seed in tqdm_progress_bar(run_seeds, desc="Representation fidelity seeds", total=len(run_seeds), leave=True):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if encoder_loader is None:
+            raise ValueError("representation_fidelity requires an encoder_loader")
+        encoder = encoder_loader(seed)
+        z_test = encode_video_to_z(X_test, encoder)
+        sample_seed = _stable_int_seed(DATASET, seed, window, "representation_fidelity_windows")
+        indices = _sample_full_window_indices(T, B, window, n_windows, sample_seed)
+        for window_id, (end, clip) in enumerate(indices):
+            start = end - int(window) + 1
+            metrics = representation_fidelity_for_window(
+                X_test[start:end + 1, clip],
+                z_test[start:end + 1, clip],
+            )
+            rows.append(
+                {
+                    "dataset": DATASET,
+                    "encoder": encoder_label,
+                    "seed": int(seed),
+                    "window_id": int(window_id),
+                    "clip": int(clip),
+                    "window_start": int(start),
+                    "window_end": int(end),
+                    "window_size": int(window),
+                    **metrics,
+                }
+            )
+
+    results_df = pd.DataFrame(rows)
+    if results_df.empty:
+        return results_df, pd.DataFrame()
+    summary_rows = []
+    metric_cols = ["metric_distortion", "h0_bottleneck", "h1_bottleneck"]
+    for (dataset, encoder, seed), group in results_df.groupby(
+        ["dataset", "encoder", "seed"], sort=False
+    ):
+        row = {
+            "dataset": dataset,
+            "encoder": encoder,
+            "seed": int(seed),
+            "window_size": int(group["window_size"].iloc[0]),
+            "n_windows": int(len(group)),
+            "h1_any_nonempty_fraction": float(group["h1_any_nonempty"].mean()),
+            "h1_both_nonempty_fraction": float(group["h1_both_nonempty"].mean()),
+        }
+        for metric in metric_cols:
+            row[f"{metric}_median"] = float(group[metric].median())
+            row[f"{metric}_mean"] = float(group[metric].mean())
+            row[f"{metric}_std"] = float(group[metric].std(ddof=1)) if len(group) > 1 else 0.0
+        summary_rows.append(row)
+    return results_df, pd.DataFrame(summary_rows)
+
+
 def run_latent_stability_diagnostic(
     X_train=None,
     X_test=None,

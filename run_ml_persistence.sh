@@ -7,6 +7,7 @@ set -euo pipefail
 # topo_real_tda: topoAE z-history + optional frame/real-space TDA -> future z
 # latent_tda: AE z-history + optional latent-trajectory TDA -> future z
 # latent_stability/geo_latent_stability/topo_latent_stability: noised-input diagnostic measuring latent Hausdorff and diagram bottleneck changes
+# representation_fidelity/geo_representation_fidelity/topo_representation_fidelity: input-to-latent metric distortion and H0/H1 bottleneck fidelity
 # geo_latent_tda: geoAE z-history + optional latent-trajectory TDA -> future z
 # topo_latent_tda: topoAE z-history + optional latent-trajectory TDA -> future z
 # vae_latent_tda: VAE encoder z-history + optional latent-trajectory TDA -> future z
@@ -61,15 +62,18 @@ set -euo pipefail
 #   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
-  --scenario latent_tda #,geo_latent_tda,topo_latent_tda #latent_tda,geo_latent_tda,topo_latent_tda # options: aux_tda real_tda geo_real_tda topo_real_tda latent_tda latent_stability geo_latent_stability topo_latent_stability geo_latent_tda topo_latent_tda vae_latent_tda byol_latent_tda vjepa_latent_tda dinov2_latent_tda dinov2_finetune_latent_tda clip_latent_tda simvp video3d_tda pixel_tda geo_pixel_tda topo_pixel_tda decode_z geo_decode_z topo_decode_z
+  # The latent-TDA scenarios produce the paired MSE(z) and MSE(z+H1) values.
+  # The fidelity scenarios evaluate the same AE/GeoAE/TopoAE encoders on fixed test windows.
+  --scenario latent_tda,geo_latent_tda,topo_latent_tda,representation_fidelity,geo_representation_fidelity,topo_representation_fidelity
   --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
   --seeds 0,1,2,3,4                 # comma-separated seeds
   # --modes z,z_h0,z_h1,z_both,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1,z_landscape_h1,z_diffusion_h1,z_perslay_h1,z_fuse_perslay_h1,z_pi_h1,z_laplacian_h1,z_landscape_h0,z_landscape_both,z_perslay_h0,z_perslay_both,z_pi_h0,z_pi_both,z_rff_h1,topo_h1,topo_pi_h1 #topo_pca_h1,topo_kpca_h1
   # --modes z,z_fuse_laplacian_h1_zero,z_fuse_laplacian_h1_shuffle,z_fuse_laplacian_h1_noise,z_fuse_laplacian_h1_shift,z_fuse_diffusion_h1_zero,z_fuse_diffusion_h1_shuffle,z_fuse_diffusion_h1_noise,z_fuse_diffusion_h1_shift,z_fuse_rff_h1_zero,z_fuse_rff_h1_shuffle,z_fuse_rff_h1_noise,z_fuse_rff_h1_shift
-  --modes z
-
-  --horizon 18 #5
-  --include-retrain-encoder       # not used by frozen CLIP/V-JEPA/DINO scenarios
+  --modes z,z_h1                     # fixed primary comparison used for G_topo
+  --horizon 5
+  # Reuse the existing encoder checkpoints so forecasting and fidelity evaluate
+  # exactly the same trained representations. Add --include-retrain-encoder only
+  # when intentionally rebuilding every encoder.
   --ae-epochs 10                    # baseline AE pretraining epochs
   --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
   # --hparam-file results/hparam_search/latent_z_best_hparams.json
@@ -79,9 +83,10 @@ args=(
   --topo-ae-epochs 3
   --geo-ae-pair-batch-size 64
   --topo-ae-pair-batch-size 64
-  --topo-ae-distance signature         # signature | wasserstein
+  --topo-ae-distance wasserstein       # signature | wasserstein
   --decoder-type mlp                   # mlp: old flat decoder | conv: convolutional upsampling decoder
   --latent-tda-window 15
+  --fidelity-windows 100               # same deterministic K windows for every encoder
   # --stability-noise-levels 0,0.01,0.03,0.05,0.10 # use for latent_stability scenario
   # --vae-beta 0.001                 # vae_latent_tda: KL weight
   # --vae-epochs 10                  # vae_latent_tda: pretraining epochs; default falls back to --ae-epochs
