@@ -1473,8 +1473,6 @@ def run_representation_fidelity(
         results_df["topo_ae_distance"] = cfg.topo_ae_distance
         summary_df["topo_ae_lambda"] = cfg.topo_ae_lambda
         summary_df["topo_ae_distance"] = cfg.topo_ae_distance
-    print("\nRepresentation-fidelity per-window results:")
-    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
     print("\nRepresentation-fidelity per-seed summaries:")
     print(summary_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
     return results_df, summary_df
@@ -3876,7 +3874,42 @@ def main(argv: list[str] | None = None) -> None:
                             profile_frames.append(tagged_profile)
                         print("=" * 88)
 
-    _print_aggregate_tables(result_frames, summary_frames, profile_frames)
+    has_fidelity = any("representation_fidelity" in scenario for scenario in scenarios)
+    # Per-window fidelity rows remain in results.csv; printing hundreds of them
+    # again in the combined terminal table obscures the model-level result.
+    printed_results = [] if has_fidelity else result_frames
+    _print_aggregate_tables(printed_results, summary_frames, profile_frames)
+
+    forecast_frames = [
+        frame for frame in result_frames
+        if "scenario" in frame and frame["scenario"].isin(
+            {"latent_tda", "geo_latent_tda", "topo_latent_tda"}
+        ).any()
+    ]
+    fidelity_frames = [
+        frame for frame in summary_frames
+        if "scenario" in frame and frame["scenario"].str.contains("representation_fidelity").any()
+    ]
+    if forecast_frames and fidelity_frames:
+        from scripts.analyze_representation_fidelity import (
+            _ensure_encoder,
+            correlation_table,
+            topology_gain,
+            write_text_report,
+        )
+
+        forecast = pd.concat(forecast_frames, ignore_index=True, sort=False)
+        fidelity = _ensure_encoder(pd.concat(fidelity_frames, ignore_index=True, sort=False))
+        gain = topology_gain(forecast, "z_h1", "test_mse")
+        keys = ["dataset", "encoder", "encoder_variant", "seed"]
+        merged = fidelity.merge(gain, on=keys, how="inner", validate="one_to_one")
+        if merged.empty:
+            print("\nNo matched fidelity/forecast rows; skipped Spearman report.")
+        else:
+            correlations = correlation_table(merged)
+            report_path = Path("latex_tables/fidelity_runs.txt")
+            write_text_report(merged, correlations, report_path)
+            print(f"\nSaved compact fidelity/Spearman report to {report_path}")
 
 
 if __name__ == "__main__":

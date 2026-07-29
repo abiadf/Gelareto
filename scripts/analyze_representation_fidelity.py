@@ -105,20 +105,90 @@ def correlation_table(merged: pd.DataFrame) -> pd.DataFrame:
     ]
     for x_name, y_name in pairs:
         pair = merged[[x_name, y_name]].replace([np.inf, -np.inf], np.nan).dropna()
-        if len(pair) < 3 or pair[x_name].nunique() < 2 or pair[y_name].nunique() < 2:
-            rho, p_value = np.nan, np.nan
+        if len(pair) < 3:
+            rho, p_value, status = "undefined", "undefined", "fewer than 3 matched points"
+        elif pair[x_name].nunique() < 2:
+            rho, p_value, status = "undefined", "undefined", f"{x_name} is constant"
+        elif pair[y_name].nunique() < 2:
+            rho, p_value, status = "undefined", "undefined", f"{y_name} is constant"
         else:
             rho, p_value = spearmanr(pair[x_name], pair[y_name])
+            rho, p_value, status = float(rho), float(p_value), "ok"
         rows.append(
             {
                 "x": x_name,
                 "y": y_name,
                 "n": int(len(pair)),
-                "spearman_rho": float(rho),
-                "p_value": float(p_value),
+                "spearman_rho": rho,
+                "p_value": p_value,
+                "status": status,
             }
         )
     return pd.DataFrame(rows)
+
+
+def compact_model_table(merged: pd.DataFrame) -> pd.DataFrame:
+    """One readable row per dataset and encoder variant."""
+    columns = [
+        "metric_distortion_median",
+        "h0_bottleneck_median",
+        "h1_bottleneck_median",
+        "topology_gain",
+    ]
+    return (
+        merged.groupby(["dataset", "encoder_variant"], sort=False)[columns]
+        .median()
+        .reset_index()
+        .rename(
+            columns={
+                "encoder_variant": "encoder",
+                "metric_distortion_median": "metric_distortion",
+                "h0_bottleneck_median": "h0_distortion",
+                "h1_bottleneck_median": "h1_distortion",
+                "topology_gain": "predictive_gain",
+            }
+        )
+    )
+
+
+def interpretation_text(correlations: pd.DataFrame) -> str:
+    def describe(x_name, y_name, positive):
+        row = correlations[(correlations["x"] == x_name) & (correlations["y"] == y_name)].iloc[0]
+        if row["status"] != "ok":
+            return f"- {x_name} vs {y_name}: not estimable ({row['status']})."
+        rho = float(row["spearman_rho"])
+        expected = rho > 0 if positive else rho < 0
+        direction = "positive" if rho > 0 else "negative" if rho < 0 else "zero"
+        verdict = "matches" if expected else "does not match"
+        return f"- {x_name} vs {y_name}: rho={rho:.3f} ({direction}); {verdict} the expected direction."
+
+    lines = [
+        "Interpretation",
+        "Lower distortion is better; positive predictive gain means z+H1 improved over z.",
+        describe("metric_distortion_median", "h0_bottleneck_median", True),
+        describe("metric_distortion_median", "h1_bottleneck_median", True),
+        describe("metric_distortion_median", "topology_gain", False),
+        describe("h0_bottleneck_median", "topology_gain", False),
+        describe("h1_bottleneck_median", "topology_gain", False),
+    ]
+    return "\n".join(lines)
+
+
+def write_text_report(merged: pd.DataFrame, correlations: pd.DataFrame, path: Path) -> None:
+    compact = compact_model_table(merged)
+    report = [
+        "Representation fidelity and predictive gain",
+        "",
+        compact.to_string(index=False, float_format=lambda value: f"{value:.4f}"),
+        "",
+        "Spearman correlations",
+        correlations.to_string(index=False, float_format=lambda value: f"{value:.4f}"),
+        "",
+        interpretation_text(correlations),
+        "",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(report), encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
@@ -128,6 +198,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--topology-mode", default="z_h1", help="Predeclared z+topology forecasting mode.")
     parser.add_argument("--mse-column", default="test_mse")
     parser.add_argument("--output-dir", type=Path, default=Path("results/representation_fidelity_analysis"))
+    parser.add_argument("--report-file", type=Path, default=Path("latex_tables/fidelity_runs.txt"))
     return parser.parse_args()
 
 
@@ -148,11 +219,13 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     merged.to_csv(args.output_dir / "fidelity_with_topology_gain.csv", index=False)
     correlations.to_csv(args.output_dir / "spearman_correlations.csv", index=False)
-    print("\nMerged dataset-encoder-seed rows:")
-    print(merged.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    write_text_report(merged, correlations, args.report_file)
+    print("\nMedian results by dataset and encoder:")
+    print(compact_model_table(merged).to_string(index=False, float_format=lambda value: f"{value:.4f}"))
     print("\nSpearman correlations:")
     print(correlations.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
     print(f"\nSaved analysis outputs to {args.output_dir}")
+    print(f"Saved compact report to {args.report_file}")
 
 
 if __name__ == "__main__":
