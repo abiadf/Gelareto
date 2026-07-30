@@ -162,20 +162,52 @@ def compact_model_table(merged: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def compact_encoder_table(merged: pd.DataFrame) -> pd.DataFrame:
+    """Overall median distortion for each encoder variant."""
+    columns = [
+        "metric_distortion_median",
+        "h0_bottleneck_median",
+        "h1_bottleneck_median",
+    ]
+    return (
+        merged.groupby("encoder_variant", sort=False)[columns]
+        .median()
+        .reset_index()
+        .rename(
+            columns={
+                "encoder_variant": "encoder",
+                "metric_distortion_median": "metric_distortion",
+                "h0_bottleneck_median": "h0_distortion",
+                "h1_bottleneck_median": "h1_distortion",
+            }
+        )
+    )
+
+
 def interpretation_text(correlations: pd.DataFrame) -> str:
     def describe(x_name, y_name, positive):
         row = correlations[(correlations["x"] == x_name) & (correlations["y"] == y_name)].iloc[0]
         if row["status"] != "ok":
             return f"- {x_name} vs {y_name}: not estimable ({row['status']})."
         rho = float(row["spearman_rho"])
+        p_value = float(row["p_value"])
+        if p_value >= 0.05:
+            return (
+                f"- {x_name} vs {y_name}: no significant association "
+                f"(rho={rho:.3f}, p={p_value:.3f})."
+            )
         expected = rho > 0 if positive else rho < 0
         direction = "positive" if rho > 0 else "negative" if rho < 0 else "zero"
         verdict = "matches" if expected else "does not match"
-        return f"- {x_name} vs {y_name}: rho={rho:.3f} ({direction}); {verdict} the expected direction."
+        return (
+            f"- {x_name} vs {y_name}: rho={rho:.3f}, p={p_value:.3g} "
+            f"({direction}); {verdict} the expected direction."
+        )
 
     lines = [
         "Interpretation",
         "Lower distortion is better; positive predictive gain means z+H1 improved over z.",
+        "Metric/persistence fidelity is treated as a representation diagnostic, not a mechanism for forecasting gain.",
         describe("metric_distortion_median", "h0_bottleneck_median", True),
         describe("metric_distortion_median", "h1_bottleneck_median", True),
         describe("metric_distortion_median", "topology_gain", False),
@@ -187,10 +219,20 @@ def interpretation_text(correlations: pd.DataFrame) -> str:
 
 def write_text_report(merged: pd.DataFrame, correlations: pd.DataFrame, path: Path) -> None:
     compact = compact_model_table(merged)
+    encoder_summary = compact_encoder_table(merged)
     report = [
         "Representation fidelity and predictive gain",
         "",
+        "Definitions",
+        "- metric_distortion: RMS change in normalized pairwise distances from X to z; lower is better.",
+        "- h0_distortion: bottleneck distance between input and latent H0 diagrams; lower is better.",
+        "- h1_distortion: bottleneck distance between input and latent H1 diagrams; lower is better.",
+        "- predictive_gain: relative MSE improvement of z+H1 over z; positive means topology helped.",
+        "",
         compact.to_string(index=False, float_format=lambda value: f"{value:.4f}"),
+        "",
+        "Overall median distortion by encoder",
+        encoder_summary.to_string(index=False, float_format=lambda value: f"{value:.4f}"),
         "",
         "Spearman correlations",
         correlations.to_string(index=False, float_format=lambda value: f"{value:.4f}"),

@@ -239,28 +239,6 @@ class DataGenerator2D:
         return base + noise
 
     @staticmethod
-    def generate_torus_point_cloud(n_points: int = 2000, R_major: float = 1.0, r_minor: float = 0.3,
-                                            noise: float = 0.01, rand_seed: Optional[int] = None,
-                                            device = device, dtype: torch.dtype = torch.float32) -> torch.Tensor:
-        """Generate a 2D torus-like (ring) point cloud on GPU using PyTorch.
-        n_points = #points to generate
-        rand_seed = random seed for reproducibility
-        R_major/r_minor are the major/minor radii of the torus. Noise is added to r_minor"""
-
-        if rand_seed is not None:
-            torch.manual_seed(rand_seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(rand_seed)
-
-        theta  = torch.rand(n_points, device=device, dtype=dtype) * (2 * torch.pi)
-        radial = R_major + r_minor * torch.randn(n_points, device=device, dtype=dtype)
-        x      = radial * torch.cos(theta)
-        y      = radial * torch.sin(theta)
-        pts    = torch.stack([x, y], dim=1)
-        pts    = pts + noise * torch.randn_like(pts)
-        return pts
-
-    @staticmethod
     def generate_donut_matrix(n_rows: int, n_cols: int, inner_radius: float = 2.5, outer_radius: float = 4.0) -> torch.Tensor:
         """Generate a 2D matrix with a donut shape: values are 1.0 in the donut region,
         0.1 inside the inner radius, and 0.0 outside the outer radius.
@@ -357,12 +335,3 @@ class MemoryUtils:
             p.unlink(missing_ok=True)
         for p in pathlib.Path('.').rglob('*.nbc'):
             p.unlink(missing_ok=True)
-
-    @staticmethod
-    def get_ram_at_specific_time():
-        """Returns current process RAM in MiB for a certain time. To get the RAM of a specific function,
-        call this function before AND after the function is used, and take the difference in RAM usage"""
-        return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
-
-
-# to LOAD weather data, use code in another repo: timeseries_geo_ml/src/preprocessing/data_loader_module > DatasetLoading.load_weather_data

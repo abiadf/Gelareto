@@ -2,8 +2,6 @@
 
 import torch
 
-from topo.old_1d_persistence import Sublevel1D
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -219,5 +217,4 @@ def compute_1d_sublevel_persistence_lake(timeseries_values: torch.Tensor, keypoi
                 submerged_components[active_sequence_rank] = True
                 
     return birth_death_pairs_list
-
 

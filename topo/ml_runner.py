@@ -72,6 +72,7 @@ RUNNER_SCENARIOS = {
     "geo_representation_fidelity",
     "topo_representation_fidelity",
     "geo_latent_tda",
+    "geo_latent_spectrum",
     "topo_latent_tda",
     "vae_latent_tda",
     "byol_latent_tda",
@@ -1054,6 +1055,75 @@ def _load_topo_encoder_for_seed(
         decoder_type=cfg.decoder_type,
     )
     return encoder, encoder_path, model_namespace
+
+
+def _pca_spectrum_statistics(z: torch.Tensor) -> dict[str, float]:
+    """Full standardized PCA spectrum diagnostics for a latent point cloud."""
+    flat = z.detach().cpu().numpy().reshape(-1, z.shape[-1]).astype(np.float64)
+    scale = flat.std(axis=0)
+    scale[scale == 0] = 1.0
+    flat = (flat - flat.mean(axis=0)) / scale
+    singular_values = np.linalg.svd(flat, full_matrices=False, compute_uv=False)
+    variance = singular_values**2
+    variance /= variance.sum()
+    cumulative = np.cumsum(variance)
+    positive = variance[variance > 0]
+
+    def k_for(threshold: float) -> int:
+        return int(np.searchsorted(cumulative, threshold, side="left") + 1)
+
+    return {
+        "pc1_pc2_pct": 100.0 * float(variance[:2].sum()),
+        "k50": float(k_for(0.50)),
+        "k90": float(k_for(0.90)),
+        "k95": float(k_for(0.95)),
+        "effective_rank": float(np.exp(-np.sum(positive * np.log(positive)))),
+        "participation_ratio": float(1.0 / np.sum(variance**2)),
+    }
+
+
+def run_geo_latent_spectrum(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Train/load GeoAE and measure its test-latent PCA spectrum only."""
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
+    device = _select_device(cfg.device)
+    ml_tda.configure_runtime(
+        DATASET=_geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda),
+        LATENT_DIM=context.latent_dim,
+        DEVICE=device,
+        AE_EPOCHS=context.ae_epochs,
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    rows = []
+    for seed in tqdm_progress_bar(seeds, desc="GeoAE PCA spectrum seeds", total=len(seeds), leave=True):
+        _set_all_seeds(seed)
+        encoder, encoder_path, _ = _load_geo_encoder_for_seed(cfg, context, seed)
+        z = ml_tda_latent.encode_video_to_z(
+            context.x_test,
+            encoder,
+            frame_batch_size=context.ae_frame_batch_size or 1024,
+        )
+        rows.append(
+            {
+                "dataset": cfg.dataset,
+                "encoder": "GeoAE",
+                "geo_ae_lambda": cfg.geo_ae_lambda,
+                "seed": seed,
+                "latent_dim": context.latent_dim,
+                "n_test_points": int(z.shape[0] * z.shape[1]),
+                "encoder_path": str(encoder_path),
+                **_pca_spectrum_statistics(z),
+            }
+        )
+    results = pd.DataFrame(rows)
+    metrics = ["pc1_pc2_pct", "k50", "k90", "k95", "effective_rank", "participation_ratio"]
+    summary = ml_tda.summarize_metric_runs(
+        results,
+        group_cols="geo_ae_lambda",
+        metric_cols=metrics,
+        sort_metric="effective_rank",
+    )
+    return results, summary
 
 
 def run_geo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -3615,6 +3685,8 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
         return run_representation_fidelity(cfg, context, encoder_kind="topo")
     if cfg.scenario == "geo_latent_tda":
         return run_geo_latent_tda(cfg, context)
+    if cfg.scenario == "geo_latent_spectrum":
+        return run_geo_latent_spectrum(cfg, context)
     if cfg.scenario == "topo_latent_tda":
         return run_topo_latent_tda(cfg, context)
     if cfg.scenario == "vae_latent_tda":

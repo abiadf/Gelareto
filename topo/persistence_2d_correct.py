@@ -290,23 +290,6 @@ class IncrementalStreamingPersistence2D:
         self._store_face_birth_values(full, old_rows, self.rows)
         self._store_h1_dual_edges_except_bottom(full, old_rows, self.rows)
 
-    def critical_summary(self) -> dict[str, int]:
-        """Sum critical counts from streamed chunks."""
-        total = {
-            "chunks": len(self.critical_counts),
-            "minima": 0,
-            "maxima": 0,
-            "saddles": 0,
-            "critical_pixels": 0,
-            "frontier_pixels": 0,
-            "adaptive_events": 0,
-        }
-        for counts in self.critical_counts:
-            for key in total:
-                if key != "chunks":
-                    total[key] += counts[key]
-        return total
-
     def stored_state_summary(self) -> dict[str, int]:
         """Count stored streamed state."""
         summary = {
@@ -374,18 +357,6 @@ class IncrementalStreamingPersistence2D:
             return chunk
         previous_last_row = self.values()[-1:, :]
         return np.vstack([previous_last_row, chunk])
-
-    def incremental_h0_diagram(self) -> np.ndarray:
-        """Return H0 pairs processed so far."""
-        return self.incremental_h0_state.diagram()
-
-    def update(self, chunk: np.ndarray, h0_watermark: float | None = None) -> None:
-        """Alias for update_chunk."""
-        self.update_chunk(chunk, h0_watermark=h0_watermark)
-
-    def finalize(self) -> tuple[np.ndarray, np.ndarray]:
-        """Alias for finalize_exact."""
-        return self.finalize_exact()
 
     def _make_h0_component_edges(self, full: np.ndarray, old_rows: int, new_rows: int) -> np.ndarray:
         """Create H0 edges for new rows plus boundary."""
@@ -533,41 +504,6 @@ def compute_streamed_by_rows(grid: np.ndarray, chunk_rows: int) -> tuple[np.ndar
     return engine.finalize_exact()
 
 
-def compute_safe_h0_watermarks_for_row_chunks(grid: np.ndarray, chunk_rows: int) -> list[float]:
-    """Return exact H0 watermarks for row-chunk demos."""
-    grid = np.asarray(grid, dtype=np.float32)
-    R, C = grid.shape
-    watermarks = []
-    for end in range(chunk_rows, R + chunk_rows, chunk_rows):
-        end = min(end, R)
-        future = []
-        for r in range(end, R):
-            for c in range(C - 1):
-                future.append(max(grid[r, c], grid[r, c + 1]))
-        for r in range(max(0, end - 1), R - 1):
-            for c in range(C):
-                future.append(max(grid[r, c], grid[r + 1, c]))
-        if future:
-            watermarks.append(float(np.nextafter(np.min(future), -np.inf)))
-        else:
-            watermarks.append(np.inf)
-        if end == R:
-            break
-    return watermarks
-
-
-def compute_incremental_streamed_by_rows(
-    grid: np.ndarray, chunk_rows: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute exact pairs using per-chunk H0 watermarks."""
-    engine = IncrementalStreamingPersistence2D()
-    grid = np.asarray(grid, dtype=np.float32)
-    watermarks = compute_safe_h0_watermarks_for_row_chunks(grid, chunk_rows)
-    for chunk_idx, start in enumerate(range(0, grid.shape[0], chunk_rows)):
-        engine.update_chunk(grid[start : start + chunk_rows], h0_watermark=watermarks[chunk_idx])
-    return engine.finalize_exact()
-
-
 def compute_exact_prefix_diagrams_by_rows(
     grid: np.ndarray, chunk_rows: int
 ) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -595,7 +531,3 @@ def compute_2d_prefix_diagrams_by_full_recompute(
         if end == grid.shape[0]:
             break
     return diagrams
-
-
-# Backwards-compatible names used by older notebook cells.
-StreamingCubicalPersistence2D = IncrementalStreamingPersistence2D
