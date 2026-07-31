@@ -7,7 +7,10 @@ import torch
 import torch.nn as nn
 
 
-VALID_MODES = {"z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h1_shuffle"}
+VALID_MODES = {
+    "z", "h0", "h1", "both", "z_h0", "z_h1", "z_both",
+    "z_h0_shuffle", "z_h1_shuffle",
+}
 
 
 def labels_from_sources(config: dict, split: str, task: str) -> torch.Tensor:
@@ -57,8 +60,28 @@ def clip_features(payload: dict, mode: str, window: int, seed: int = 0) -> torch
     if mode == "z_both":
         return torch.cat([z, h0, h1], dim=-1)
     generator = torch.Generator().manual_seed(int(seed))
-    shuffled_h1 = h1[torch.randperm(len(h1), generator=generator)]
-    return torch.cat([z, shuffled_h1], dim=-1)
+    if mode == "z_h0_shuffle":
+        shuffled = h0[torch.randperm(len(h0), generator=generator)]
+    else:
+        shuffled = h1[torch.randperm(len(h1), generator=generator)]
+    return torch.cat([z, shuffled], dim=-1)
+
+
+def paired_signflip_test(differences) -> float:
+    """Exact one-sided paired test for the alternative mean(difference) > 0."""
+    differences = np.asarray(differences, dtype=np.float64)
+    differences = differences[np.isfinite(differences)]
+    if differences.size == 0:
+        return float("nan")
+    observed = float(differences.mean())
+    exceedances = 0
+    total = 1 << int(differences.size)
+    for mask in range(total):
+        signs = np.asarray(
+            [1.0 if mask & (1 << idx) else -1.0 for idx in range(differences.size)]
+        )
+        exceedances += float((differences * signs).mean()) >= observed - 1e-15
+    return float(exceedances / total)
 
 
 class ClipClassifier(nn.Module):

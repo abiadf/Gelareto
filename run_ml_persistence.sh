@@ -33,7 +33,7 @@ set -euo pipefail
 #   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_gate_both,z_pca_h0,z_pca_h1,z_pca_both,z_kpca_h0,z_kpca_h1,z_kpca_both,z_laplacian_h1,z_diffusion_h1,z_rff_h1,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_both,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
 #   geo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda/vjepa_latent_tda: same as latent_tda
 #   simvp: frames, plus latent-TDA modes such as z,z_temporal_stats,z_fuse_h1,z_fuse_pi_h1
-#   latent_classification: z,h0,h1,both,z_h0,z_h1,z_both,z_h1_shuffle
+#   latent_classification: z,h0,h1,both,z_h0,z_h1,z_both,z_h0_shuffle,z_h1_shuffle
 #   video3d_tda: none,h0,h1,h2,h0_h1,h0_h2,h1_h2,all, plus *_zero,*_shuffle,*_noise,*_shift controls
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_pixel_tda/topo_pixel_tda: same as pixel_tda; none is AE z-only -> future X
@@ -70,10 +70,11 @@ args=(
   # to length 100; VR persistence is computed directly in its 3D signal space.
   --scenario latent_classification
   --dataset character_trajectories
-  --seeds 0 #,1,2,3,4                 # comma-separated seeds
+  --seeds 0,1,2,3,4                 # matched seeds required by the paired test
   # z: latent trajectory summary; h0/h1/both: topology only; z_h*: fusion.
   # z_h1_shuffle is the equal-width specificity control for genuine H1.
-  --modes z,h0,h1,both,z_h0,z_h1,z_both,z_h1_shuffle
+  # Focused confirmation run; use the complete mode list above for a full table.
+  --modes z,z_h0,z_h0_shuffle
   --predictor-epochs 100             # classifier epochs
   --hidden-dim 64                    # classifier hidden width
   --latent-tda-window 20

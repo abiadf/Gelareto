@@ -758,6 +758,31 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
             print("real-TDA summary:", row)
 
     results_df = pd.DataFrame(rows)
+    results_df["accuracy_gain_vs_z"] = np.nan
+    results_df["paired_test"] = ""
+    results_df["paired_p_value"] = np.nan
+    for task in tasks:
+        baseline = (
+            results_df[(results_df["task"] == task) & (results_df["mode"] == "z")]
+            .set_index("seed")["accuracy"]
+        )
+        for mode in modes:
+            selected = (results_df["task"] == task) & (results_df["mode"] == mode)
+            mode_accuracy = results_df.loc[selected].set_index("seed")["accuracy"]
+            common = baseline.index.intersection(mode_accuracy.index)
+            if common.empty:
+                continue
+            gains = mode_accuracy.loc[common] - baseline.loc[common]
+            gain_by_seed = gains.to_dict()
+            results_df.loc[selected, "accuracy_gain_vs_z"] = results_df.loc[selected, "seed"].map(gain_by_seed)
+            if mode == "z_h0":
+                p_value = ml_tda_classification.paired_signflip_test(gains.to_numpy())
+                results_df.loc[selected, "paired_test"] = "exact_signflip_greater"
+                results_df.loc[selected, "paired_p_value"] = p_value
+                print(
+                    f"Paired z_h0 > z test ({task}): mean_gain={gains.mean():.4f}, "
+                    f"p={p_value:.6f}, n={len(gains)}"
+                )
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
@@ -3024,7 +3049,7 @@ def run_latent_classification(cfg: RunConfig, context: VideoContext) -> tuple[pd
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols=["task", "mode"],
-        metric_cols=["accuracy", "balanced_accuracy", "macro_f1"],
+        metric_cols=["accuracy", "balanced_accuracy", "macro_f1", "accuracy_gain_vs_z"],
         sort_metric="accuracy",
     )
     print("\nLatent classification mean +/- std:")

@@ -453,7 +453,7 @@ DATASET_CONFIGS["synthetic_motion_classification"] = {
     "LATENT_TDA_WINDOW": 20,
     "LATENT_TDA_BINS": 16,
     "CLASSIFICATION_TASKS": ["motion", "object"],
-    "CLASSIFICATION_MODES": ["z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h1_shuffle"],
+    "CLASSIFICATION_MODES": ["z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h0_shuffle", "z_h1_shuffle"],
 }
 
 DATASET_CONFIGS["character_trajectories"] = {
@@ -472,5 +472,5 @@ DATASET_CONFIGS["character_trajectories"] = {
     "LATENT_TDA_WINDOW": 20,
     "LATENT_TDA_BINS": 16,
     "CLASSIFICATION_TASKS": ["character"],
-    "CLASSIFICATION_MODES": ["z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h1_shuffle"],
+    "CLASSIFICATION_MODES": ["z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h0_shuffle", "z_h1_shuffle"],
 }

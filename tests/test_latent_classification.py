@@ -5,6 +5,7 @@ from topo.ml_tda import _resample_multivariate_trajectory
 from topo.ml_tda_classification import (
     clip_features,
     labels_from_sources,
+    paired_signflip_test,
     train_evaluate_classifier,
 )
 
@@ -40,6 +41,12 @@ def test_clip_features_have_fixed_per_clip_width_and_shuffle_control():
     assert clip_features(payload, "h1", window=3).shape == (5, 12)
     assert clip_features(payload, "z_h1", window=3).shape == (5, 28)
     assert clip_features(payload, "z_h1_shuffle", window=3).shape == (5, 28)
+    assert clip_features(payload, "z_h0_shuffle", window=3).shape == (5, 28)
+
+
+def test_exact_paired_signflip_test():
+    assert paired_signflip_test([1, 1, 1, 1, 1]) == 1 / 32
+    assert paired_signflip_test([-1, -1, -1, -1, -1]) == 1.0
 
 
 def test_classifier_learns_simple_separable_problem():
