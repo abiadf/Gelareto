@@ -1467,7 +1467,7 @@ def _load_aeon_raw_split(config, split_name):
     try:
         from aeon.datasets import load_classification
     except ImportError as exc:
-        raise ImportError("Install aeon to load CharacterTrajectories.") from exc
+        raise ImportError("Install aeon to load raw trajectory-classification datasets.") from exc
     name = config.get("aeon_name", "CharacterTrajectories")
     print(f"Loading raw aeon trajectory dataset {name} split={split_name}")
     x, y = load_classification(

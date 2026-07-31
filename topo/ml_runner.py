@@ -3009,7 +3009,7 @@ def run_latent_classification(cfg: RunConfig, context: VideoContext) -> tuple[pd
                 )
                 row = {
                     "dataset": cfg.dataset,
-                    "encoder": "ae",
+                    "encoder": "raw" if raw_payloads is not None else "ae",
                     "seed": seed,
                     "task": task,
                     "mode": mode,
@@ -3024,6 +3024,8 @@ def run_latent_classification(cfg: RunConfig, context: VideoContext) -> tuple[pd
     results_df["accuracy_gain_vs_z"] = np.nan
     results_df["paired_test"] = ""
     results_df["paired_p_value"] = np.nan
+    results_df["paired_vs_shuffle_test"] = ""
+    results_df["paired_vs_shuffle_p_value"] = np.nan
     for task in tasks:
         baseline = (
             results_df[(results_df["task"] == task) & (results_df["mode"] == "z")]
@@ -3046,6 +3048,24 @@ def run_latent_classification(cfg: RunConfig, context: VideoContext) -> tuple[pd
                     f"Paired z_h0 > z test ({task}): mean_gain={gains.mean():.4f}, "
                     f"p={p_value:.6f}, n={len(gains)}"
                 )
+                shuffled = (
+                    results_df[
+                        (results_df["task"] == task)
+                        & (results_df["mode"] == "z_h0_shuffle")
+                    ]
+                    .set_index("seed")["accuracy"]
+                )
+                shuffle_common = mode_accuracy.index.intersection(shuffled.index)
+                if not shuffle_common.empty:
+                    shuffle_gains = mode_accuracy.loc[shuffle_common] - shuffled.loc[shuffle_common]
+                    shuffle_p = ml_tda_classification.paired_signflip_test(shuffle_gains.to_numpy())
+                    results_df.loc[selected, "paired_vs_shuffle_test"] = "exact_signflip_greater"
+                    results_df.loc[selected, "paired_vs_shuffle_p_value"] = shuffle_p
+                    print(
+                        f"Paired z_h0 > z_h0_shuffle test ({task}): "
+                        f"mean_gain={shuffle_gains.mean():.4f}, p={shuffle_p:.6f}, "
+                        f"n={len(shuffle_gains)}"
+                    )
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols=["task", "mode"],

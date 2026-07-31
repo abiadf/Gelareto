@@ -47,6 +47,7 @@ set -euo pipefail
 #   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
 #   synthetic_motion_classification: matched four-source corpus for motion/object classification
 #   character_trajectories: raw 3D pen trajectories with 20 character labels (downloaded through aeon)
+#   natops: raw 24D body-joint trajectories with 6 gesture labels (downloaded through aeon)
 #   moving_mnist: MNIST digits with random translation and rotation, rendered as sparkline clips
 #   lorenz96: synthetic multivariate Lorenz-96 trajectories rasterized as heatmap frames
 #   electric_devices: UCR/Aeon ElectricDevices time-series samples rendered as sparkline clips
@@ -66,10 +67,9 @@ set -euo pipefail
 #   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
-  # External raw-trajectory classification. CharacterTrajectories is resampled
-  # to length 100; VR persistence is computed directly in its 3D signal space.
+  # External raw-trajectory classification on both datasets in one run.
   --scenario latent_classification
-  --dataset character_trajectories
+  --dataset character_trajectories,natops
   --seeds 0,1,2,3,4                 # matched seeds required by the paired test
   # z: latent trajectory summary; h0/h1/both: topology only; z_h*: fusion.
   # z_h1_shuffle is the equal-width specificity control for genuine H1.

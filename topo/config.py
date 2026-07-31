@@ -474,3 +474,22 @@ DATASET_CONFIGS["character_trajectories"] = {
     "CLASSIFICATION_TASKS": ["character"],
     "CLASSIFICATION_MODES": ["z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h0_shuffle", "z_h1_shuffle"],
 }
+
+DATASET_CONFIGS["natops"] = {
+    "kind": "aeon_raw_classification",
+    "aeon_name": "NATOPS",
+    "extract_path": "datasets/timeseries/aeon_data",
+    "cache_dir": "datasets/timeseries/NATOPS/processed",
+    "resample_length": 51,
+    "max_train_clips": None,
+    "max_test_clips": None,
+    "learning_rate": 1e-3,
+    "LATENT_DIM": 24,
+    "HIDDEN_DIM": 64,
+    "PREDICTOR_EPOCHS": 100,
+    "RUN_SEEDS": list(range(5)),
+    "LATENT_TDA_WINDOW": 20,
+    "LATENT_TDA_BINS": 16,
+    "CLASSIFICATION_TASKS": ["gesture"],
+    "CLASSIFICATION_MODES": ["z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h0_shuffle", "z_h1_shuffle"],
+}
