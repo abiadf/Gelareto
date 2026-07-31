@@ -1,55 +1,71 @@
 #!/usr/bin/env python3
-"""Plot mean forecasting MSE against GeoAE regularization strength."""
+"""Plot mean forecasting MSE from the complete GeoAE lambda rerun."""
 
 from pathlib import Path
-import re
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 
-INPUT = Path("latex_tables/geoae_lambda.txt")
-EXTRA_RESULTS = Path("results/geoae_lambda_extra")
+INPUT_DIR = Path("results/geoae_lambda_rerun")
 OUTPUT_DIR = Path("images")
+SEED_OUTPUT = OUTPUT_DIR / "geoae_lambda_mse_seed_results.csv"
+SUMMARY_OUTPUT = OUTPUT_DIR / "geoae_lambda_mse_summary.csv"
+DATASETS = [
+    "bouncing_rings",
+    "bouncing_disks",
+    "orbiting_rings",
+    "orbiting_disks",
+    "moving_mnist",
+    "lorenz96",
+    "electric_devices",
+    "glioblastoma",
+    "hela",
+]
+LAMBDAS = [0, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.5, 0.7, 1]
+SEEDS = list(range(5))
 
 
-def load_results(path: Path):
-    results = {}
-    regularization = None
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        match = re.fullmatch(r"lambda=([0-9.eE+-]+)", line)
-        if match:
-            regularization = float(match.group(1))
-            continue
-        if not line or regularization is None:
-            continue
-        fields = line.split()
-        if len(fields) < 6:
-            continue
-        results.setdefault(fields[0], []).append(
-            (regularization, float(fields[4]))
-        )
-    extra_frames = []
-    for result_path in EXTRA_RESULTS.glob("*/results.csv"):
+def load_results(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    frames = []
+    for result_path in sorted(path.glob("**/results.csv")):
         frame = pd.read_csv(result_path)
         required = {"dataset", "geo_ae_lambda", "seed", "mode", "test_mse"}
-        if required.issubset(frame.columns):
-            extra_frames.append(frame[frame["mode"] == "z"])
-    if extra_frames:
-        extra = pd.concat(extra_frames, ignore_index=True)
-        extra = (
-            extra.groupby(["dataset", "geo_ae_lambda"], as_index=False)
-            .agg(test_mse=("test_mse", "mean"))
+        if not required.issubset(frame.columns):
+            raise ValueError(f"{result_path} is missing required columns")
+        frames.append(frame[frame["mode"] == "z"])
+    if not frames:
+        raise FileNotFoundError(f"No result CSV files found below {path}")
+
+    seed_results = pd.concat(frames, ignore_index=True)
+    key = ["dataset", "geo_ae_lambda", "seed"]
+    expected = pd.MultiIndex.from_product(
+        [DATASETS, LAMBDAS, SEEDS], names=key
+    )
+    actual = pd.MultiIndex.from_frame(seed_results[key])
+    if actual.has_duplicates:
+        raise ValueError("Duplicate dataset-lambda-seed results found")
+    missing = expected.difference(actual)
+    unexpected = actual.difference(expected)
+    if len(missing) or len(unexpected):
+        raise ValueError(
+            f"Incomplete sweep: {len(missing)} missing and "
+            f"{len(unexpected)} unexpected combinations"
         )
-        for row in extra.itertuples(index=False):
-            values = {
-                regularization: mse
-                for regularization, mse in results.get(row.dataset, [])
-            }
-            values[float(row.geo_ae_lambda)] = float(row.test_mse)
-            results[row.dataset] = sorted(values.items())
-    return results
+    if not np.isfinite(seed_results["test_mse"]).all():
+        raise ValueError("Non-finite test MSE found")
+
+    seed_results = seed_results.sort_values(key).reset_index(drop=True)
+    summary = (
+        seed_results.groupby(["dataset", "geo_ae_lambda"], as_index=False)
+        .agg(
+            test_mse_mean=("test_mse", "mean"),
+            test_mse_std=("test_mse", "std"),
+            n_seeds=("test_mse", "size"),
+        )
+    )
+    return seed_results, summary
 
 
 def display_name(name: str) -> str:
@@ -67,27 +83,27 @@ def display_name(name: str) -> str:
 
 
 def main():
-    results = load_results(INPUT)
-    if len(results) != 9:
-        raise ValueError(f"Expected 9 datasets, found {len(results)}")
+    seed_results, summary = load_results(INPUT_DIR)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    seed_results.to_csv(SEED_OUTPUT, index=False)
+    summary.to_csv(SUMMARY_OUTPUT, index=False)
 
     markers = ["o", "s", "^", "D", "v", "P", "X", "<", ">"]
     fig, ax = plt.subplots(figsize=(9.5, 5.8))
-    for (dataset, values), marker in zip(results.items(), markers):
-        values = sorted(values)
-        lambdas, mse = zip(*values)
+    for dataset, marker in zip(DATASETS, markers):
+        values = summary[summary["dataset"] == dataset].sort_values(
+            "geo_ae_lambda"
+        )
         ax.plot(
-            lambdas,
-            mse,
+            values["geo_ae_lambda"],
+            values["test_mse_mean"],
             marker=marker,
             markersize=3.6,
             linewidth=1.35,
             label=display_name(dataset),
         )
 
-    tested_lambdas = sorted(
-        {value for values in results.values() for value, _ in values}
-    )
+    tested_lambdas = LAMBDAS
     ax.set_xscale("symlog", linthresh=0.001, linscale=0.8)
     ax.set_xlim(left=0)
     ax.set_xticks(tested_lambdas)
@@ -114,7 +130,6 @@ def main():
     )
     fig.tight_layout()
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     for suffix in ("pdf", "png"):
         fig.savefig(
             OUTPUT_DIR / f"geoae_lambda_mse.{suffix}",
