@@ -46,6 +46,7 @@ set -euo pipefail
 #   orbiting_rings: hollow/ring objects with periodic circular/elliptical orbit motion
 #   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
 #   synthetic_motion_classification: matched four-source corpus for motion/object classification
+#   character_trajectories: raw 3D pen trajectories with 20 character labels (downloaded through aeon)
 #   moving_mnist: MNIST digits with random translation and rotation, rendered as sparkline clips
 #   lorenz96: synthetic multivariate Lorenz-96 trajectories rasterized as heatmap frames
 #   electric_devices: UCR/Aeon ElectricDevices time-series samples rendered as sparkline clips
@@ -65,21 +66,20 @@ set -euo pipefail
 #   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
-  # Clip-level classification. The composite dataset matches object counts and
-  # appearance ranges across bouncing/orbiting generators to avoid label leakage.
+  # External raw-trajectory classification. CharacterTrajectories is resampled
+  # to length 100; VR persistence is computed directly in its 3D signal space.
   --scenario latent_classification
-  --dataset synthetic_motion_classification
+  --dataset character_trajectories
   --seeds 0 #,1,2,3,4                 # comma-separated seeds
   # z: latent trajectory summary; h0/h1/both: topology only; z_h*: fusion.
   # z_h1_shuffle is the equal-width specificity control for genuine H1.
   --modes z,h0,h1,both,z_h0,z_h1,z_both,z_h1_shuffle
-  --ae-epochs 10
   --predictor-epochs 100             # classifier epochs
   --hidden-dim 64                    # classifier hidden width
   --latent-tda-window 20
   --latent-tda-bins 16
-  # --include-retrain-encoder        # intentionally rebuild the shared AE
-  # --recompute-latent-tda-features  # intentionally refresh persistence caches
+  # For the matched synthetic version instead use:
+  # --dataset synthetic_motion_classification --ae-epochs 10
   # --stability-noise-levels 0,0.01,0.03,0.05,0.10 # use for latent_stability scenario
   # --vae-beta 0.001                 # vae_latent_tda: KL weight
   # --vae-epochs 10                  # vae_latent_tda: pretraining epochs; default falls back to --ae-epochs

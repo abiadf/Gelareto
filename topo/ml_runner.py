@@ -589,7 +589,7 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         if cfg.num_test_clips is not None:
             run_config["num_test_clips"] = cfg.num_test_clips
         run_config["force_rebuild_cache"] = cfg.force_rebuild_data_cache
-    elif run_config.get("kind") == "aeon_classification":
+    elif run_config.get("kind") in {"aeon_classification", "aeon_raw_classification"}:
         if cfg.num_train_clips is not None:
             run_config["max_train_clips"] = cfg.num_train_clips
         if cfg.num_test_clips is not None:
@@ -2916,10 +2916,11 @@ def run_topo_decode_z(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
 
 
 def run_latent_classification(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
-    if context.dataset_config.get("kind") != "synthetic_motion_classification":
+    dataset_kind = context.dataset_config.get("kind")
+    if dataset_kind not in {"synthetic_motion_classification", "aeon_raw_classification"}:
         raise ValueError(
-            "latent_classification currently requires "
-            "--dataset synthetic_motion_classification"
+            "latent_classification requires a synthetic_motion_classification "
+            "or aeon_raw_classification dataset"
         )
     modes = _override(
         cfg.modes,
@@ -2963,15 +2964,34 @@ def run_latent_classification(cfg: RunConfig, context: VideoContext) -> tuple[pd
     }
 
     rows = []
+    raw_payloads = None
+    if dataset_kind == "aeon_raw_classification":
+        train_z = context.x_train[:, :, 0, 0, :].float()
+        test_z = context.x_test[:, :, 0, 0, :].float()
+        train_h0, train_h1, train_diagrams = ml_tda_latent.latent_window_betti_features(
+            train_z, window=window, n_bins=bins, return_diagrams=True
+        )
+        test_h0, test_h1, test_diagrams = ml_tda_latent.latent_window_betti_features(
+            test_z, window=window, n_bins=bins, return_diagrams=True
+        )
+        raw_payloads = (
+            {"z": train_z, "h0": train_h0, "h1": train_h1, "diagrams": train_diagrams},
+            {"z": test_z, "h0": test_h0, "h1": test_h1, "diagrams": test_diagrams},
+        )
     for seed in tqdm_progress_bar(seeds, desc="classification seeds", total=len(seeds), leave=True):
         _set_all_seeds(seed)
-        encoder, _, encoder_path, _ = _load_or_train_baseline_autoencoder(cfg, context, seed)
-        train_payload = ml_tda_latent.load_or_compute_latent_tda_features(
-            seed, "classification_train", context.x_train, encoder, require_persistence=True
-        )
-        test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
-            seed, "classification_test", context.x_test, encoder, require_persistence=True
-        )
+        if raw_payloads is None:
+            encoder, _, encoder_path, _ = _load_or_train_baseline_autoencoder(cfg, context, seed)
+            train_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+                seed, "classification_train", context.x_train, encoder, require_persistence=True
+            )
+            test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+                seed, "classification_test", context.x_test, encoder, require_persistence=True
+            )
+            encoder_path_text = str(encoder_path)
+        else:
+            train_payload, test_payload = raw_payloads
+            encoder_path_text = "raw_multivariate_trajectory"
         for mode in modes:
             train_x = ml_tda_classification.clip_features(train_payload, mode, window, seed=seed)
             test_x = ml_tda_classification.clip_features(test_payload, mode, window, seed=seed + 10_000)
@@ -2996,7 +3016,7 @@ def run_latent_classification(cfg: RunConfig, context: VideoContext) -> tuple[pd
                     "accuracy": metrics["accuracy"],
                     "balanced_accuracy": metrics["balanced_accuracy"],
                     "macro_f1": metrics["macro_f1"],
-                    "encoder_path": str(encoder_path),
+                    "encoder_path": encoder_path_text,
                 }
                 rows.append(row)
                 print("Classification summary:", row)

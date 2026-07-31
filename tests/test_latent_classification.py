@@ -1,5 +1,7 @@
 import torch
+import numpy as np
 
+from topo.ml_tda import _resample_multivariate_trajectory
 from topo.ml_tda_classification import (
     clip_features,
     labels_from_sources,
@@ -17,6 +19,15 @@ def test_classification_labels_follow_source_blocks():
     }
     assert labels_from_sources(config, "train", "motion").tolist() == [0, 0, 1, 1, 1]
     assert labels_from_sources(config, "train", "object").tolist() == [1, 1, 0, 0, 0]
+
+
+def test_direct_archive_labels_and_variable_length_resampling():
+    config = {"_classification_test_labels": [2, 0, 1]}
+    assert labels_from_sources(config, "test", "character").tolist() == [2, 0, 1]
+    case = np.asarray([[0.0, 1.0], [2.0, 4.0]], dtype=np.float32)
+    resampled = _resample_multivariate_trajectory(case, 5)
+    assert resampled.shape == (2, 5)
+    assert np.allclose(resampled[:, [0, -1]], case)
 
 
 def test_clip_features_have_fixed_per_clip_width_and_shuffle_control():

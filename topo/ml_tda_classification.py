@@ -11,6 +11,9 @@ VALID_MODES = {"z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h1_shuffle"
 
 
 def labels_from_sources(config: dict, split: str, task: str) -> torch.Tensor:
+    direct_key = f"_classification_{split}_labels"
+    if direct_key in config:
+        return torch.tensor(config[direct_key], dtype=torch.long)
     if task not in {"motion", "object"}:
         raise ValueError(f"Unknown classification task: {task}")
     counts = config[f"_classification_{split}_counts"]

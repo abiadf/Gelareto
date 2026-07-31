@@ -1352,7 +1352,8 @@ def _stratified_aeon_subset(x, y, max_clips, *, seed=0):
     if max_clips is None or len(x) <= int(max_clips):
         return x, y
     max_clips = int(max_clips)
-    x_arr = np.asarray(x)
+    is_variable_list = isinstance(x, (list, tuple))
+    x_arr = None if is_variable_list else np.asarray(x)
     y_arr = np.asarray(y)
     rng = np.random.default_rng(int(seed))
     classes = np.unique(y_arr)
@@ -1372,7 +1373,8 @@ def _stratified_aeon_subset(x, y, max_clips, *, seed=0):
     if selected.size > max_clips:
         selected = rng.choice(selected, size=max_clips, replace=False)
     selected.sort()
-    return x_arr[selected], y_arr[selected]
+    selected_x = [x[int(idx)] for idx in selected] if is_variable_list else x_arr[selected]
+    return selected_x, y_arr[selected]
 
 
 def load_or_build_aeon_classification_split(config, split_name, *, mean=None, std=None):
@@ -1445,6 +1447,69 @@ def load_aeon_classification_video(config):
     return train, test
 
 
+def _resample_multivariate_trajectory(case, length):
+    case = np.asarray(case, dtype=np.float32)
+    if case.ndim != 2:
+        raise ValueError(f"Expected a trajectory shaped (channels,time), got {case.shape}")
+    old_t = np.linspace(0.0, 1.0, case.shape[1], dtype=np.float32)
+    new_t = np.linspace(0.0, 1.0, int(length), dtype=np.float32)
+    return np.stack([np.interp(new_t, old_t, channel) for channel in case], axis=0).astype(np.float32)
+
+
+def _load_aeon_raw_split(config, split_name):
+    cache_dir = Path(config.get("cache_dir", "datasets/timeseries/CharacterTrajectories/processed"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    length = int(config.get("resample_length", 100))
+    max_key = "max_train_clips" if split_name == "train" else "max_test_clips"
+    cache_path = cache_dir / f"{split_name}_L{length}_N{config.get(max_key, 'all')}.pt"
+    if cache_path.exists() and not config.get("force_rebuild_cache", False):
+        return torch.load(cache_path, map_location="cpu", weights_only=False)
+    try:
+        from aeon.datasets import load_classification
+    except ImportError as exc:
+        raise ImportError("Install aeon to load CharacterTrajectories.") from exc
+    name = config.get("aeon_name", "CharacterTrajectories")
+    print(f"Loading raw aeon trajectory dataset {name} split={split_name}")
+    x, y = load_classification(
+        name,
+        split=split_name,
+        extract_path=config.get("extract_path", "datasets/timeseries/aeon_data"),
+    )
+    x, y = _stratified_aeon_subset(
+        x,
+        y,
+        config.get(max_key),
+        seed=int(config.get("subset_seed", 0)) + (split_name == "test"),
+    )
+    cases = list(x) if isinstance(x, (list, tuple)) else [x[idx] for idx in range(len(x))]
+    trajectories = np.stack([_resample_multivariate_trajectory(case, length) for case in cases])
+    payload = {"trajectories": torch.from_numpy(trajectories), "labels": list(np.asarray(y).astype(str))}
+    torch.save(payload, cache_path)
+    print(f"Saved raw {name} {split_name} cache: {cache_path} shape={trajectories.shape}")
+    return payload
+
+
+def load_aeon_raw_trajectory_dataset(config):
+    train_payload = _load_aeon_raw_split(config, "train")
+    test_payload = _load_aeon_raw_split(config, "test")
+    train = train_payload["trajectories"].float().numpy()
+    test = test_payload["trajectories"].float().numpy()
+    # Normalize each physical channel using training statistics only.
+    mean = train.mean(axis=(0, 2), keepdims=True)
+    std = train.std(axis=(0, 2), keepdims=True)
+    std[std < 1e-6] = 1.0
+    train = (train - mean) / std
+    test = (test - mean) / std
+    class_names = sorted(set(train_payload["labels"]) | set(test_payload["labels"]))
+    class_to_id = {label: idx for idx, label in enumerate(class_names)}
+    config["_classification_train_labels"] = [class_to_id[label] for label in train_payload["labels"]]
+    config["_classification_test_labels"] = [class_to_id[label] for label in test_payload["labels"]]
+    config["_classification_class_names"] = class_names
+    # Video-context convention is (time,cases,height,width). Here height is a
+    # singleton and width stores the raw channels; no image encoder is used.
+    return train.transpose(2, 0, 1)[:, :, None, :], test.transpose(2, 0, 1)[:, :, None, :]
+
+
 def load_video_dataset(config):
     if config["kind"] == "moving_mnist":
         arr = np.load(config["path"]).astype(np.float32)
@@ -1496,6 +1561,8 @@ def load_video_dataset(config):
     elif config["kind"] == "aeon_classification":
         train, test = load_aeon_classification_video(config)
         return train, test
+    elif config["kind"] == "aeon_raw_classification":
+        return load_aeon_raw_trajectory_dataset(config)
     elif config["kind"] == "ctc_tif_clips":
         from topo.ml_tda_celltracking import load_or_build_celltracking_tensors
 
