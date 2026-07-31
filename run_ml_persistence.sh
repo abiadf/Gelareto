@@ -62,25 +62,26 @@ set -euo pipefail
 #   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
-  # Group-gate ablation on the same frozen AE, GeoAE, and TopoAE representations.
-  --scenario latent_tda,geo_latent_tda,topo_latent_tda
-  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
-  --seeds 0,1,2,3,4                 # comma-separated seeds
-  # z:            latent-only baseline
-  # z_both:       direct [z,H0,H1] concatenation
-  # z_fuse_both:  learned MLP([z,H0,H1]) capacity control
-  # z_gate_both:  [z,g0(z,H0,H1)H0,g1(z,H0,H1)H1], gates initialized at 0.9
-  # All three H0+H1 modes normalize z, H0, and H1 separately using train data.
-  --modes z,z_both,z_fuse_both,z_gate_both
+  # Lightweight pixel-space validation with a separate SimVP-style video
+  # encoder/translator/decoder. Expand seeds/datasets only if topology helps.
+  --scenario simvp
+  --dataset bouncing_rings,orbiting_rings #,moving_mnist
+  --seeds 0 #,1,2,3,4                 # comma-separated seeds
+  # frames:       past frames only (standard pixel baseline)
+  # z:            past frames + AE latent condition (capacity control)
+  # z_h1:         past frames + [z,H1] condition
+  # z_h1_shuffle: identical input size but shuffled H1 (specificity control)
+  --modes frames,z,z_h1,z_h1_shuffle
   # --modes z,z_h0,z_h1,z_both,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1,z_landscape_h1,z_diffusion_h1,z_perslay_h1,z_fuse_perslay_h1,z_pi_h1,z_laplacian_h1,z_landscape_h0,z_landscape_both,z_perslay_h0,z_perslay_both,z_pi_h0,z_pi_both,z_rff_h1,topo_h1,topo_pi_h1 #topo_pca_h1,topo_kpca_h1
   # --modes z,z_fuse_laplacian_h1_zero,z_fuse_laplacian_h1_shuffle,z_fuse_laplacian_h1_noise,z_fuse_laplacian_h1_shift,z_fuse_diffusion_h1_zero,z_fuse_diffusion_h1_shuffle,z_fuse_diffusion_h1_noise,z_fuse_diffusion_h1_shift,z_fuse_rff_h1_zero,z_fuse_rff_h1_shuffle,z_fuse_rff_h1_noise,z_fuse_rff_h1_shift
   --horizon 5
   # Reuse the existing encoder checkpoints so forecasting and fidelity evaluate
   # exactly the same trained representations. Add --include-retrain-encoder only
   # when intentionally rebuilding every encoder.
-  --reuse-predictor                   # reuse matching checkpoints; train missing ablation models
-  --ae-epochs 10                    # baseline AE pretraining epochs
-  --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
+  # --reuse-predictor                 # uncomment to load matching completed SimVP runs
+  --ae-epochs 20 #10                    # baseline AE pretraining epochs
+  --predictor-epochs 10             # cheap screening run
+  --hidden-dim 32                   # compact SimVP channel width
   # --hparam-file results/hparam_search/latent_z_best_hparams.json
   --geo-ae-lambda 0.1
   --topo-ae-lambda 0.1
@@ -89,7 +90,7 @@ args=(
   --geo-ae-pair-batch-size 64
   --topo-ae-pair-batch-size 64
   --topo-ae-distance wasserstein       # signature | wasserstein
-  --decoder-type mlp                   # mlp: old flat decoder | conv: convolutional upsampling decoder
+  --decoder-type conv #mlp                   # mlp: old flat decoder | conv: convolutional upsampling decoder
   --latent-tda-window 15
   --fidelity-windows 100               # same deterministic K windows for every encoder
   # --stability-noise-levels 0,0.01,0.03,0.05,0.10 # use for latent_stability scenario
@@ -103,7 +104,10 @@ args=(
   # --clip-repo openai/clip-vit-base-patch32 # clip_latent_tda: lightweight frozen CLIP frame encoder
   # --clip-batch-size 64
   # --clip-image-size 224
-  # --simvp-input-frames 5           # simvp: past frames used to predict the horizon frame
+  --simvp-input-frames 5            # past frames used to predict the horizon frame
+  --pixel-tda-batch-size 16         # SimVP minibatch size
+  --latent-tda-max-train 128        # low-compute screening subset
+  --latent-tda-max-test 64
   # --video3d-tda-bins 16            # video3d_tda: bins per H0/H1/H2 Betti curve
   # --video3d-tda-scale 15           # video3d_tda: normalizes Betti counts before concatenation
   # --video3d-tda-boundary-slices 2  # video3d_tda: rolling damage-region radius recorded in stream state

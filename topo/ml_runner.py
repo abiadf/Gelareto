@@ -960,9 +960,15 @@ def _evaluate_decode_z_to_future_x(
         pred_z = model(test_z[:-context.horizon].to(device)).cpu()
 
     pred_x = _decode_sequence(decoder, pred_z)
+    # This is the best image the same decoder can produce when it receives the
+    # *true* future latent.  Comparing against it separates decoder error from
+    # latent-forecast error.
+    oracle_x = _decode_sequence(decoder, test_z[context.horizon:])
     target_x = ml_tda_pixel.target_frames(x_test[context.horizon:]).cpu()
     weighted_mse, pixel_mse, fg_mse, bg_mse = ml_tda_pixel.pixel_losses(pred_x, target_x)
     _, pixel_r2 = _mse_r2(pred_x, target_x)
+    _, oracle_pixel_mse, _, _ = ml_tda_pixel.pixel_losses(oracle_x, target_x)
+    forecast_to_oracle_mse = torch.mean((pred_x - oracle_x) ** 2)
     per_time_pixel_mse = ((pred_x - target_x) ** 2).mean(dim=(1, 2, 3, 4))
     return {
         "weighted_mse": float(weighted_mse),
@@ -970,8 +976,64 @@ def _evaluate_decode_z_to_future_x(
         "pixel_r2": float(pixel_r2),
         "foreground_mse": float(fg_mse),
         "background_mse": float(bg_mse),
+        "oracle_pixel_mse": float(oracle_pixel_mse),
+        "forecast_to_oracle_mse": float(forecast_to_oracle_mse),
         "per_time_pixel_mse": per_time_pixel_mse,
+        "target_x": target_x,
+        "oracle_x": oracle_x,
+        "pred_x": pred_x,
     }
+
+
+def _save_decode_comparison_figure(
+    metrics: dict[str, float | torch.Tensor],
+    *,
+    dataset: str,
+    encoder: str,
+    seed: int,
+) -> Path:
+    """Save target/oracle/forecast frames for a decoded-latent run."""
+    import matplotlib.pyplot as plt
+
+    target = metrics["target_x"]
+    oracle = metrics["oracle_x"]
+    forecast = metrics["pred_x"]
+    assert isinstance(target, torch.Tensor)
+    assert isinstance(oracle, torch.Tensor)
+    assert isinstance(forecast, torch.Tensor)
+
+    # Show three well-separated times from the first test sequence.  Rows are
+    # time points; columns expose where the error enters the pipeline.
+    time_ids = np.linspace(0, target.shape[0] - 1, min(3, target.shape[0]), dtype=int)
+    fig, axes = plt.subplots(len(time_ids), 4, figsize=(8.0, 2.0 * len(time_ids)), squeeze=False)
+    for row, time_id in enumerate(time_ids):
+        target_frame = target[time_id, 0, 0].numpy()
+        oracle_frame = oracle[time_id, 0, 0].numpy()
+        forecast_frame = forecast[time_id, 0, 0].numpy()
+        panels = (
+            (target_frame, "Target"),
+            (oracle_frame, r"Oracle $D(z_{t+h})$"),
+            (forecast_frame, r"Forecast $D(\hat z_{t+h})$"),
+            (np.abs(forecast_frame - target_frame), "Absolute error"),
+        )
+        for col, (frame, title) in enumerate(panels):
+            axes[row, col].imshow(frame, cmap="gray", vmin=0.0, vmax=1.0)
+            axes[row, col].set_axis_off()
+            if row == 0:
+                axes[row, col].set_title(title, fontsize=9)
+            if col == 0:
+                axes[row, col].text(
+                    -0.08, 0.5, f"t={time_id}", transform=axes[row, col].transAxes,
+                    rotation=90, va="center", ha="right", fontsize=8,
+                )
+    fig.suptitle(f"Decoded forecast: {dataset} ({encoder}, seed {seed})", fontsize=11)
+    fig.tight_layout()
+    output_dir = Path("images") / "decoded_predictions"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{dataset}_{encoder}_seed{seed}.png"
+    fig.savefig(output_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
 
 
 def _geo_feature_dim(mode: str, context: VideoContext) -> tuple[bool, int]:
@@ -2653,6 +2715,7 @@ def _load_geo_autoencoder_for_seed(
         max_frames_per_epoch=context.ae_max_frames_per_epoch,
         pair_batch_size=cfg.geo_ae_pair_batch_size,
         retrain=cfg.retrain_encoder,
+        decoder_type=cfg.decoder_type,
     )
     return encoder, decoder, encoder_path, decoder_path, model_namespace
 
@@ -2677,6 +2740,7 @@ def _load_topo_autoencoder_for_seed(
         max_frames_per_epoch=context.ae_max_frames_per_epoch,
         pair_batch_size=cfg.topo_ae_pair_batch_size,
         retrain=cfg.retrain_encoder,
+        decoder_type=cfg.decoder_type,
     )
     return encoder, decoder, encoder_path, decoder_path, model_namespace
 
@@ -2779,6 +2843,12 @@ def _run_decode_z(
             train_z,
         )
         metrics = _evaluate_decode_z_to_future_x(model, decoder, test_z, context.x_test, context)
+        figure_path = _save_decode_comparison_figure(
+            metrics,
+            dataset=cfg.dataset,
+            encoder=ae_label,
+            seed=seed,
+        )
         row = {
             "dataset": cfg.dataset,
             "encoder": ae_label,
@@ -2792,11 +2862,14 @@ def _run_decode_z(
             "weighted_mse": float(metrics["weighted_mse"]),
             "foreground_mse": float(metrics["foreground_mse"]),
             "background_mse": float(metrics["background_mse"]),
+            "oracle_pixel_mse": float(metrics["oracle_pixel_mse"]),
+            "forecast_to_oracle_mse": float(metrics["forecast_to_oracle_mse"]),
             "fg_weight": fg_weight,
             "fg_threshold": fg_threshold,
             "encoder_path": str(encoder_path),
             "decoder_path": str(decoder_path),
             "model_path": str(model_path),
+            "figure_path": str(figure_path),
         }
         rows.append(row)
         print(f"{scenario_name} summary:", row)
@@ -2811,6 +2884,8 @@ def _run_decode_z(
             "weighted_mse",
             "foreground_mse",
             "background_mse",
+            "oracle_pixel_mse",
+            "forecast_to_oracle_mse",
         ],
         sort_metric="weighted_mse",
     )
