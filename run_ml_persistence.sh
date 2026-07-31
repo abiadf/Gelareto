@@ -15,6 +15,7 @@ set -euo pipefail
 # vjepa_latent_tda: frozen V-JEPA video embeddings + optional latent-trajectory TDA -> future V-JEPA embedding
 # clip_latent_tda: frozen CLIP frame embeddings + optional latent-trajectory TDA -> future CLIP embedding
 # simvp: SimVP-style pixel predictor; frames is the standard pixel baseline, z_* modes add AE latent/TDA conditioning
+# latent_classification: classify complete synthetic trajectories by motion regime or object type using latent/TDA summaries
 # video3d_tda: AE z-history + streaming 3D cubical H0/H1/H2 features from growing frame volumes -> future X
 # decode_z: AE z-history -> future z -> decoded future X
 # geo_decode_z: geoAE z-history -> future z -> decoded future X
@@ -32,6 +33,7 @@ set -euo pipefail
 #   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_gate_both,z_pca_h0,z_pca_h1,z_pca_both,z_kpca_h0,z_kpca_h1,z_kpca_both,z_laplacian_h1,z_diffusion_h1,z_rff_h1,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_both,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
 #   geo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda/vjepa_latent_tda: same as latent_tda
 #   simvp: frames, plus latent-TDA modes such as z,z_temporal_stats,z_fuse_h1,z_fuse_pi_h1
+#   latent_classification: z,h0,h1,both,z_h0,z_h1,z_both,z_h1_shuffle
 #   video3d_tda: none,h0,h1,h2,h0_h1,h0_h2,h1_h2,all, plus *_zero,*_shuffle,*_noise,*_shift controls
 #   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_pixel_tda/topo_pixel_tda: same as pixel_tda; none is AE z-only -> future X
@@ -43,6 +45,7 @@ set -euo pipefail
 #   bouncing_disks: filled objects with Lorenz-like irregular motion
 #   orbiting_rings: hollow/ring objects with periodic circular/elliptical orbit motion
 #   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
+#   synthetic_motion_classification: matched four-source corpus for motion/object classification
 #   moving_mnist: MNIST digits with random translation and rotation, rendered as sparkline clips
 #   lorenz96: synthetic multivariate Lorenz-96 trajectories rasterized as heatmap frames
 #   electric_devices: UCR/Aeon ElectricDevices time-series samples rendered as sparkline clips
@@ -62,37 +65,21 @@ set -euo pipefail
 #   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
-  # Lightweight pixel-space validation with a separate SimVP-style video
-  # encoder/translator/decoder. Expand seeds/datasets only if topology helps.
-  --scenario simvp
-  --dataset bouncing_rings,orbiting_rings #,moving_mnist
+  # Clip-level classification. The composite dataset matches object counts and
+  # appearance ranges across bouncing/orbiting generators to avoid label leakage.
+  --scenario latent_classification
+  --dataset synthetic_motion_classification
   --seeds 0 #,1,2,3,4                 # comma-separated seeds
-  # frames:       past frames only (standard pixel baseline)
-  # z:            past frames + AE latent condition (capacity control)
-  # z_h1:         past frames + [z,H1] condition
-  # z_h1_shuffle: identical input size but shuffled H1 (specificity control)
-  --modes frames,z,z_h1,z_h1_shuffle
-  # --modes z,z_h0,z_h1,z_both,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1,z_landscape_h1,z_diffusion_h1,z_perslay_h1,z_fuse_perslay_h1,z_pi_h1,z_laplacian_h1,z_landscape_h0,z_landscape_both,z_perslay_h0,z_perslay_both,z_pi_h0,z_pi_both,z_rff_h1,topo_h1,topo_pi_h1 #topo_pca_h1,topo_kpca_h1
-  # --modes z,z_fuse_laplacian_h1_zero,z_fuse_laplacian_h1_shuffle,z_fuse_laplacian_h1_noise,z_fuse_laplacian_h1_shift,z_fuse_diffusion_h1_zero,z_fuse_diffusion_h1_shuffle,z_fuse_diffusion_h1_noise,z_fuse_diffusion_h1_shift,z_fuse_rff_h1_zero,z_fuse_rff_h1_shuffle,z_fuse_rff_h1_noise,z_fuse_rff_h1_shift
-  --horizon 5
-  # Reuse the existing encoder checkpoints so forecasting and fidelity evaluate
-  # exactly the same trained representations. Add --include-retrain-encoder only
-  # when intentionally rebuilding every encoder.
-  # --reuse-predictor                 # uncomment to load matching completed SimVP runs
-  --ae-epochs 20 #10                    # baseline AE pretraining epochs
-  --predictor-epochs 10             # cheap screening run
-  --hidden-dim 32                   # compact SimVP channel width
-  # --hparam-file results/hparam_search/latent_z_best_hparams.json
-  --geo-ae-lambda 0.1
-  --topo-ae-lambda 0.1
-  --geo-ae-epochs 3
-  --topo-ae-epochs 3
-  --geo-ae-pair-batch-size 64
-  --topo-ae-pair-batch-size 64
-  --topo-ae-distance wasserstein       # signature | wasserstein
-  --decoder-type conv #mlp                   # mlp: old flat decoder | conv: convolutional upsampling decoder
-  --latent-tda-window 15
-  --fidelity-windows 100               # same deterministic K windows for every encoder
+  # z: latent trajectory summary; h0/h1/both: topology only; z_h*: fusion.
+  # z_h1_shuffle is the equal-width specificity control for genuine H1.
+  --modes z,h0,h1,both,z_h0,z_h1,z_both,z_h1_shuffle
+  --ae-epochs 10
+  --predictor-epochs 100             # classifier epochs
+  --hidden-dim 64                    # classifier hidden width
+  --latent-tda-window 20
+  --latent-tda-bins 16
+  # --include-retrain-encoder        # intentionally rebuild the shared AE
+  # --recompute-latent-tda-features  # intentionally refresh persistence caches
   # --stability-noise-levels 0,0.01,0.03,0.05,0.10 # use for latent_stability scenario
   # --vae-beta 0.001                 # vae_latent_tda: KL weight
   # --vae-epochs 10                  # vae_latent_tda: pretraining epochs; default falls back to --ae-epochs
@@ -104,10 +91,8 @@ args=(
   # --clip-repo openai/clip-vit-base-patch32 # clip_latent_tda: lightweight frozen CLIP frame encoder
   # --clip-batch-size 64
   # --clip-image-size 224
-  --simvp-input-frames 5            # past frames used to predict the horizon frame
-  --pixel-tda-batch-size 16         # SimVP minibatch size
-  --latent-tda-max-train 128        # low-compute screening subset
-  --latent-tda-max-test 64
+  # --simvp-input-frames 5           # simvp: past frames used to predict the horizon frame
+  # --pixel-tda-batch-size 16        # simvp/pixel_tda minibatch size
   # --video3d-tda-bins 16            # video3d_tda: bins per H0/H1/H2 Betti curve
   # --video3d-tda-scale 15           # video3d_tda: normalizes Betti counts before concatenation
   # --video3d-tda-boundary-slices 2  # video3d_tda: rolling damage-region radius recorded in stream state

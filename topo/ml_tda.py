@@ -1471,6 +1471,28 @@ def load_video_dataset(config):
     elif config["kind"] == "noisy_video":
         train, test = load_noisy_video(config)
         return train, test
+    elif config["kind"] == "synthetic_motion_classification":
+        train_parts = []
+        test_parts = []
+        train_counts = []
+        test_counts = []
+        for source in config["sources"]:
+            source_train, source_test = load_video_dataset(dict(source["config"]))
+            train_limit = config.get("_classification_train_limit")
+            test_limit = config.get("_classification_test_limit")
+            if train_limit is not None:
+                source_train = source_train[:, : int(train_limit)]
+            if test_limit is not None:
+                source_test = source_test[:, : int(test_limit)]
+            train_parts.append(source_train)
+            test_parts.append(source_test)
+            train_counts.append(int(source_train.shape[1]))
+            test_counts.append(int(source_test.shape[1]))
+        config["_classification_train_counts"] = train_counts
+        config["_classification_test_counts"] = test_counts
+        train = np.concatenate(train_parts, axis=1)
+        test = np.concatenate(test_parts, axis=1)
+        return train, test
     elif config["kind"] == "aeon_classification":
         train, test = load_aeon_classification_video(config)
         return train, test

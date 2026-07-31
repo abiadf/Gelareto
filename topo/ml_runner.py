@@ -44,6 +44,7 @@ import topo.ml_tda_vjepa as ml_tda_vjepa
 import topo.ml_tda_dinov2 as ml_tda_dinov2
 import topo.ml_tda_clip as ml_tda_clip
 import topo.ml_tda_simvp as ml_tda_simvp
+import topo.ml_tda_classification as ml_tda_classification
 import topo.persistence_3d as persistence_3d
 from topo.utils import tqdm_progress_bar
 from topo.ml_tda import (
@@ -81,6 +82,7 @@ RUNNER_SCENARIOS = {
     "dinov2_finetune_latent_tda",
     "clip_latent_tda",
     "simvp",
+    "latent_classification",
     "video3d_tda",
     "aux_tda",
     "pixel_tda",
@@ -599,6 +601,9 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         if cfg.num_test_clips is not None:
             run_config["max_test_clips"] = cfg.num_test_clips
         run_config["force_rebuild_cache"] = cfg.force_rebuild_data_cache
+    elif run_config.get("kind") == "synthetic_motion_classification":
+        run_config["_classification_train_limit"] = cfg.num_train_clips
+        run_config["_classification_test_limit"] = cfg.num_test_clips
 
     train_array, test_array = load_video_dataset(run_config)
     x_train = torch.from_numpy(train_array).unsqueeze(2)
@@ -606,9 +611,10 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
     if x_train.dtype != torch.uint8:
         x_train = x_train.float()
         x_test = x_test.float()
-    if cfg.num_train_clips is not None and x_train.shape[1] > cfg.num_train_clips:
+    is_composite_classification = run_config.get("kind") == "synthetic_motion_classification"
+    if not is_composite_classification and cfg.num_train_clips is not None and x_train.shape[1] > cfg.num_train_clips:
         x_train = x_train[:, : cfg.num_train_clips].contiguous()
-    if cfg.num_test_clips is not None and x_test.shape[1] > cfg.num_test_clips:
+    if not is_composite_classification and cfg.num_test_clips is not None and x_test.shape[1] > cfg.num_test_clips:
         x_test = x_test[:, : cfg.num_test_clips].contiguous()
 
     latent_dim = int(_override(cfg.latent_dim, run_config.get("LATENT_DIM", 128)))
@@ -2909,6 +2915,104 @@ def run_topo_decode_z(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
     return _run_decode_z(cfg, context, ae_kind="topo")
 
 
+def run_latent_classification(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if context.dataset_config.get("kind") != "synthetic_motion_classification":
+        raise ValueError(
+            "latent_classification currently requires "
+            "--dataset synthetic_motion_classification"
+        )
+    modes = _override(
+        cfg.modes,
+        context.dataset_config.get("CLASSIFICATION_MODES", ["z", "h1", "z_h1", "z_h1_shuffle"]),
+    )
+    unknown_modes = sorted(set(modes) - ml_tda_classification.VALID_MODES)
+    if unknown_modes:
+        raise ValueError(f"Unknown classification modes: {unknown_modes}")
+    tasks = context.dataset_config.get("CLASSIFICATION_TASKS", ["motion", "object"])
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(5))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    device = _select_device(cfg.device)
+
+    ml_tda.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        DEVICE=device,
+        AE_EPOCHS=context.ae_epochs,
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_latent.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        LATENT_TDA_WINDOW=window,
+        LATENT_TDA_BINS=bins,
+        RECOMPUTE_LATENT_TDA_FEATURES=cfg.recompute_latent_tda_features,
+    )
+    print(
+        f"Latent classification: tasks={tasks}, modes={modes}, seeds={seeds}, "
+        f"window={window}, epochs={context.predictor_epochs}"
+    )
+    train_labels = {
+        task: ml_tda_classification.labels_from_sources(context.dataset_config, "train", task)
+        for task in tasks
+    }
+    test_labels = {
+        task: ml_tda_classification.labels_from_sources(context.dataset_config, "test", task)
+        for task in tasks
+    }
+
+    rows = []
+    for seed in tqdm_progress_bar(seeds, desc="classification seeds", total=len(seeds), leave=True):
+        _set_all_seeds(seed)
+        encoder, _, encoder_path, _ = _load_or_train_baseline_autoencoder(cfg, context, seed)
+        train_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+            seed, "classification_train", context.x_train, encoder, require_persistence=True
+        )
+        test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+            seed, "classification_test", context.x_test, encoder, require_persistence=True
+        )
+        for mode in modes:
+            train_x = ml_tda_classification.clip_features(train_payload, mode, window, seed=seed)
+            test_x = ml_tda_classification.clip_features(test_payload, mode, window, seed=seed + 10_000)
+            for task in tasks:
+                metrics = ml_tda_classification.train_evaluate_classifier(
+                    train_x,
+                    train_labels[task],
+                    test_x,
+                    test_labels[task],
+                    seed=seed,
+                    hidden_dim=context.hidden_dim,
+                    epochs=context.predictor_epochs,
+                    learning_rate=context.learning_rate,
+                    device=device,
+                )
+                row = {
+                    "dataset": cfg.dataset,
+                    "encoder": "ae",
+                    "seed": seed,
+                    "task": task,
+                    "mode": mode,
+                    "accuracy": metrics["accuracy"],
+                    "balanced_accuracy": metrics["balanced_accuracy"],
+                    "macro_f1": metrics["macro_f1"],
+                    "encoder_path": str(encoder_path),
+                }
+                rows.append(row)
+                print("Classification summary:", row)
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df,
+        group_cols=["task", "mode"],
+        metric_cols=["accuracy", "balanced_accuracy", "macro_f1"],
+        sort_metric="accuracy",
+    )
+    print("\nLatent classification mean +/- std:")
+    with pd.option_context("display.float_format", "{:.4f}".format):
+        print(summary_df)
+    return results_df, summary_df
+
+
 def run_simvp(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     raw_modes = _override(cfg.modes, context.dataset_config.get("SIMVP_MODES", ["frames", "z", "z_fuse_h1"]))
     modes = []
@@ -3805,6 +3909,8 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
         return run_clip_latent_tda(cfg, context)
     if cfg.scenario == "simvp":
         return run_simvp(cfg, context)
+    if cfg.scenario == "latent_classification":
+        return run_latent_classification(cfg, context)
     if cfg.scenario == "video3d_tda":
         return run_video3d_tda(cfg, context)
     if cfg.scenario == "aux_tda":

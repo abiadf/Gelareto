@@ -412,3 +412,46 @@ DATASET_CONFIGS["orbiting_disks"] = {
     "shape": "disk",
     "cache_dir": "datasets/2D/orbiting_disks/processed",
 }
+
+# Matched synthetic corpus for trajectory-level classification.  The source
+# generators use identical object-count and appearance ranges so motion cannot
+# be classified merely by counting objects.
+_CLASSIFICATION_SOURCES = []
+for _source_name in ("bouncing_rings", "bouncing_disks", "orbiting_rings", "orbiting_disks"):
+    _source = dict(DATASET_CONFIGS[_source_name])
+    _source["num_train_clips"] = 128
+    _source["num_test_clips"] = 64
+    _source["min_balls"] = 3
+    _source["max_balls"] = 5
+    _source["min_shapes"] = 3
+    _source["max_shapes"] = 5
+    _source["radius_pulse_amp"] = 0.0
+    _source["cache_dir"] = f"datasets/2D/synthetic_motion_classification/{_source_name}/processed"
+    _CLASSIFICATION_SOURCES.append(
+        {
+            "name": _source_name,
+            "motion_label": 0 if _source_name.startswith("bouncing") else 1,
+            "object_label": 0 if _source_name.endswith("disks") else 1,
+            "config": _source,
+        }
+    )
+
+DATASET_CONFIGS["synthetic_motion_classification"] = {
+    "kind": "synthetic_motion_classification",
+    "sources": _CLASSIFICATION_SOURCES,
+    "learning_rate": 1e-3,
+    "LATENT_DIM": 64,
+    "HIDDEN_DIM": 64,
+    "PREDICTOR_EPOCHS": 100,
+    "AE_EPOCHS": 10,
+    "AE_FRAME_BATCH_SIZE": 256,
+    "AE_MAX_FRAMES_PER_EPOCH": 8192,
+    "REAL_TDA_SCALE": 5,
+    "REAL_TDA_BINS": 25,
+    "HORIZON": 5,
+    "RUN_SEEDS": list(range(5)),
+    "LATENT_TDA_WINDOW": 20,
+    "LATENT_TDA_BINS": 16,
+    "CLASSIFICATION_TASKS": ["motion", "object"],
+    "CLASSIFICATION_MODES": ["z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h1_shuffle"],
+}
