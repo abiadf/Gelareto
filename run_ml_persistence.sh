@@ -29,7 +29,7 @@ set -euo pipefail
 # Modes:
 #   real_tda:   none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_real_tda/topo_real_tda: same as real_tda
-#   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_pca_h0,z_pca_h1,z_pca_both,z_kpca_h0,z_kpca_h1,z_kpca_both,z_laplacian_h1,z_diffusion_h1,z_rff_h1,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
+#   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_gate_both,z_pca_h0,z_pca_h1,z_pca_both,z_kpca_h0,z_kpca_h1,z_kpca_both,z_laplacian_h1,z_diffusion_h1,z_rff_h1,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_both,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
 #   geo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda/vjepa_latent_tda: same as latent_tda
 #   simvp: frames, plus latent-TDA modes such as z,z_temporal_stats,z_fuse_h1,z_fuse_pi_h1
 #   video3d_tda: none,h0,h1,h2,h0_h1,h0_h2,h1_h2,all, plus *_zero,*_shuffle,*_noise,*_shift controls
@@ -62,19 +62,23 @@ set -euo pipefail
 #   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
-  # The latent-TDA scenarios produce the paired MSE(z) and MSE(z+H1) values.
-  # The fidelity scenarios evaluate the same AE/GeoAE/TopoAE encoders on fixed test windows.
-  --scenario latent_tda,geo_latent_tda,topo_latent_tda,representation_fidelity,geo_representation_fidelity,topo_representation_fidelity
+  # Group-gate ablation on the same frozen AE, GeoAE, and TopoAE representations.
+  --scenario latent_tda,geo_latent_tda,topo_latent_tda
   --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
   --seeds 0,1,2,3,4                 # comma-separated seeds
+  # z:            latent-only baseline
+  # z_both:       direct [z,H0,H1] concatenation
+  # z_fuse_both:  learned MLP([z,H0,H1]) capacity control
+  # z_gate_both:  [z,g0(z,H0,H1)H0,g1(z,H0,H1)H1], gates initialized at 0.9
+  # All three H0+H1 modes normalize z, H0, and H1 separately using train data.
+  --modes z,z_both,z_fuse_both,z_gate_both
   # --modes z,z_h0,z_h1,z_both,z_fuse_h1,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1,z_landscape_h1,z_diffusion_h1,z_perslay_h1,z_fuse_perslay_h1,z_pi_h1,z_laplacian_h1,z_landscape_h0,z_landscape_both,z_perslay_h0,z_perslay_both,z_pi_h0,z_pi_both,z_rff_h1,topo_h1,topo_pi_h1 #topo_pca_h1,topo_kpca_h1
   # --modes z,z_fuse_laplacian_h1_zero,z_fuse_laplacian_h1_shuffle,z_fuse_laplacian_h1_noise,z_fuse_laplacian_h1_shift,z_fuse_diffusion_h1_zero,z_fuse_diffusion_h1_shuffle,z_fuse_diffusion_h1_noise,z_fuse_diffusion_h1_shift,z_fuse_rff_h1_zero,z_fuse_rff_h1_shuffle,z_fuse_rff_h1_noise,z_fuse_rff_h1_shift
-  --modes z,z_h1                     # fixed primary comparison used for G_topo
   --horizon 5
   # Reuse the existing encoder checkpoints so forecasting and fidelity evaluate
   # exactly the same trained representations. Add --include-retrain-encoder only
   # when intentionally rebuilding every encoder.
-  --reuse-predictor                   # reuse the z and z_h1 models from the completed run
+  --reuse-predictor                   # reuse matching checkpoints; train missing ablation models
   --ae-epochs 10                    # baseline AE pretraining epochs
   --predictor-type lstm             # lstm | xlstm; xlstm is a lightweight gated recurrent benchmark
   # --hparam-file results/hparam_search/latent_z_best_hparams.json

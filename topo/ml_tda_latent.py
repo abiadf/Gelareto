@@ -930,6 +930,8 @@ def _latent_mode_needs_persistence(mode):
         return True
     if base_mode.startswith("z_fuse_"):
         base_mode = "z_" + base_mode.removeprefix("z_fuse_")
+    elif base_mode.startswith("z_gate_"):
+        base_mode = "z_" + base_mode.removeprefix("z_gate_")
     elif base_mode.startswith("topo_"):
         base_mode = "z_" + base_mode.removeprefix("topo_")
     return base_mode in {"z_h0", "z_h1", "z_both"}
@@ -1056,6 +1058,8 @@ def _topology_tensor_pair(train_payload, test_payload, topo_spec, train_control_
     topo_spec, control = _split_control_suffix(canonicalize_latent_tda_mode(topo_spec))
     if topo_spec.startswith("z_fuse_"):
         topo_spec = "z_" + topo_spec.removeprefix("z_fuse_")
+    elif topo_spec.startswith("z_gate_"):
+        topo_spec = "z_" + topo_spec.removeprefix("z_gate_")
     elif topo_spec.startswith("topo_"):
         topo_spec = "z_" + topo_spec.removeprefix("topo_")
 
@@ -1180,6 +1184,24 @@ def _features_for_latent_tda_mode_pair_impl(train_payload, test_payload, mode, t
             torch.cat([test_payload["z"], test_tda], dim=-1),
         )
 
+    if mode.startswith("z_gate_"):
+        if mode != "z_gate_both":
+            raise ValueError(
+                "Group-wise topology gating requires both homology groups; "
+                "use mode='z_gate_both'."
+            )
+        train_tda, test_tda = _topology_tensor_pair(
+            train_payload,
+            test_payload,
+            mode,
+            train_control_seed=train_control_seed,
+            test_control_seed=test_control_seed,
+        )
+        return (
+            torch.cat([train_payload["z"], train_tda], dim=-1),
+            torch.cat([test_payload["z"], test_tda], dim=-1),
+        )
+
     base_mode, control = _split_control_suffix(mode)
     parsed_control = _parse_latent_control_mode(base_mode)
     if parsed_control is not None:
@@ -1234,6 +1256,30 @@ def _fit_standardizer(x, eps=1e-6):
     return mean, std
 
 
+def _fit_z_h0_h1_standardizer(x, latent_dim, eps=1e-6):
+    """Fit independent scalar scales for the z, H0, and H1 blocks."""
+    topo_dim = int(x.shape[-1]) - int(latent_dim)
+    if topo_dim <= 0 or topo_dim % 2:
+        raise ValueError(
+            "Separate z/H0/H1 normalization requires equal-width H0 and H1 "
+            f"blocks; got input width {x.shape[-1]} and latent width {latent_dim}"
+        )
+    widths = [int(latent_dim), topo_dim // 2, topo_dim // 2]
+    means, stds = [], []
+    start = 0
+    for width in widths:
+        block = x[..., start:start + width]
+        mean, std = _fit_standardizer(block, eps=eps)
+        means.append(mean.expand(1, 1, width))
+        stds.append(std.expand(1, 1, width))
+        start += width
+    return torch.cat(means, dim=-1), torch.cat(stds, dim=-1)
+
+
+def _uses_z_h0_h1_standardizer(mode):
+    return mode in {"z_both", "z_fuse_both", "z_gate_both"}
+
+
 def _standardize(x, mean, std):
     return (x - mean) / std
 
@@ -1279,6 +1325,83 @@ class FusedTopologicalPredictor(nn.Module):
         return self.predictor(h)
 
 
+class GroupGatedTopologicalPredictor(nn.Module):
+    """Apply one geometry-conditioned gate to H0 and one to H1."""
+
+    def __init__(self, latent_dim, h0_dim, h1_dim, gate_hidden_dim=64, hidden_dim=128):
+        super().__init__()
+        self.latent_dim = int(latent_dim)
+        self.h0_dim = int(h0_dim)
+        self.h1_dim = int(h1_dim)
+        if min(self.latent_dim, self.h0_dim, self.h1_dim) <= 0:
+            raise ValueError("latent_dim, h0_dim, and h1_dim must all be positive")
+        self.gate = nn.Sequential(
+            nn.Linear(self.latent_dim + self.h0_dim + self.h1_dim, gate_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(gate_hidden_dim, 2),
+            nn.Sigmoid(),
+        )
+        # Begin as an almost-open gate so training starts close to the direct
+        # [z, H0, H1] baseline and learns only the suppression it needs.
+        initial_gate = 0.9
+        initial_logit = float(np.log(initial_gate / (1.0 - initial_gate)))
+        nn.init.zeros_(self.gate[2].weight)
+        nn.init.constant_(self.gate[2].bias, initial_logit)
+        self.predictor = make_predictor(
+            input_dim=self.latent_dim + self.h0_dim + self.h1_dim,
+            hidden_dim=hidden_dim,
+        )
+        self.last_gate_weights = None
+
+    def forward(self, x):
+        expected_dim = self.latent_dim + self.h0_dim + self.h1_dim
+        if x.shape[-1] != expected_dim:
+            raise ValueError(
+                f"Expected {expected_dim} input features, got {x.shape[-1]}"
+            )
+        z, h0, h1 = torch.split(
+            x,
+            [self.latent_dim, self.h0_dim, self.h1_dim],
+            dim=-1,
+        )
+        gate_weights = self.gate(torch.cat([z, h0, h1], dim=-1))
+        gated_h0 = gate_weights[..., 0:1] * h0
+        gated_h1 = gate_weights[..., 1:2] * h1
+        if not self.training:
+            self.last_gate_weights = gate_weights.detach().cpu()
+        return self.predictor(torch.cat([z, gated_h0, gated_h1], dim=-1))
+
+
+def topology_gate_statistics(model):
+    """Return held-out H0/H1 gate summaries for the results table."""
+    if not isinstance(model, GroupGatedTopologicalPredictor):
+        return {}
+    weights = model.last_gate_weights
+    if weights is None or weights.numel() == 0:
+        return {
+            "gate_h0_mean": np.nan,
+            "gate_h0_std": np.nan,
+            "gate_h1_mean": np.nan,
+            "gate_h1_std": np.nan,
+        }
+    flat = weights.reshape(-1, 2).float()
+    return {
+        "gate_h0_mean": float(flat[:, 0].mean().item()),
+        "gate_h0_std": float(flat[:, 0].std(unbiased=False).item()),
+        "gate_h1_mean": float(flat[:, 1].mean().item()),
+        "gate_h1_std": float(flat[:, 1].std(unbiased=False).item()),
+    }
+
+
+def latent_result_metric_columns(results_df):
+    """Core metrics for the shared mode table.
+
+    Gate diagnostics are intentionally summarized separately because they are
+    not applicable to the non-gated ablations.
+    """
+    return ["test_mse", "latent_r2"]
+
+
 def _stable_int_seed(*parts):
     key = "|".join(str(part) for part in parts)
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
@@ -1304,8 +1427,18 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
         _set_predictor_seed(seed, mode)
         model_dir = Path("models") / DATASET / "latent_tda_predictors"
         model_dir.mkdir(parents=True, exist_ok=True)
-        standardizer_tag = "gstdz" if STANDARDIZE_LATENT_PREDICTOR else "raw"
-        architecture_tag = "fusion" if mode.startswith("z_fuse_") else "direct"
+        if not STANDARDIZE_LATENT_PREDICTOR:
+            standardizer_tag = "raw"
+        elif _uses_z_h0_h1_standardizer(mode):
+            standardizer_tag = "zh0h1std"
+        else:
+            standardizer_tag = "gstdz"
+        if mode.startswith("z_fuse_"):
+            architecture_tag = "fusion"
+        elif mode.startswith("z_gate_"):
+            architecture_tag = "groupgate"
+        else:
+            architecture_tag = "direct"
         lr_tag = f"{LATENT_TDA_LR:g}".replace(".", "p").replace("-", "m")
         model_path = model_dir / (
             f"model_seed{seed}_pred{HORIZON}_{mode}_{architecture_tag}_{standardizer_tag}_{ml_tda.PREDICTOR_TYPE}_"
@@ -1323,12 +1456,36 @@ def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
                 fused_dim=HIDDEN_DIM,
                 hidden_dim=HIDDEN_DIM,
             ).to(device)
+        elif mode.startswith("z_gate_"):
+            if mode != "z_gate_both":
+                raise ValueError(
+                    "Group-wise topology gating requires mode='z_gate_both'."
+                )
+            topo_dim = train_features.shape[-1] - LATENT_DIM
+            if topo_dim <= 0 or topo_dim % 2:
+                raise ValueError(
+                    "z_gate_both expects equal-width H0 and H1 groups; "
+                    f"got combined topology width {topo_dim}"
+                )
+            model = GroupGatedTopologicalPredictor(
+                latent_dim=LATENT_DIM,
+                h0_dim=topo_dim // 2,
+                h1_dim=topo_dim // 2,
+                gate_hidden_dim=min(64, HIDDEN_DIM),
+                hidden_dim=HIDDEN_DIM,
+            ).to(device)
         else:
             model = make_predictor(input_dim=train_features.shape[-1], hidden_dim=HIDDEN_DIM).to(device)
         source_features = train_features[:-HORIZON]
         source_targets = train_z[HORIZON:]
         if STANDARDIZE_LATENT_PREDICTOR:
-            feature_mean, feature_std = _fit_standardizer(source_features)
+            if _uses_z_h0_h1_standardizer(mode):
+                feature_mean, feature_std = _fit_z_h0_h1_standardizer(
+                    source_features,
+                    LATENT_DIM,
+                )
+            else:
+                feature_mean, feature_std = _fit_standardizer(source_features)
             target_mean, target_std = _fit_standardizer(source_targets)
         else:
             feature_mean = torch.zeros((1, 1, source_features.shape[-1]), dtype=source_features.dtype)
@@ -1556,6 +1713,7 @@ def run_latent_tda_trajectory_experiment(
                 "horizon": HORIZON,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
+                **topology_gate_statistics(model),
                 **diagnostics,
             }
             rows.append(row)
@@ -1565,7 +1723,7 @@ def run_latent_tda_trajectory_experiment(
     summary_df = summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     duplicate_mask = results_df.duplicated(subset=["seed", "mode"], keep=False)

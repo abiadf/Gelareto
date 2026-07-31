@@ -545,6 +545,27 @@ def _save_results(
     if results_df is not None:
         float_format = "%.8g" if "representation_fidelity" in cfg.scenario else "%.4f"
         results_df.to_csv(out_dir / "results.csv", index=False, float_format=float_format)
+        gate_columns = [
+            "gate_h0_mean",
+            "gate_h0_std",
+            "gate_h1_mean",
+            "gate_h1_std",
+        ]
+        if all(column in results_df.columns for column in gate_columns):
+            gate_results = results_df.dropna(subset=["gate_h0_mean"]).copy()
+            if not gate_results.empty:
+                identity_columns = [
+                    column
+                    for column in ("dataset", "encoder", "seed", "mode", "horizon")
+                    if column in gate_results.columns
+                ]
+                gate_results[identity_columns + gate_columns].to_csv(
+                    out_dir / "gate_results.csv",
+                    index=False,
+                    float_format="%.4f",
+                )
+                gate_summary = gate_results.groupby("mode")[gate_columns].agg(["mean", "std"])
+                gate_summary.to_csv(out_dir / "gate_summary.csv", float_format="%.4f")
     if summary_df is not None:
         float_format = "%.8g" if "representation_fidelity" in cfg.scenario else "%.4f"
         summary_df.to_csv(out_dir / "summary.csv", float_format=float_format)
@@ -734,7 +755,7 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     print("\nReal-TDA per-run results:")
@@ -1186,7 +1207,7 @@ def run_geo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFram
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     print("\nGeo-real-TDA per-run results:")
@@ -1280,7 +1301,7 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     print("\nTopo-real-TDA per-run results:")
@@ -1661,6 +1682,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
                 "encoder_path": str(encoder_path),
+                **ml_tda_latent.topology_gate_statistics(model),
                 **diagnostics,
             }
             rows.append(row)
@@ -1670,7 +1692,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     print("\nGeo latent-TDA per-run results:")
@@ -1795,6 +1817,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
                 "encoder_path": str(encoder_path),
+                **ml_tda_latent.topology_gate_statistics(model),
                 **diagnostics,
             }
             rows.append(row)
@@ -1804,7 +1827,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     print("\nTopo latent-TDA per-run results:")
@@ -1934,6 +1957,7 @@ def _run_representation_latent_tda(
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
                 "encoder_path": str(encoder_path),
+                **ml_tda_latent.topology_gate_statistics(model),
                 **diagnostics,
             }
             rows.append(row)
@@ -1943,7 +1967,7 @@ def _run_representation_latent_tda(
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     print(f"\n{scenario_name} mean +/- std:")
@@ -2233,6 +2257,7 @@ def run_dinov2_latent_tda(
                 "dinov2_trainable_blocks": int(cfg.dinov2_trainable_blocks) if fine_tune else 0,
                 "encoder_path": str(encoder_path),
                 "latent_dim": dinov2_latent_dim,
+                **ml_tda_latent.topology_gate_statistics(model),
                 **diagnostics,
             }
             rows.append(row)
@@ -2242,7 +2267,7 @@ def run_dinov2_latent_tda(
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     print(f"\n{scenario_name} mean +/- std:")
@@ -2411,6 +2436,7 @@ def run_clip_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
                 "clip_repo": repo,
                 "clip_image_size": int(cfg.clip_image_size),
                 "latent_dim": clip_latent_dim,
+                **ml_tda_latent.topology_gate_statistics(model),
                 **diagnostics,
             }
             rows.append(row)
@@ -2420,7 +2446,7 @@ def run_clip_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     print("\nclip_latent_tda mean +/- std:")
@@ -2589,6 +2615,7 @@ def run_vjepa_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Data
                 "vjepa_repo": repo,
                 "vjepa_num_frames": int(cfg.vjepa_num_frames),
                 "latent_dim": vjepa_latent_dim,
+                **ml_tda_latent.topology_gate_statistics(model),
                 **diagnostics,
             }
             rows.append(row)
@@ -2598,7 +2625,7 @@ def run_vjepa_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Data
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
         group_cols="mode",
-        metric_cols=["test_mse", "latent_r2"],
+        metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
     print("\nvjepa_latent_tda mean +/- std:")
@@ -3776,7 +3803,7 @@ def _drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def _format_mean_std(value: object, std: object) -> str:
     if pd.isna(value) and pd.isna(std):
-        return "nan nan"
+        return "—"
     if pd.isna(std):
         return f"{float(value):.4f}"
     if pd.isna(value):
@@ -3840,7 +3867,33 @@ def _print_aggregate_tables(
     with pd.option_context("display.width", 240, "display.max_columns", None):
         if result_frames:
             combined_results = pd.concat(result_frames, ignore_index=True, sort=False)
-            _print_grouped_aggregate_frame("All per-run results", combined_results)
+            gate_cols = ["gate_h0_mean", "gate_h0_std", "gate_h1_mean", "gate_h1_std"]
+            main_results = combined_results.drop(columns=gate_cols, errors="ignore")
+            _print_grouped_aggregate_frame("All per-run results", main_results)
+            if all(column in combined_results.columns for column in gate_cols):
+                gate_results = combined_results.dropna(subset=["gate_h0_mean"])
+                if not gate_results.empty:
+                    group_cols = [
+                        column
+                        for column in ("dataset", "scenario")
+                        if column in gate_results.columns
+                    ]
+                    gate_summary = (
+                        gate_results.groupby(group_cols, as_index=False)
+                        .agg(
+                            n_runs=("gate_h0_mean", "size"),
+                            gate_h0_mean=("gate_h0_mean", "mean"),
+                            gate_h0_seed_std=("gate_h0_mean", "std"),
+                            gate_h0_window_std=("gate_h0_std", "mean"),
+                            gate_h1_mean=("gate_h1_mean", "mean"),
+                            gate_h1_seed_std=("gate_h1_mean", "std"),
+                            gate_h1_window_std=("gate_h1_std", "mean"),
+                        )
+                    )
+                    _print_grouped_aggregate_frame(
+                        "Group-gate diagnostics (gated mode only)",
+                        gate_summary,
+                    )
         if summary_frames:
             combined_summary = pd.concat(summary_frames, ignore_index=True, sort=False)
             combined_summary = _combine_summary_mean_std_columns(combined_summary)
