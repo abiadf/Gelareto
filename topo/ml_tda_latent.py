@@ -1605,7 +1605,10 @@ def latent_geometry_diagnostics(video_tensor, z, max_points=512, max_tda_points=
         frames = ml_tda.tensor_to_model_float(video_tensor).reshape(-1, *video_tensor.shape[2:]).float()
         flat_x = frames.reshape(frames.shape[0], -1).cpu().numpy()
 
-    n = min(int(max_points), flat_z.shape[0], flat_x.shape[0])
+    common_n = min(flat_z.shape[0], flat_x.shape[0])
+    finite_rows = np.isfinite(flat_x[:common_n]).all(axis=1) & np.isfinite(flat_z[:common_n]).all(axis=1)
+    valid_idx = np.flatnonzero(finite_rows)
+    n = min(int(max_points), len(valid_idx))
     if n < 4:
         return {
             "latent_velocity": velocity,
@@ -1616,7 +1619,9 @@ def latent_geometry_diagnostics(video_tensor, z, max_points=512, max_tda_points=
             "topology_h1_l2": np.nan,
         }
 
-    idx = np.linspace(0, flat_z.shape[0] - 1, n, dtype=int)
+    # Preserve temporal coverage while excluding invalid source rows. This is
+    # a diagnostic only; it must not abort an otherwise completed experiment.
+    idx = valid_idx[np.linspace(0, len(valid_idx) - 1, n, dtype=int)]
     x_sample = flat_x[idx]
     z_sample = flat_z[idx]
     dx = pdist(x_sample)

@@ -38,6 +38,7 @@ import topo.ml_tda_aux as ml_tda_aux
 import topo.ml_tda_latent as ml_tda_latent
 import topo.ml_tda_pixel as ml_tda_pixel
 import topo.ml_tda_geoae as ml_tda_geoae
+import topo.ml_tda_pwgeoae as ml_tda_pwgeoae
 import topo.ml_tda_topoae as ml_tda_topoae
 import topo.ml_tda_repr as ml_tda_repr
 import topo.ml_tda_vjepa as ml_tda_vjepa
@@ -73,6 +74,7 @@ RUNNER_SCENARIOS = {
     "geo_representation_fidelity",
     "topo_representation_fidelity",
     "geo_latent_tda",
+    "pwgeo_latent_tda",
     "geo_latent_spectrum",
     "topo_latent_tda",
     "vae_latent_tda",
@@ -143,6 +145,13 @@ class RunConfig:
     geo_ae_lambda: float
     geo_ae_epochs: int | None
     geo_ae_pair_batch_size: int
+    pwgeo_ae_lambda: float
+    pwgeo_ae_epochs: int | None
+    pwgeo_ae_pair_batch_size: int
+    pwgeo_blend: float | list[float]
+    pwgeo_knn: int
+    pwgeo_h0_weight: float
+    pwgeo_h1_weight: float
     topo_ae_lambda: float
     topo_ae_epochs: int | None
     topo_ae_pair_batch_size: int
@@ -775,6 +784,13 @@ def _geo_model_namespace(dataset: str, geo_lambda: float) -> str:
     return f"{dataset}_geoae_lam{geo_lambda:g}"
 
 
+def _pwgeo_model_namespace(cfg: RunConfig) -> str:
+    return (
+        f"{cfg.dataset}_pwgeoae_lam{cfg.pwgeo_ae_lambda:g}_k{cfg.pwgeo_knn}_"
+        f"blend{cfg.pwgeo_blend:g}_h0{cfg.pwgeo_h0_weight:g}_h1{cfg.pwgeo_h1_weight:g}"
+    )
+
+
 def _topo_model_namespace(dataset: str, topo_lambda: float, topo_distance: str) -> str:
     return f"{dataset}_topoae_lam{topo_lambda:g}_{topo_distance}"
 
@@ -1121,6 +1137,34 @@ def _load_geo_encoder_for_seed(
     return encoder, encoder_path, model_namespace
 
 
+def _load_pwgeo_encoder_for_seed(
+    cfg: RunConfig,
+    context: VideoContext,
+    seed: int,
+) -> tuple[SpatialEncoder, Path, str]:
+    epochs = int(_override(cfg.pwgeo_ae_epochs, context.dataset_config.get("GEO_AE_EPOCHS", 3)))
+    model_namespace = _pwgeo_model_namespace(cfg)
+    encoder, encoder_path = ml_tda_pwgeoae.load_or_train_pwgeo_encoder(
+        context.x_train,
+        dataset_name=cfg.dataset,
+        model_namespace=model_namespace,
+        seed=seed,
+        latent_dim=context.latent_dim,
+        pw_lambda=cfg.pwgeo_ae_lambda,
+        blend=cfg.pwgeo_blend,
+        knn=cfg.pwgeo_knn,
+        h0_weight=cfg.pwgeo_h0_weight,
+        h1_weight=cfg.pwgeo_h1_weight,
+        ae_epochs=epochs,
+        frame_batch_size=context.ae_frame_batch_size or 256,
+        max_frames_per_epoch=context.ae_max_frames_per_epoch,
+        pair_batch_size=cfg.pwgeo_ae_pair_batch_size,
+        retrain=cfg.retrain_encoder,
+        decoder_type=cfg.decoder_type,
+    )
+    return encoder, encoder_path, model_namespace
+
+
 def _load_topo_encoder_for_seed(
     cfg: RunConfig,
     context: VideoContext,
@@ -1448,7 +1492,7 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
-        True,
+        False,
     )
 
     ml_tda.configure_runtime(
@@ -1637,7 +1681,12 @@ def run_representation_fidelity(
     return results_df, summary_df
 
 
-def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+def run_geo_latent_tda(
+    cfg: RunConfig,
+    context: VideoContext,
+    *,
+    encoder_kind: str = "geo",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
         context.dataset_config.get(
@@ -1653,10 +1702,11 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
-    model_namespace = _geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda)
+    is_pwgeo = encoder_kind == "pwgeo"
+    model_namespace = _pwgeo_model_namespace(cfg) if is_pwgeo else _geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda)
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
-        True,
+        False,
     )
 
     ml_tda.configure_runtime(
@@ -1685,8 +1735,8 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
         RECOMPUTE_LATENT_TDA_FEATURES=recompute_features,
     )
     print(
-        f"Geo latent-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, "
-        f"seeds={seeds}, modes={modes}, geo_ae_lambda={cfg.geo_ae_lambda}, "
+        f"{'PW-Geo' if is_pwgeo else 'Geo'} latent-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, "
+        f"seeds={seeds}, modes={modes}, lambda={cfg.pwgeo_ae_lambda if is_pwgeo else cfg.geo_ae_lambda}, "
         f"window={window}, bins={bins}, predictor_epochs={latent_epochs}, lr={latent_lr}, "
         f"horizon={context.horizon}, "
         f"max_train={max_train}, max_test={max_test}, recompute_features={recompute_features}"
@@ -1694,10 +1744,14 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
 
     rows = []
     require_persistence = ml_tda_latent._latent_modes_need_persistence(modes)
-    for seed in tqdm_progress_bar(seeds, desc="geo_latent_tda seeds", total=len(seeds), leave=True):
-        print(f"\n================ geo latent TDA seed={seed} ================")
+    scenario_name = "pwgeo_latent_tda" if is_pwgeo else "geo_latent_tda"
+    for seed in tqdm_progress_bar(seeds, desc=f"{scenario_name} seeds", total=len(seeds), leave=True):
+        print(f"\n================ {scenario_name} seed={seed} ================")
         _set_all_seeds(seed)
-        encoder, encoder_path, _ = _load_geo_encoder_for_seed(cfg, context, seed)
+        if is_pwgeo:
+            encoder, encoder_path, _ = _load_pwgeo_encoder_for_seed(cfg, context, seed)
+        else:
+            encoder, encoder_path, _ = _load_geo_encoder_for_seed(cfg, context, seed)
         x_train_subset = ml_tda_latent.take_batch_subset(context.x_train, max_train, seed=seed)
         x_test_subset = ml_tda_latent.take_batch_subset(context.x_test, max_test, seed=seed + 1)
         train_payload = ml_tda_latent.load_or_compute_latent_tda_features(
@@ -1742,8 +1796,10 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
             )
             row = {
                 "dataset": cfg.dataset,
-                "encoder": "geo_ae",
-                "geo_ae_lambda": cfg.geo_ae_lambda,
+                "encoder": "pwgeo_ae" if is_pwgeo else "geo_ae",
+                "geo_ae_lambda": np.nan if is_pwgeo else cfg.geo_ae_lambda,
+                "pwgeo_ae_lambda": cfg.pwgeo_ae_lambda if is_pwgeo else np.nan,
+                "pwgeo_blend": float(cfg.pwgeo_blend) if is_pwgeo else np.nan,
                 "seed": seed,
                 "mode": mode,
                 "horizon": context.horizon,
@@ -1759,7 +1815,7 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     results_df = pd.DataFrame(rows)
     summary_df = ml_tda.summarize_metric_runs(
         results_df,
-        group_cols="mode",
+        group_cols=["pwgeo_blend", "mode"] if is_pwgeo else "mode",
         metric_cols=ml_tda_latent.latent_result_metric_columns(results_df),
         sort_metric="test_mse",
     )
@@ -1769,6 +1825,10 @@ def run_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     with pd.option_context("display.float_format", "{:.4f}".format):
         print(summary_df)
     return results_df, summary_df
+
+
+def run_pwgeo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return run_geo_latent_tda(cfg, context, encoder_kind="pwgeo")
 
 
 def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -1790,7 +1850,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda, cfg.topo_ae_distance)
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
-        True,
+        False,
     )
 
     ml_tda.configure_runtime(
@@ -1937,7 +1997,7 @@ def _run_representation_latent_tda(
         raise ValueError(f"Unknown representation kind: {rep_kind}")
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
-        True,
+        False,
     )
 
     ml_tda.configure_runtime(
@@ -2184,7 +2244,7 @@ def run_dinov2_latent_tda(
         dinov2_namespace = f"{cfg.dataset}_dinov2_{repo.replace('/', '__')}"
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
-        True,
+        False,
     )
     selected_device = _select_device(cfg.device)
     dinov2_device = selected_device.type if cfg.device == "auto" else cfg.device
@@ -2413,7 +2473,7 @@ def run_clip_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     clip_namespace = f"{cfg.dataset}_clip_{repo.replace('/', '__')}"
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
-        True,
+        False,
     )
     selected_device = _select_device(cfg.device)
     clip_device = selected_device.type if cfg.device == "auto" else cfg.device
@@ -2592,7 +2652,7 @@ def run_vjepa_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Data
     vjepa_namespace = f"{cfg.dataset}_vjepa_{repo.replace('/', '__')}"
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
-        True,
+        False,
     )
     selected_device = _select_device(cfg.device)
     vjepa_device = selected_device.type if cfg.device == "auto" else cfg.device
@@ -3104,7 +3164,7 @@ def run_simvp(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.D
     )
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
-        True,
+        False,
     )
     device = _select_device(cfg.device)
 
@@ -3728,6 +3788,18 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument("--geo-ae-lambda", type=float, default=0.1)
     parser.add_argument("--geo-ae-epochs", type=int, default=None)
     parser.add_argument("--geo-ae-pair-batch-size", type=int, default=64)
+    parser.add_argument("--pwgeo-ae-lambda", type=float, default=0.1)
+    parser.add_argument("--pwgeo-ae-epochs", type=int, default=None)
+    parser.add_argument("--pwgeo-ae-pair-batch-size", type=int, default=64)
+    parser.add_argument(
+        "--pwgeo-blend",
+        type=_parse_float_list,
+        default=[0.25],
+        help="One value or a comma-separated critical-edge fraction sweep, e.g. 0,0.1,0.25,0.5.",
+    )
+    parser.add_argument("--pwgeo-knn", type=int, default=5, help="PW-GeoAE local neighbours per point.")
+    parser.add_argument("--pwgeo-h0-weight", type=float, default=2.0, help="Extra weight on H0-critical MST edges.")
+    parser.add_argument("--pwgeo-h1-weight", type=float, default=1.0, help="Weight on cycle-closing H1-candidate edges.")
     parser.add_argument("--topo-ae-lambda", type=float, default=0.1)
     parser.add_argument("--topo-ae-epochs", type=int, default=None)
     parser.add_argument("--topo-ae-pair-batch-size", type=int, default=64)
@@ -3879,6 +3951,13 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         geo_ae_lambda=args.geo_ae_lambda,
         geo_ae_epochs=args.geo_ae_epochs,
         geo_ae_pair_batch_size=args.geo_ae_pair_batch_size,
+        pwgeo_ae_lambda=args.pwgeo_ae_lambda,
+        pwgeo_ae_epochs=args.pwgeo_ae_epochs,
+        pwgeo_ae_pair_batch_size=args.pwgeo_ae_pair_batch_size,
+        pwgeo_blend=args.pwgeo_blend,
+        pwgeo_knn=args.pwgeo_knn,
+        pwgeo_h0_weight=args.pwgeo_h0_weight,
+        pwgeo_h1_weight=args.pwgeo_h1_weight,
         topo_ae_lambda=args.topo_ae_lambda,
         topo_ae_epochs=args.topo_ae_epochs,
         topo_ae_pair_batch_size=args.topo_ae_pair_batch_size,
@@ -3956,6 +4035,8 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
         return run_representation_fidelity(cfg, context, encoder_kind="topo")
     if cfg.scenario == "geo_latent_tda":
         return run_geo_latent_tda(cfg, context)
+    if cfg.scenario == "pwgeo_latent_tda":
+        return run_pwgeo_latent_tda(cfg, context)
     if cfg.scenario == "geo_latent_spectrum":
         return run_geo_latent_spectrum(cfg, context)
     if cfg.scenario == "topo_latent_tda":
@@ -4184,19 +4265,25 @@ def main(argv: list[str] | None = None) -> None:
     cfg = parse_args(argv)
     scenarios = _parse_str_list(cfg.scenario) or [cfg.scenario]
     datasets = _parse_str_list(cfg.dataset) or [cfg.dataset]
+    pwgeo_blends = cfg.pwgeo_blend if isinstance(cfg.pwgeo_blend, list) else [cfg.pwgeo_blend]
+    scenario_variants = [
+        (scenario, float(blend))
+        for scenario in scenarios
+        for blend in (pwgeo_blends if scenario == "pwgeo_latent_tda" else [pwgeo_blends[0]])
+    ]
     profile_sizes = cfg.profile_sizes or [None]
     profile_modes = cfg.modes if cfg.profile_run and cfg.modes and len(cfg.modes) > 1 else [None]
     _validate_requested_items(scenarios, RUNNER_SCENARIOS, "scenario")
     _validate_requested_items(datasets, set(topo_config.DATASET_CONFIGS), "dataset")
 
     repeats_per_config = (cfg.profile_warmup_runs + cfg.profile_repeats) if cfg.profile_run else 1
-    total = len(scenarios) * len(datasets) * len(profile_sizes) * len(profile_modes) * repeats_per_config
+    total = len(scenario_variants) * len(datasets) * len(profile_sizes) * len(profile_modes) * repeats_per_config
     run_idx = 0
     result_frames = []
     summary_frames = []
     profile_frames = []
     for dataset in datasets:
-        for scenario in scenarios:
+        for scenario, pwgeo_blend in scenario_variants:
             for profile_size in profile_sizes:
                 for profile_mode in profile_modes:
                     repeat_labels = (
@@ -4209,15 +4296,17 @@ def main(argv: list[str] | None = None) -> None:
                         run_idx += 1
                         size_text = "" if profile_size is None else f" profile_size={profile_size}"
                         mode_text = "" if profile_mode is None else f" mode={profile_mode}"
+                        blend_text = f" pwgeo_blend={pwgeo_blend:g}" if scenario == "pwgeo_latent_tda" else ""
                         repeat_text = "" if repeat_idx is None else f" {repeat_label}={repeat_idx}"
                         print(
                             f"\n######## run {run_idx}/{total}: dataset={dataset} scenario={scenario}"
-                            f"{size_text}{mode_text}{repeat_text} ########"
+                            f"{blend_text}{size_text}{mode_text}{repeat_text} ########"
                         )
                         run_cfg = replace(
                             cfg,
                             dataset=dataset,
                             scenario=scenario,
+                            pwgeo_blend=pwgeo_blend,
                             modes=[profile_mode] if profile_mode is not None else cfg.modes,
                             profile_size=profile_size,
                             profile_repeat=repeat_idx if cfg.profile_run else None,
@@ -4254,7 +4343,7 @@ def main(argv: list[str] | None = None) -> None:
     forecast_frames = [
         frame for frame in result_frames
         if "scenario" in frame and frame["scenario"].isin(
-            {"latent_tda", "geo_latent_tda", "topo_latent_tda"}
+            {"latent_tda", "geo_latent_tda", "pwgeo_latent_tda", "topo_latent_tda"}
         ).any()
     ]
     fidelity_frames = [

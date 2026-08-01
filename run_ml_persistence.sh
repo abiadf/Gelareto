@@ -9,6 +9,7 @@ set -euo pipefail
 # latent_stability/geo_latent_stability/topo_latent_stability: noised-input diagnostic measuring latent Hausdorff and diagram bottleneck changes
 # representation_fidelity/geo_representation_fidelity/topo_representation_fidelity: input-to-latent metric distortion and H0/H1 bottleneck fidelity
 # geo_latent_tda: geoAE z-history + optional latent-trajectory TDA -> future z
+# pwgeo_latent_tda: persistence-weighted GeoAE z-history + optional latent-trajectory TDA -> future z
 # topo_latent_tda: topoAE z-history + optional latent-trajectory TDA -> future z
 # vae_latent_tda: VAE encoder z-history + optional latent-trajectory TDA -> future z
 # byol_latent_tda: BYOL-style encoder z-history + optional latent-trajectory TDA -> future z
@@ -24,14 +25,15 @@ set -euo pipefail
 # geo_pixel_tda: geoAE z-history + optional frame TDA -> future X
 # topo_pixel_tda: topoAE z-history + optional frame TDA -> future X
 # aux_tda: AE z-history -> future z, with optional auxiliary Betti prediction head/loss
-# geo_* models use the old pairwise-distance geometry proxy; topo_* models use H0 persistence-signature AE.
+# geo_* preserves all pairwise distances uniformly; pwgeo_* emphasizes local, H0-critical, and cycle-closing edges.
+# topo_* models use the H0 persistence-signature AE.
 # VAE/BYOL/V-JEPA/CLIP are representation baselines for latent_tda; SimVP/video3d_tda are pixel-space video prediction baselines.
 
 # Modes:
 #   real_tda:   none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
 #   geo_real_tda/topo_real_tda: same as real_tda
 #   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_gate_both,z_pca_h0,z_pca_h1,z_pca_both,z_kpca_h0,z_kpca_h1,z_kpca_both,z_laplacian_h1,z_diffusion_h1,z_rff_h1,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_both,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
-#   geo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda/vjepa_latent_tda: same as latent_tda
+#   geo_latent_tda/pwgeo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda/vjepa_latent_tda: same as latent_tda
 #   simvp: frames, plus latent-TDA modes such as z,z_temporal_stats,z_fuse_h1,z_fuse_pi_h1
 #   latent_classification: z,h0,h1,both,z_h0,z_h1,z_both,z_h0_shuffle,z_h1_shuffle
 #   video3d_tda: none,h0,h1,h2,h0_h1,h0_h2,h1_h2,all, plus *_zero,*_shuffle,*_noise,*_shift controls
@@ -67,16 +69,25 @@ set -euo pipefail
 #   params using z-only validation MSE, then all modes/scenarios reuse those params.
 
 args=(
-  # External raw-trajectory classification on both datasets in one run.
-  --scenario latent_classification
-  --dataset character_trajectories,natops
-  --seeds 0,1,2,3,4                 # matched seeds required by the paired test
-  # z: latent trajectory summary; h0/h1/both: topology only; z_h*: fusion.
-  # z_h1_shuffle is the equal-width specificity control for genuine H1.
-  # Focused confirmation run; use the complete mode list above for a full table.
-  --modes z,z_h0,z_h0_shuffle
-  --predictor-epochs 100             # classifier epochs
-  --hidden-dim 64                    # classifier hidden width
+  # PW-GeoAE prototype: first compare these results with the existing AE,
+  # GeoAE and TopoAE rows before launching all nine datasets.
+  --scenario pwgeo_latent_tda,geo_latent_tda
+  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
+  --seeds 0,1,2,3,4
+  --modes z,z_h0,z_h1,z_both
+  # Resume-safe: existing encoders/TDA caches/predictors are reused; missing
+  # artifacts are still trained automatically. Re-enable retraining only when
+  # intentionally replacing every checkpoint in the sweep.
+  --reuse-predictor
+  --pwgeo-ae-lambda 0.1
+  --pwgeo-ae-epochs 10
+  --pwgeo-ae-pair-batch-size 64
+  --pwgeo-blend 0,0.1,0.25
+  --pwgeo-knn 5
+  --pwgeo-h0-weight 2.0
+  --pwgeo-h1-weight 1.0
+  --geo-ae-epochs 10
+  --predictor-epochs 10
   --latent-tda-window 20
   --latent-tda-bins 16
   # For the matched synthetic version instead use:
@@ -131,6 +142,13 @@ args=(
   # --geo-ae-lambda 0.1              # geo_*: pairwise-distance geometry proxy weight
   # --geo-ae-epochs 3                # geo_*: geo-AE pretraining epochs
   # --geo-ae-pair-batch-size 64      # geo_*: minibatch size for geometry proxy
+  # --pwgeo-ae-lambda 0.1            # pwgeo_*: persistence-weighted geometry loss weight
+  # --pwgeo-ae-epochs 10             # pwgeo_*: encoder pretraining epochs
+  # --pwgeo-ae-pair-batch-size 64    # pwgeo_*: graph/loss minibatch size
+  # --pwgeo-blend 0,0.1,0.25,0.5    # pwgeo_*: each blend setting is evaluated over all requested seeds
+  # --pwgeo-knn 5                    # pwgeo_*: local neighbours per input point
+  # --pwgeo-h0-weight 2.0            # pwgeo_*: extra MST/H0-critical edge weight
+  # --pwgeo-h1-weight 1.0            # pwgeo_*: cycle-closing edge weight; 0 is H0-only ablation
   # --topo-ae-lambda 0.1             # topo_*: H0 persistence regularizer weight
   # --topo-ae-epochs 3               # topo_*: topo-AE pretraining epochs
   # --topo-ae-pair-batch-size 64     # topo_*: minibatch size for persistence signature

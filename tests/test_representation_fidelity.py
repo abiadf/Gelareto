@@ -3,10 +3,12 @@ import pandas as pd
 
 from scripts.analyze_representation_fidelity import _ensure_encoder
 from topo.ml_tda_latent import (
+    latent_geometry_diagnostics,
     mean_normalized_distance_matrix,
     metric_distortion,
     representation_fidelity_for_window,
 )
+import torch
 
 
 def test_metric_distortion_is_zero_for_scaled_copy():
@@ -47,3 +49,12 @@ def test_encoder_is_filled_for_baseline_rows_in_mixed_results():
     fixed = _ensure_encoder(mixed)
     assert fixed["encoder"].tolist() == ["ae", "geo_ae", "topo_ae"]
     assert fixed["encoder_variant"].tolist() == ["ae", "geo_ae", "topo_ae"]
+
+
+def test_latent_geometry_diagnostics_ignores_nonfinite_input_rows():
+    video = torch.randn(5, 2, 1, 2, 2)
+    video[1, 0, 0, 0, 0] = torch.nan
+    z = torch.randn(5, 2, 3)
+    diagnostics = latent_geometry_diagnostics(video, z, max_points=10, max_tda_points=8)
+    assert "trustworthiness" in diagnostics
+    assert np.isfinite(diagnostics["distance_corr"])
