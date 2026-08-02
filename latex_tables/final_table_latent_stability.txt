@@ -1,0 +1,49 @@
+\begin{table*}[t]
+\centering
+\small
+\caption{Latent persistence stability diagnostic at input noise level $\sigma=0.10$. We add Gaussian noise to the input, re-encode the clean and perturbed sequences, and compare latent-window point clouds and Vietoris--Rips persistence diagrams. $d_H$ is the Hausdorff distance between clean and perturbed latent point clouds, and $d_B(H_k)/d_H$ reports the relative diagram change. Values below one indicate that the persistence diagram changes less than the latent point cloud under the same perturbation.}
+\label{tab:latent_stability}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{llccccc}
+\toprule
+Dataset & Encoder & $d_H(z,z')$ & $d_B(H_0)$ & $d_B(H_0)/d_H$ & $d_B(H_1)$ & $d_B(H_1)/d_H$ \\
+\midrule
+Bouncing rings & AE & $0.813{\pm}0.145$ & $0.470{\pm}0.065$ & $0.582{\pm}0.037$ & $0.103{\pm}0.017$ & $0.128{\pm}0.014$ \\
+ & GeoAE & $8.946{\pm}1.030$ & $1.365{\pm}0.121$ & $0.153{\pm}0.006$ & $0.317{\pm}0.013$ & $0.036{\pm}0.006$ \\
+ & TopoAE & $0.954{\pm}0.057$ & $0.532{\pm}0.030$ & $0.558{\pm}0.018$ & $0.115{\pm}0.007$ & $0.121{\pm}0.003$ \\
+\midrule
+Bouncing disks & AE & $0.832{\pm}0.127$ & $0.387{\pm}0.039$ & $0.468{\pm}0.030$ & $0.081{\pm}0.005$ & $0.098{\pm}0.011$ \\
+ & GeoAE & $10.151{\pm}1.404$ & $1.660{\pm}0.229$ & $0.164{\pm}0.011$ & $0.353{\pm}0.017$ & $0.035{\pm}0.007$ \\
+ & TopoAE & $0.797{\pm}0.063$ & $0.440{\pm}0.043$ & $0.551{\pm}0.025$ & $0.095{\pm}0.009$ & $0.118{\pm}0.005$ \\
+\midrule
+Orbiting rings & AE & $2.562{\pm}0.454$ & $1.274{\pm}0.119$ & $0.503{\pm}0.044$ & $0.376{\pm}0.010$ & $0.150{\pm}0.028$ \\
+ & GeoAE & $10.393{\pm}1.153$ & $1.837{\pm}0.475$ & $0.175{\pm}0.029$ & $0.333{\pm}0.014$ & $0.032{\pm}0.005$ \\
+ & TopoAE & $1.046{\pm}0.066$ & $0.535{\pm}0.036$ & $0.512{\pm}0.014$ & $0.224{\pm}0.009$ & $0.215{\pm}0.008$ \\
+\midrule
+Orbiting disks & AE & $2.954{\pm}0.597$ & $1.344{\pm}0.171$ & $0.461{\pm}0.040$ & $0.378{\pm}0.026$ & $0.131{\pm}0.019$ \\
+ & GeoAE & $11.621{\pm}1.551$ & $2.283{\pm}0.717$ & $0.192{\pm}0.040$ & $0.372{\pm}0.015$ & $0.033{\pm}0.006$ \\
+ & TopoAE & $0.773{\pm}0.062$ & $0.387{\pm}0.024$ & $0.501{\pm}0.018$ & $0.151{\pm}0.007$ & $0.196{\pm}0.009$ \\
+\midrule
+Moving MNIST & AE & $2.898{\pm}0.385$ & $1.248{\pm}0.178$ & $0.432{\pm}0.040$ & $0.166{\pm}0.027$ & $0.058{\pm}0.008$ \\
+ & GeoAE & $7.129{\pm}0.785$ & $1.156{\pm}0.088$ & $0.163{\pm}0.015$ & $0.259{\pm}0.015$ & $0.037{\pm}0.003$ \\
+ & TopoAE & $0.780{\pm}0.064$ & $0.370{\pm}0.028$ & $0.475{\pm}0.010$ & $0.070{\pm}0.013$ & $0.089{\pm}0.010$ \\
+\midrule
+Lorenz-96 & AE & $1.599{\pm}0.351$ & $0.772{\pm}0.231$ & $0.477{\pm}0.039$ & $0.008{\pm}0.002$ & $0.005{\pm}0.000$ \\
+ & GeoAE & $12.208{\pm}0.784$ & $5.477{\pm}0.069$ & $0.450{\pm}0.034$ & $0.269{\pm}0.020$ & $0.022{\pm}0.003$ \\
+ & TopoAE & $1.232{\pm}0.040$ & $0.522{\pm}0.017$ & $0.424{\pm}0.011$ & $0.009{\pm}0.003$ & $0.007{\pm}0.002$ \\
+\midrule
+ElectricDevices & AE & $8.154{\pm}0.512$ & $3.315{\pm}0.055$ & $0.408{\pm}0.025$ & $0.256{\pm}0.028$ & $0.031{\pm}0.002$ \\
+ & GeoAE & $9.817{\pm}1.135$ & $3.719{\pm}0.122$ & $0.383{\pm}0.045$ & $0.331{\pm}0.014$ & $0.034{\pm}0.003$ \\
+ & TopoAE & $7.141{\pm}0.413$ & $3.299{\pm}0.113$ & $0.463{\pm}0.026$ & $0.302{\pm}0.026$ & $0.042{\pm}0.003$ \\
+\midrule
+Glioblastoma & AE & $16.038{\pm}0.174$ & $5.737{\pm}1.389$ & $0.357{\pm}0.083$ & $0.475{\pm}0.093$ & $0.030{\pm}0.006$ \\
+ & GeoAE & $16.045{\pm}0.109$ & $5.507{\pm}0.196$ & $0.343{\pm}0.013$ & $0.431{\pm}0.044$ & $0.027{\pm}0.003$ \\
+ & TopoAE & $16.181{\pm}0.387$ & $5.553{\pm}0.393$ & $0.343{\pm}0.022$ & $0.654{\pm}0.049$ & $0.040{\pm}0.003$ \\
+\midrule
+HeLa & AE & $7.967{\pm}0.980$ & $4.317{\pm}0.322$ & $0.544{\pm}0.027$ & $0.099{\pm}0.025$ & $0.012{\pm}0.002$ \\
+ & GeoAE & $15.730{\pm}0.149$ & $3.610{\pm}0.431$ & $0.230{\pm}0.029$ & $0.387{\pm}0.018$ & $0.025{\pm}0.001$ \\
+ & TopoAE & $12.806{\pm}3.612$ & $4.206{\pm}0.486$ & $0.352{\pm}0.106$ & $0.392{\pm}0.080$ & $0.032{\pm}0.007$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}

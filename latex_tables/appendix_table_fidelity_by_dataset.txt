@@ -1,0 +1,50 @@
+\begin{table*}[t]
+\centering
+\small
+\caption{Input-to-latent representation fidelity for each dataset and encoder.
+Entries are medians over five random seeds. Metric distortion measures changes in
+normalized pairwise distances; \(H_0\) and \(H_1\) distortion are bottleneck
+distances between input- and latent-space persistence diagrams. Lower is better.}
+\label{tab:fidelity_by_dataset_appendix}
+\begin{tabular}{llccc}
+\toprule
+Dataset & Encoder & Metric distortion & \(H_0\) distortion & \(H_1\) distortion \\
+\midrule
+Bouncing rings & AE & 0.3362 & 0.4399 & 0.0209 \\
+ & GeoAE & 0.1053 & 0.0947 & 0.0273 \\
+ & TopoAE--Wasserstein & 0.3390 & 0.4399 & 0.0229 \\
+\midrule
+Bouncing disks & AE & 0.2433 & 0.3647 & 0.0327 \\
+ & GeoAE & 0.1005 & 0.1243 & 0.0346 \\
+ & TopoAE--Wasserstein & 0.2947 & 0.3774 & 0.0301 \\
+\midrule
+Orbiting rings & AE & 0.4422 & 0.4460 & 0.0324 \\
+ & GeoAE & 0.1055 & 0.1297 & 0.0280 \\
+ & TopoAE--Wasserstein & 0.3420 & 0.4462 & 0.0375 \\
+\midrule
+Orbiting disks & AE & 0.3418 & 0.4103 & 0.0513 \\
+ & GeoAE & 0.0998 & 0.1013 & 0.0404 \\
+ & TopoAE--Wasserstein & 0.3416 & 0.4192 & 0.0524 \\
+\midrule
+Moving MNIST & AE & 0.3561 & 0.4401 & 0.0313 \\
+ & GeoAE & 0.1176 & 0.1392 & 0.0329 \\
+ & TopoAE--Wasserstein & 0.3719 & 0.4554 & 0.0298 \\
+\midrule
+Lorenz--96 & AE & 0.0947 & 0.0471 & 0.0000 \\
+ & GeoAE & 0.0465 & 0.0358 & 0.0000 \\
+ & TopoAE--Wasserstein & 0.0971 & 0.0459 & 0.0000 \\
+\midrule
+ElectricDevices & AE & 0.4102 & 0.3906 & 0.0000 \\
+ & GeoAE & 0.1076 & 0.1034 & 0.0104 \\
+ & TopoAE--Wasserstein & 0.3731 & 0.3821 & 0.0000 \\
+\midrule
+Glioblastoma & AE & 0.6345 & 0.3699 & 0.0071 \\
+ & GeoAE & 0.1183 & 0.1139 & 0.0192 \\
+ & TopoAE--Wasserstein & 0.6565 & 0.3923 & 0.0065 \\
+\midrule
+HeLa & AE & 0.5363 & 0.4555 & 0.0101 \\
+ & GeoAE & 0.1528 & 0.1809 & 0.0191 \\
+ & TopoAE--Wasserstein & 0.2707 & 0.2939 & 0.0136 \\
+\bottomrule
+\end{tabular}
+\end{table*}

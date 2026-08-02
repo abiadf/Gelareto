@@ -1,0 +1,58 @@
+Representation fidelity and predictive gain
+
+Definitions
+- metric_distortion: RMS change in normalized pairwise distances from X to z; lower is better.
+- h0_distortion: bottleneck distance between input and latent H0 diagrams; lower is better.
+- h1_distortion: bottleneck distance between input and latent H1 diagrams; lower is better.
+- predictive_gain: relative MSE improvement of z+H1 over z; positive means topology helped.
+
+         dataset                       encoder  metric_distortion  h0_distortion  h1_distortion  predictive_gain
+  bouncing_rings                            ae             0.3362         0.4399         0.0209          -0.0025
+  bouncing_rings              geo_ae_lambda0.1             0.1053         0.0947         0.0273           0.0323
+  bouncing_rings topo_ae_lambda0.1_wasserstein             0.3390         0.4399         0.0229          -0.0096
+  bouncing_disks                            ae             0.2433         0.3647         0.0327          -0.0002
+  bouncing_disks              geo_ae_lambda0.1             0.1005         0.1243         0.0346           0.1827
+  bouncing_disks topo_ae_lambda0.1_wasserstein             0.2947         0.3774         0.0301          -0.0010
+  orbiting_rings                            ae             0.4422         0.4460         0.0324          -0.0340
+  orbiting_rings              geo_ae_lambda0.1             0.1055         0.1297         0.0280          -0.0819
+  orbiting_rings topo_ae_lambda0.1_wasserstein             0.3420         0.4462         0.0375          -0.0291
+  orbiting_disks                            ae             0.3418         0.4103         0.0513           0.0104
+  orbiting_disks              geo_ae_lambda0.1             0.0998         0.1013         0.0404           0.0779
+  orbiting_disks topo_ae_lambda0.1_wasserstein             0.3416         0.4192         0.0524           0.0411
+    moving_mnist                            ae             0.3561         0.4401         0.0313          -0.0532
+    moving_mnist              geo_ae_lambda0.1             0.1176         0.1392         0.0329          -0.2683
+    moving_mnist topo_ae_lambda0.1_wasserstein             0.3719         0.4554         0.0298           0.0169
+        lorenz96                            ae             0.0947         0.0471         0.0000           0.0679
+        lorenz96              geo_ae_lambda0.1             0.0465         0.0358         0.0000          -0.3780
+        lorenz96 topo_ae_lambda0.1_wasserstein             0.0971         0.0459         0.0000          -0.0003
+electric_devices                            ae             0.4102         0.3906         0.0000          -0.0038
+electric_devices              geo_ae_lambda0.1             0.1076         0.1034         0.0104          -0.0457
+electric_devices topo_ae_lambda0.1_wasserstein             0.3731         0.3821         0.0000          -0.0050
+    glioblastoma                            ae             0.6345         0.3699         0.0071           0.1802
+    glioblastoma              geo_ae_lambda0.1             0.1183         0.1139         0.0192          -0.1305
+    glioblastoma topo_ae_lambda0.1_wasserstein             0.6565         0.3923         0.0065           0.0474
+            hela                            ae             0.5363         0.4555         0.0101           0.0559
+            hela              geo_ae_lambda0.1             0.1528         0.1809         0.0191          -0.1005
+            hela topo_ae_lambda0.1_wasserstein             0.2707         0.2939         0.0136          -0.1062
+
+Overall median distortion by encoder
+                              encoder  metric_distortion  h0_distortion  h1_distortion
+                                   ae             0.3561         0.4103         0.0209
+                     geo_ae_lambda0.1             0.1055         0.1139         0.0273
+        topo_ae_lambda0.1_wasserstein             0.3416         0.3923         0.0229
+
+Spearman correlations
+                       x                    y   n  spearman_rho  p_value status
+metric_distortion_median h0_bottleneck_median 135        0.8372   0.0000     ok
+metric_distortion_median h1_bottleneck_median 135        0.0041   0.9619     ok
+metric_distortion_median        topology_gain 135        0.0639   0.4615     ok
+    h0_bottleneck_median        topology_gain 135        0.0399   0.6458     ok
+    h1_bottleneck_median        topology_gain 135        0.0638   0.4622     ok
+
+Interpretation
+Lower distortion is better; positive predictive gain means z+H1 improved over z.
+- metric_distortion_median vs h0_bottleneck_median: rho=0.837 (positive); matches the expected direction.
+- metric_distortion_median vs h1_bottleneck_median: rho=0.004 (positive); matches the expected direction.
+- metric_distortion_median vs topology_gain: rho=0.064 (positive); does not match the expected direction.
+- h0_bottleneck_median vs topology_gain: rho=0.040 (positive); does not match the expected direction.
+- h1_bottleneck_median vs topology_gain: rho=0.064 (positive); does not match the expected direction.

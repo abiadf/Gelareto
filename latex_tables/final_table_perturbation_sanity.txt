@@ -1,0 +1,27 @@
+\begin{table*}[!t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{0.88}
+\caption{Corrupted-feature capacity controls after z-only hyperparameter selection. Entries are mean MSE over five seeds; the full mean$\pm$SD sweep is reported in Table~\ref{tab:appendix_perturbation_sweep}. For each family, the best of zero, shuffle, noise, and temporal-shift variants is shown. Bold marks the best entry within each encoder group. Lower is better.}
+\label{tab:perturbation_sanity}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l*{12}{r}}
+\toprule
+ & \multicolumn{4}{c}{AE} & \multicolumn{4}{c}{GeoAE} & \multicolumn{4}{c}{TopoAE} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}
+Dataset & \(z\) & Lap. & Diff. & RFF & \(z\) & Lap. & Diff. & RFF & \(z\) & Lap. & Diff. & RFF \\
+\midrule
+Bouncing disks & \(\mathbf{0.3434}\) & \(0.3675\) & \(0.3642\) & \(0.3634\) & \(\mathbf{0.0013}\) & \(0.0021\) & \(0.0020\) & \(0.0021\) & \(\mathbf{0.2160}\) & \(0.2206\) & \(0.2222\) & \(0.2218\) \\
+Bouncing rings & \(\mathbf{0.2957}\) & \(0.3094\) & \(0.3120\) & \(0.3076\) & \(\mathbf{0.0013}\) & \(0.0022\) & \(0.0019\) & \(0.0022\) & \(\mathbf{0.2103}\) & \(0.2130\) & \(0.2146\) & \(0.2139\) \\
+Orbiting disks & \(\mathbf{0.0052}\) & \(0.0069\) & \(0.0069\) & \(0.0069\) & \(0.0017\) & \(0.0017\) & \(\mathbf{0.0016}\) & \(0.0017\) & \(\mathbf{0.2280}\) & \(0.2677\) & \(0.2630\) & \(0.2668\) \\
+Orbiting rings & \(\mathbf{0.0045}\) & \(0.0056\) & \(0.0055\) & \(0.0055\) & \(0.0017\) & \(0.0017\) & \(0.0017\) & \(\mathbf{0.0016}\) & \(\mathbf{0.2321}\) & \(0.2631\) & \(0.2702\) & \(0.2623\) \\
+Moving MNIST & \(\mathbf{0.0048}\) & \(0.0084\) & \(0.0086\) & \(0.0083\) & \(\mathbf{0.0009}\) & \(0.0023\) & \(0.0023\) & \(0.0023\) & \(\mathbf{0.2868}\) & \(0.3045\) & \(0.3027\) & \(0.3017\) \\
+Lorenz-96 & \(\mathbf{0.1534}\) & \(0.1983\) & \(0.1984\) & \(0.1984\) & \(\mathbf{0.0011}\) & \(0.0014\) & \(0.0014\) & \(0.0013\) & \(\mathbf{0.2717}\) & \(0.3182\) & \(0.3196\) & \(0.3140\) \\
+ElectricDevices & \(\mathbf{0.0138}\) & \(0.0156\) & \(0.0153\) & \(0.0151\) & \(\mathbf{0.0015}\) & \(0.0015\) & \(0.0019\) & \(0.0019\) & \(\mathbf{0.0612}\) & \(0.1086\) & \(0.1067\) & \(0.1043\) \\
+HeLa & \(\mathbf{0.0437}\) & \(0.0486\) & \(0.0507\) & \(0.0461\) & \(\mathbf{0.0073}\) & \(0.0115\) & \(0.0116\) & \(0.0109\) & \(\mathbf{0.0581}\) & \(0.0634\) & \(0.0629\) & \(0.0638\) \\
+Glioblastoma & \(\mathbf{0.0027}\) & \(0.0066\) & \(0.0065\) & \(0.0077\) & \(\mathbf{0.0011}\) & \(0.0059\) & \(0.0049\) & \(0.0051\) & \(\mathbf{0.0042}\) & \(0.0084\) & \(0.0086\) & \(0.0080\) \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}

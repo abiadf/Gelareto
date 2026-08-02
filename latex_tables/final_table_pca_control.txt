@@ -1,0 +1,49 @@
+\begin{table*}[t]
+\centering
+\small
+\caption{Latent-window controls after z-only hyperparameter selection. PCA, KPCA, graph-Laplacian, diffusion-map, and dimension-matched random Fourier features replace the persistence descriptor with non-topological summaries computed from the same latent window. ``Best topology'' is the best persistence descriptor among the evaluated direct and fused topology variants. Lower MSE is better.}
+\label{tab:pca_control}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{llccccccc}
+\toprule
+Dataset & Encoder & $z$ & Fuse PCA & Fuse KPCA & Best RFF & Best spectral & Fuse $H_1$ & Best topology \\
+\midrule
+Bouncing disks & AE & $0.3429{\pm}0.0266$ & $0.4270{\pm}0.0273$ & $0.3644{\pm}0.0277$ & $0.3437{\pm}0.0282$ & $0.3453{\pm}0.0291$ (Diffusion) & $0.3639{\pm}0.0297$ & $\mathbf{0.3402{\pm}0.0256}$ ($H_1$) \\
+ & GeoAE & $0.0013{\pm}0.0003$ & $0.0022{\pm}0.0007$ & $0.0025{\pm}0.0003$ & $0.0014{\pm}0.0003$ & $0.0014{\pm}0.0002$ (Laplacian) & $0.0025{\pm}0.0003$ & $\mathbf{0.0010{\pm}0.0002}$ (Landscape $H_0$) \\
+ & TopoAE & $0.2158{\pm}0.0099$ & $0.2258{\pm}0.0100$ & $0.2217{\pm}0.0096$ & $0.2177{\pm}0.0091$ & $0.2152{\pm}0.0079$ (Laplacian) & $0.2259{\pm}0.0075$ & $\mathbf{0.2070{\pm}0.0083}$ (Landscape $H_0+H_1$) \\
+\midrule
+Bouncing rings & AE & $0.2972{\pm}0.0474$ & $0.3902{\pm}0.0620$ & $0.3104{\pm}0.0557$ & $\mathbf{0.2937{\pm}0.0467}$ & $0.2986{\pm}0.0509$ (Laplacian) & $0.3112{\pm}0.0561$ & $0.2955{\pm}0.0495$ (Landscape $H_1$) \\
+ & GeoAE & $0.0013{\pm}0.0001$ & $0.0022{\pm}0.0003$ & $0.0023{\pm}0.0003$ & $0.0013{\pm}0.0002$ & $0.0013{\pm}0.0003$ (Laplacian) & $0.0023{\pm}0.0002$ & $\mathbf{0.0011{\pm}0.0002}$ (Landscape $H_0$) \\
+ & TopoAE & $0.2104{\pm}0.0120$ & $0.2187{\pm}0.0153$ & $0.2148{\pm}0.0132$ & $0.2082{\pm}0.0121$ & $0.2096{\pm}0.0091$ (Laplacian) & $0.2160{\pm}0.0105$ & $\mathbf{0.2024{\pm}0.0103}$ (PersLay $H_0$) \\
+\midrule
+Orbiting disks & AE & $0.0052{\pm}0.0018$ & $0.0064{\pm}0.0023$ & $0.0069{\pm}0.0027$ & $0.0051{\pm}0.0015$ & $0.0051{\pm}0.0016$ (Laplacian) & $0.0070{\pm}0.0028$ & $\mathbf{0.0047{\pm}0.0016}$ (PersLay $H_0$) \\
+ & GeoAE & $0.0017{\pm}0.0001$ & $0.0016{\pm}0.0002$ & $0.0016{\pm}0.0001$ & $0.0017{\pm}0.0001$ & $0.0017{\pm}0.0001$ (Fuse Laplacian) & $0.0015{\pm}0.0001$ & $\mathbf{0.0011{\pm}0.0001}$ (PersLay $H_0$) \\
+ & TopoAE & $0.2281{\pm}0.0124$ & $0.2766{\pm}0.0071$ & $0.2800{\pm}0.0105$ & $0.2239{\pm}0.0079$ & $0.2235{\pm}0.0107$ (Diffusion) & $0.2761{\pm}0.0162$ & $\mathbf{0.2083{\pm}0.0076}$ (Landscape $H_1$) \\
+\midrule
+Orbiting rings & AE & $0.0045{\pm}0.0014$ & $0.0055{\pm}0.0019$ & $0.0056{\pm}0.0021$ & $0.0047{\pm}0.0014$ & $0.0044{\pm}0.0015$ (Laplacian) & $0.0056{\pm}0.0019$ & $\mathbf{0.0040{\pm}0.0013}$ (PersLay $H_0$) \\
+ & GeoAE & $0.0017{\pm}0.0001$ & $0.0014{\pm}0.0001$ & $0.0016{\pm}0.0001$ & $0.0016{\pm}0.0001$ & $0.0016{\pm}0.0001$ (Fuse Laplacian) & $0.0017{\pm}0.0001$ & $\mathbf{0.0010{\pm}0.0001}$ (PersLay $H_0$) \\
+ & TopoAE & $0.2321{\pm}0.0144$ & $0.2723{\pm}0.0302$ & $0.2653{\pm}0.0232$ & $0.2337{\pm}0.0106$ & $0.2326{\pm}0.0160$ (Laplacian) & $0.2617{\pm}0.0202$ & $\mathbf{0.2254{\pm}0.0080}$ (Landscape $H_1$) \\
+\midrule
+Moving MNIST & AE & $0.0048{\pm}0.0019$ & $0.0081{\pm}0.0033$ & $0.0086{\pm}0.0028$ & $0.0048{\pm}0.0020$ & $\mathbf{0.0046{\pm}0.0019}$ (Laplacian) & $0.0087{\pm}0.0028$ & $0.0046{\pm}0.0018$ ($H_0+H_1$) \\
+ & GeoAE & $\mathbf{0.0009{\pm}0.0001}$ & $0.0015{\pm}0.0005$ & $0.0021{\pm}0.0005$ & $0.0011{\pm}0.0002$ & $0.0009{\pm}0.0001$ (Diffusion) & $0.0027{\pm}0.0005$ & $0.0009{\pm}0.0001$ ($H_0$) \\
+ & TopoAE & $0.2868{\pm}0.0056$ & $0.3000{\pm}0.0098$ & $0.3041{\pm}0.0104$ & $0.2903{\pm}0.0056$ & $0.2895{\pm}0.0096$ (Laplacian) & $0.3037{\pm}0.0119$ & $\mathbf{0.2748{\pm}0.0061}$ (Landscape $H_0+H_1$) \\
+\midrule
+Lorenz-96 & AE & $0.1536{\pm}0.0057$ & $0.2081{\pm}0.0274$ & $0.2042{\pm}0.0229$ & $0.1441{\pm}0.0078$ & $0.1505{\pm}0.0031$ (Diffusion) & $0.1998{\pm}0.0223$ & $\mathbf{0.1420{\pm}0.0119}$ (PI $H_1$) \\
+ & GeoAE & $\mathbf{0.0012{\pm}0.0003}$ & $0.0022{\pm}0.0003$ & $0.0017{\pm}0.0003$ & $0.0015{\pm}0.0001$ & $0.0012{\pm}0.0002$ (Diffusion) & $0.0017{\pm}0.0005$ & $0.0012{\pm}0.0001$ (PersLay $H_0+H_1$) \\
+ & TopoAE & $\mathbf{0.2726{\pm}0.0298}$ & $0.4258{\pm}0.0256$ & $0.3299{\pm}0.0254$ & $0.2749{\pm}0.0300$ & $0.2726{\pm}0.0309$ (Diffusion) & $0.3264{\pm}0.0258$ & $0.2745{\pm}0.0394$ ($H_1$) \\
+\midrule
+ElectricDevices & AE & $0.0139{\pm}0.0072$ & $0.0172{\pm}0.0106$ & $0.0170{\pm}0.0095$ & $0.0124{\pm}0.0065$ & $0.0118{\pm}0.0051$ (Laplacian) & $0.0167{\pm}0.0094$ & $\mathbf{0.0102{\pm}0.0031}$ (PI $H_1$) \\
+ & GeoAE & $0.0014{\pm}0.0001$ & $0.0014{\pm}0.0002$ & $0.0017{\pm}0.0002$ & $0.0014{\pm}0.0001$ & $0.0016{\pm}0.0003$ (Laplacian) & $0.0017{\pm}0.0001$ & $\mathbf{0.0011{\pm}0.0002}$ ($H_0+H_1$) \\
+ & TopoAE & $0.0615{\pm}0.0047$ & $0.1205{\pm}0.0105$ & $0.1070{\pm}0.0167$ & $0.0626{\pm}0.0080$ & $0.0604{\pm}0.0053$ (Diffusion) & $0.1210{\pm}0.0144$ & $\mathbf{0.0492{\pm}0.0025}$ (Landscape $H_0+H_1$) \\
+\midrule
+HeLa & AE & $0.0437{\pm}0.0107$ & $0.0480{\pm}0.0076$ & $0.0488{\pm}0.0098$ & $0.0418{\pm}0.0088$ & $0.0409{\pm}0.0051$ (Diffusion) & $0.0496{\pm}0.0081$ & $\mathbf{0.0383{\pm}0.0083}$ (Landscape $H_1$) \\
+ & GeoAE & $0.0072{\pm}0.0032$ & $0.0130{\pm}0.0044$ & $0.0127{\pm}0.0041$ & $0.0080{\pm}0.0033$ & $0.0079{\pm}0.0038$ (Laplacian) & $0.0146{\pm}0.0033$ & $\mathbf{0.0071{\pm}0.0033}$ (Landscape $H_1$) \\
+ & TopoAE & $0.0587{\pm}0.0365$ & $0.0640{\pm}0.0354$ & $0.0675{\pm}0.0392$ & $0.0605{\pm}0.0361$ & $0.0558{\pm}0.0326$ (Laplacian) & $0.0644{\pm}0.0351$ & $\mathbf{0.0550{\pm}0.0324}$ (Landscape $H_1$) \\
+\midrule
+Glioblastoma & AE & $0.0027{\pm}0.0010$ & $0.0079{\pm}0.0025$ & $0.0086{\pm}0.0022$ & $0.0022{\pm}0.0005$ & $0.0025{\pm}0.0009$ (Diffusion) & $0.0100{\pm}0.0024$ & $\mathbf{0.0021{\pm}0.0006}$ (PersLay $H_1$) \\
+ & GeoAE & $0.0011{\pm}0.0001$ & $0.0066{\pm}0.0029$ & $0.0062{\pm}0.0019$ & $0.0017{\pm}0.0005$ & $0.0012{\pm}0.0005$ (Laplacian) & $0.0063{\pm}0.0035$ & $\mathbf{0.0008{\pm}0.0001}$ (Landscape $H_0$) \\
+ & TopoAE & $0.0040{\pm}0.0013$ & $0.0092{\pm}0.0031$ & $0.0081{\pm}0.0017$ & $0.0048{\pm}0.0015$ & $0.0037{\pm}0.0011$ (Diffusion) & $0.0078{\pm}0.0015$ & $\mathbf{0.0033{\pm}0.0008}$ (PersLay $H_1$) \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}

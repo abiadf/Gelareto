@@ -1,0 +1,25 @@
+\begin{table*}[t]
+\centering
+\small
+\caption{Per-dataset $z\rightarrow H_1$ topology-probe $R^2$ on held-out examples. Values are mean $\pm$ standard deviation over seeds for both the linear ridge and nonlinear MLP probes.}
+\label{tab:z-to-topology-probe-by-dataset}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lccc ccc}
+\toprule
+ & \multicolumn{3}{c}{Linear ridge probe} & \multicolumn{3}{c}{Nonlinear MLP probe} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Dataset & AE & GeoAE & TopoAE & AE & GeoAE & TopoAE \\
+\midrule
+Bouncing disks & $0.035{\pm}0.011$ & $0.006{\pm}0.006$ & $0.026{\pm}0.007$ & $0.044{\pm}0.018$ & $-0.027{\pm}0.022$ & $0.038{\pm}0.011$ \\
+Bouncing rings & $0.024{\pm}0.013$ & $-0.000{\pm}0.001$ & $0.036{\pm}0.013$ & $0.034{\pm}0.018$ & $-0.031{\pm}0.011$ & $0.045{\pm}0.017$ \\
+Orbiting disks & $0.006{\pm}0.004$ & $0.004{\pm}0.006$ & $0.020{\pm}0.013$ & $0.032{\pm}0.012$ & $-0.022{\pm}0.016$ & $0.065{\pm}0.013$ \\
+Orbiting rings & $-0.003{\pm}0.005$ & $-0.002{\pm}0.004$ & $0.013{\pm}0.011$ & $-0.008{\pm}0.008$ & $-0.031{\pm}0.012$ & $0.033{\pm}0.014$ \\
+Moving MNIST & $-0.001{\pm}0.010$ & $-0.006{\pm}0.007$ & $0.014{\pm}0.012$ & $-0.006{\pm}0.028$ & $-0.085{\pm}0.056$ & $0.016{\pm}0.027$ \\
+Lorenz-96 & $-0.003{\pm}0.002$ & $-0.003{\pm}0.005$ & $0.000{\pm}0.002$ & $-0.024{\pm}0.016$ & $-0.171{\pm}0.187$ & $-0.013{\pm}0.008$ \\
+ElectricDevices & $0.070{\pm}0.054$ & $0.229{\pm}0.061$ & $0.117{\pm}0.046$ & $0.125{\pm}0.052$ & $0.311{\pm}0.062$ & $0.224{\pm}0.076$ \\
+Glioblastoma & $0.775{\pm}0.050$ & $0.764{\pm}0.053$ & $0.770{\pm}0.021$ & $0.958{\pm}0.030$ & $0.944{\pm}0.113$ & $0.870{\pm}0.146$ \\
+HeLa & $0.048{\pm}0.700$ & $0.427{\pm}0.143$ & $0.427{\pm}0.119$ & $0.040{\pm}0.363$ & $0.581{\pm}0.348$ & $0.404{\pm}0.381$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}

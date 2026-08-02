@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Exploratory 3D video TDA results. Frames are treated as a spatiotemporal volume and cubical persistence features are appended for prediction. Each row reports a single run, comparing the no-TDA baseline against the best 3D-TDA mode by weighted MSE. Lower MSE is better.}
+\label{tab:video3d_tda}
+\begin{tabular}{lccccc}
+\toprule
+Dataset & No TDA & Best 3D-TDA & Best mode & $\Delta$ & Pixel MSE \\
+\midrule
+Bouncing rings & 0.1432 & 0.1323 & $H_0+H_1$ & +7.6\% & 0.0796 \\
+Bouncing disks & 0.1509 & 0.1402 & $H_0+H_1$ & +7.1\% & 0.0711 \\
+Orbiting rings & 0.1506 & 0.1488 & $H_0+H_2$ & +1.2\% & 0.0677 \\
+Orbiting disks & 0.1765 & 0.1751 & $H_0$ & +0.8\% & 0.0971 \\
+Moving MNIST & 0.2269 & 0.2264 & $H_0+H_1+H_2$ & +0.2\% & 0.0987 \\
+Lorenz-96 & 0.0233 & 0.0227 & $H_2$ & +2.6\% & 0.0130 \\
+ElectricDevices & 0.0477 & 0.0474 & $H_0+H_1+H_2$ & +0.6\% & 0.0304 \\
+Glioblastoma & 0.0220 & 0.0217 & $H_0$ & +1.4\% & 0.0020 \\
+HeLa & 0.1410 & 0.1202 & $H_0+H_2$ & +14.8\% & 0.0112 \\
+\bottomrule
+\end{tabular}
+\end{table}

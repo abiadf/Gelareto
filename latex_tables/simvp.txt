@@ -1,0 +1,26 @@
+% Exploratory compact SimVP-style pixel-forecasting results (3 seeds).
+% Lower is better for all MSE columns; higher is better for pixel R^2.
+\begin{table}[t]
+\centering
+\caption{Exploratory pixel-space forecasting with the compact SimVP-style model. Values are mean $\pm$ standard deviation over three seeds. The topology-conditioned model does not provide a consistent improvement over the frame-only and latent-conditioned controls.}
+\label{tab:simvp_exploratory}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrrr}
+\toprule
+Dataset & Condition & Pixel MSE $\downarrow$ & Weighted MSE $\downarrow$ & FG MSE $\downarrow$ & Pixel $R^2$ $\uparrow$ \\
+\midrule
+Bouncing rings
+ & Frames                  & $0.0673 \pm 0.0111$ & $0.2807 \pm 0.2076$ & $0.4104 \pm 0.4170$ & $-0.3840 \pm 0.2402$ \\
+ & $z$                     & $0.0702 \pm 0.0137$ & $\mathbf{0.2750} \pm 0.2010$ & $\mathbf{0.4012} \pm 0.4234$ & $-0.4403 \pm 0.2745$ \\
+ & $z+H_1$                 & $0.0701 \pm 0.0127$ & $0.2789 \pm 0.2088$ & $0.4013 \pm 0.4234$ & $-0.4425 \pm 0.2743$ \\
+ & $z+H_1$ (shuffled)      & $\mathbf{0.0610} \pm 0.0109$ & $0.4246 \pm 0.2038$ & $0.7060 \pm 0.4157$ & $\mathbf{-0.2535} \pm 0.2282$ \\
+\midrule
+Orbiting rings
+ & Frames                  & $\mathbf{0.0249} \pm 0.0004$ & $0.2734 \pm 0.0046$ & $1.0000 \pm 0.0000$ & $\mathbf{-0.0255} \pm 0.0004$ \\
+ & $z$                     & $0.0494 \pm 0.0205$ & $0.1709 \pm 0.0696$ & $0.4924 \pm 0.3600$ & $-1.0355 \pm 0.8499$ \\
+ & $z+H_1$                 & $0.0572 \pm 0.0064$ & $\mathbf{0.1154} \pm 0.0022$ & $\mathbf{0.2339} \pm 0.0286$ & $-1.3635 \pm 0.2757$ \\
+ & $z+H_1$ (shuffled)      & $0.0593 \pm 0.0073$ & $0.1181 \pm 0.0027$ & $0.2362 \pm 0.0166$ & $-1.4517 \pm 0.3329$ \\
+\bottomrule
+\end{tabular}
+\end{table}

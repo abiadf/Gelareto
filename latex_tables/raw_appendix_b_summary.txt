@@ -1,0 +1,351 @@
+  bouncing_rings geo_latent_tda                           z       5         0.0013 0.0002          0.9987 0.0002
+  bouncing_rings geo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0019 0.0003          0.9981 0.0003
+  bouncing_rings geo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0022 0.0006          0.9978 0.0006
+  bouncing_rings geo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0022 0.0005          0.9978 0.0005
+  bouncing_rings geo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0022 0.0005          0.9978 0.0005
+  bouncing_rings geo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0022 0.0002          0.9978 0.0002
+  bouncing_rings geo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0023 0.0004          0.9977 0.0004
+  bouncing_rings geo_latent_tda          z_fuse_rff_h1_zero       5         0.0024 0.0002          0.9976 0.0002
+  bouncing_rings geo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0025 0.0003          0.9975 0.0003
+  bouncing_rings geo_latent_tda         z_fuse_rff_h1_shift       5         0.0025 0.0003          0.9975 0.0003
+  bouncing_rings geo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0025 0.0003          0.9975 0.0003
+  bouncing_rings geo_latent_tda         z_fuse_rff_h1_noise       5         0.0025 0.0003          0.9975 0.0003
+  bouncing_rings geo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0026 0.0002          0.9974 0.0002
+  bouncing_disks geo_latent_tda                           z       5         0.0013 0.0003          0.9987 0.0003
+  bouncing_disks geo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0020 0.0005          0.9980 0.0005
+  bouncing_disks geo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0021 0.0005          0.9979 0.0005
+  bouncing_disks geo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0021 0.0002          0.9979 0.0002
+  bouncing_disks geo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0021 0.0007          0.9979 0.0007
+  bouncing_disks geo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0022 0.0002          0.9978 0.0002
+  bouncing_disks geo_latent_tda         z_fuse_rff_h1_shift       5         0.0023 0.0008          0.9977 0.0008
+  bouncing_disks geo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0023 0.0004          0.9977 0.0004
+  bouncing_disks geo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0023 0.0003          0.9977 0.0003
+  bouncing_disks geo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0024 0.0002          0.9976 0.0002
+  bouncing_disks geo_latent_tda         z_fuse_rff_h1_noise       5         0.0024 0.0002          0.9976 0.0002
+  bouncing_disks geo_latent_tda          z_fuse_rff_h1_zero       5         0.0024 0.0006          0.9976 0.0006
+  bouncing_disks geo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0025 0.0002          0.9975 0.0002
+  orbiting_rings geo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0016 0.0001          0.9984 0.0001
+  orbiting_rings geo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0017 0.0002          0.9983 0.0002
+  orbiting_rings geo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_rings geo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_rings geo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_rings geo_latent_tda         z_fuse_rff_h1_noise       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_rings geo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0017 0.0002          0.9983 0.0002
+  orbiting_rings geo_latent_tda                           z       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_rings geo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0017 0.0000          0.9983 0.0000
+  orbiting_rings geo_latent_tda          z_fuse_rff_h1_zero       5         0.0017 0.0002          0.9983 0.0002
+  orbiting_rings geo_latent_tda         z_fuse_rff_h1_shift       5         0.0017 0.0002          0.9983 0.0002
+  orbiting_rings geo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_rings geo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0018 0.0001          0.9982 0.0001
+  orbiting_disks geo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0016 0.0001          0.9984 0.0001
+  orbiting_disks geo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_disks geo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_disks geo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_disks geo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0017 0.0002          0.9983 0.0002
+  orbiting_disks geo_latent_tda                           z       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_disks geo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_disks geo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0018 0.0001          0.9982 0.0001
+  orbiting_disks geo_latent_tda          z_fuse_rff_h1_zero       5         0.0018 0.0002          0.9982 0.0002
+  orbiting_disks geo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0018 0.0001          0.9982 0.0001
+  orbiting_disks geo_latent_tda         z_fuse_rff_h1_noise       5         0.0018 0.0001          0.9982 0.0001
+  orbiting_disks geo_latent_tda         z_fuse_rff_h1_shift       5         0.0018 0.0001          0.9982 0.0001
+  orbiting_disks geo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0018 0.0001          0.9982 0.0001
+    moving_mnist geo_latent_tda                           z       5         0.0009 0.0001          0.9991 0.0001
+    moving_mnist geo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0023 0.0005          0.9977 0.0005
+    moving_mnist geo_latent_tda         z_fuse_rff_h1_noise       5         0.0023 0.0004          0.9977 0.0004
+    moving_mnist geo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0023 0.0004          0.9977 0.0004
+    moving_mnist geo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0024 0.0002          0.9976 0.0002
+    moving_mnist geo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0024 0.0003          0.9976 0.0003
+    moving_mnist geo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0026 0.0003          0.9974 0.0003
+    moving_mnist geo_latent_tda         z_fuse_rff_h1_shift       5         0.0027 0.0004          0.9973 0.0004
+    moving_mnist geo_latent_tda          z_fuse_rff_h1_zero       5         0.0027 0.0004          0.9973 0.0004
+    moving_mnist geo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0027 0.0009          0.9973 0.0009
+    moving_mnist geo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0028 0.0004          0.9972 0.0004
+    moving_mnist geo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0028 0.0003          0.9972 0.0003
+    moving_mnist geo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0029 0.0004          0.9971 0.0004
+        lorenz96 geo_latent_tda                           z       5         0.0011 0.0003          0.9989 0.0003
+        lorenz96 geo_latent_tda         z_fuse_rff_h1_noise       5         0.0013 0.0004          0.9987 0.0004
+        lorenz96 geo_latent_tda         z_fuse_rff_h1_shift       5         0.0014 0.0003          0.9986 0.0003
+        lorenz96 geo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0014 0.0004          0.9986 0.0004
+        lorenz96 geo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0014 0.0003          0.9986 0.0003
+        lorenz96 geo_latent_tda          z_fuse_rff_h1_zero       5         0.0015 0.0005          0.9985 0.0005
+        lorenz96 geo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0017 0.0003          0.9983 0.0003
+        lorenz96 geo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0017 0.0004          0.9983 0.0004
+        lorenz96 geo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0018 0.0004          0.9982 0.0004
+        lorenz96 geo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0018 0.0002          0.9982 0.0002
+        lorenz96 geo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0019 0.0005          0.9981 0.0005
+        lorenz96 geo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0021 0.0009          0.9979 0.0009
+        lorenz96 geo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0021 0.0002          0.9979 0.0002
+electric_devices geo_latent_tda                           z       5         0.0015 0.0001          0.9985 0.0001
+electric_devices geo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0015 0.0002          0.9985 0.0002
+electric_devices geo_latent_tda          z_fuse_rff_h1_zero       5         0.0019 0.0003          0.9981 0.0003
+electric_devices geo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0019 0.0002          0.9981 0.0002
+electric_devices geo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0019 0.0004          0.9981 0.0004
+electric_devices geo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0019 0.0003          0.9981 0.0003
+electric_devices geo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0020 0.0002          0.9980 0.0002
+electric_devices geo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0020 0.0003          0.9980 0.0003
+electric_devices geo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0021 0.0005          0.9979 0.0005
+electric_devices geo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0021 0.0002          0.9979 0.0002
+electric_devices geo_latent_tda         z_fuse_rff_h1_shift       5         0.0021 0.0002          0.9979 0.0002
+electric_devices geo_latent_tda         z_fuse_rff_h1_noise       5         0.0023 0.0001          0.9977 0.0001
+electric_devices geo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0025 0.0004          0.9975 0.0004
+    glioblastoma geo_latent_tda                           z       5         0.0011 0.0001          0.9989 0.0001
+    glioblastoma geo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0049 0.0006          0.9950 0.0006
+    glioblastoma geo_latent_tda         z_fuse_rff_h1_shift       5         0.0051 0.0012          0.9949 0.0012
+    glioblastoma geo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0056 0.0025          0.9944 0.0025
+    glioblastoma geo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0059 0.0022          0.9941 0.0022
+    glioblastoma geo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0061 0.0012          0.9938 0.0012
+    glioblastoma geo_latent_tda          z_fuse_rff_h1_zero       5         0.0065 0.0020          0.9934 0.0020
+    glioblastoma geo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0070 0.0024          0.9930 0.0024
+    glioblastoma geo_latent_tda         z_fuse_rff_h1_noise       5         0.0070 0.0035          0.9929 0.0035
+    glioblastoma geo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0078 0.0039          0.9922 0.0040
+    glioblastoma geo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0083 0.0020          0.9916 0.0020
+    glioblastoma geo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0085 0.0032          0.9915 0.0032
+    glioblastoma geo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0089 0.0027          0.9910 0.0028
+            hela geo_latent_tda                           z       5         0.0073 0.0037          0.9927 0.0035
+            hela geo_latent_tda         z_fuse_rff_h1_noise       5         0.0109 0.0037          0.9891 0.0037
+            hela geo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0111 0.0043          0.9889 0.0039
+            hela geo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0115 0.0046          0.9886 0.0044
+            hela geo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0116 0.0048          0.9883 0.0048
+            hela geo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0117 0.0047          0.9882 0.0049
+            hela geo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0123 0.0034          0.9877 0.0031
+            hela geo_latent_tda         z_fuse_rff_h1_shift       5         0.0127 0.0030          0.9872 0.0032
+            hela geo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0127 0.0062          0.9874 0.0057
+            hela geo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0127 0.0027          0.9873 0.0024
+            hela geo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0128 0.0033          0.9872 0.0031
+            hela geo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0133 0.0045          0.9867 0.0043
+            hela geo_latent_tda          z_fuse_rff_h1_zero       5         0.0142 0.0043          0.9857 0.0046
+  bouncing_rings      latent_tda                           z       5         0.2957 0.0456          0.7051 0.0456
+  bouncing_rings      latent_tda         z_fuse_rff_h1_shift       5         0.3076 0.0515          0.6932 0.0514
+  bouncing_rings      latent_tda    z_fuse_laplacian_h1_zero       5         0.3094 0.0534          0.6914 0.0533
+  bouncing_rings      latent_tda   z_fuse_laplacian_h1_shift       5         0.3110 0.0535          0.6898 0.0534
+  bouncing_rings      latent_tda    z_fuse_diffusion_h1_zero       5         0.3120 0.0536          0.6888 0.0536
+  bouncing_rings      latent_tda         z_fuse_rff_h1_noise       5         0.3122 0.0491          0.6886 0.0490
+  bouncing_rings      latent_tda z_fuse_diffusion_h1_shuffle       5         0.3131 0.0540          0.6877 0.0539
+  bouncing_rings      latent_tda       z_fuse_rff_h1_shuffle       5         0.3131 0.0530          0.6877 0.0530
+  bouncing_rings      latent_tda   z_fuse_diffusion_h1_noise       5         0.3135 0.0543          0.6873 0.0542
+  bouncing_rings      latent_tda z_fuse_laplacian_h1_shuffle       5         0.3149 0.0551          0.6859 0.0550
+  bouncing_rings      latent_tda   z_fuse_diffusion_h1_shift       5         0.3163 0.0521          0.6845 0.0521
+  bouncing_rings      latent_tda          z_fuse_rff_h1_zero       5         0.3170 0.0575          0.6838 0.0574
+  bouncing_rings      latent_tda   z_fuse_laplacian_h1_noise       5         0.3183 0.0538          0.6825 0.0538
+  bouncing_rings topo_latent_tda                           z       5         0.2103 0.0120          0.7928 0.0117
+  bouncing_rings topo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.2130 0.0123          0.7902 0.0122
+  bouncing_rings topo_latent_tda         z_fuse_rff_h1_noise       5         0.2139 0.0091          0.7892 0.0089
+  bouncing_rings topo_latent_tda    z_fuse_diffusion_h1_zero       5         0.2146 0.0109          0.7886 0.0106
+  bouncing_rings topo_latent_tda    z_fuse_laplacian_h1_zero       5         0.2147 0.0101          0.7884 0.0098
+  bouncing_rings topo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.2152 0.0111          0.7880 0.0109
+  bouncing_rings topo_latent_tda   z_fuse_laplacian_h1_shift       5         0.2155 0.0118          0.7877 0.0116
+  bouncing_rings topo_latent_tda          z_fuse_rff_h1_zero       5         0.2156 0.0100          0.7876 0.0098
+  bouncing_rings topo_latent_tda   z_fuse_diffusion_h1_noise       5         0.2161 0.0122          0.7871 0.0120
+  bouncing_rings topo_latent_tda   z_fuse_diffusion_h1_shift       5         0.2161 0.0107          0.7871 0.0105
+  bouncing_rings topo_latent_tda         z_fuse_rff_h1_shift       5         0.2175 0.0128          0.7857 0.0125
+  bouncing_rings topo_latent_tda       z_fuse_rff_h1_shuffle       5         0.2197 0.0134          0.7835 0.0131
+  bouncing_rings topo_latent_tda   z_fuse_laplacian_h1_noise       5         0.2213 0.0159          0.7820 0.0156
+  bouncing_disks      latent_tda                           z       5         0.3434 0.0252          0.6582 0.0245
+  bouncing_disks      latent_tda         z_fuse_rff_h1_shift       5         0.3634 0.0274          0.6383 0.0265
+  bouncing_disks      latent_tda z_fuse_diffusion_h1_shuffle       5         0.3642 0.0247          0.6375 0.0238
+  bouncing_disks      latent_tda          z_fuse_rff_h1_zero       5         0.3661 0.0281          0.6356 0.0271
+  bouncing_disks      latent_tda   z_fuse_diffusion_h1_shift       5         0.3668 0.0256          0.6349 0.0247
+  bouncing_disks      latent_tda z_fuse_laplacian_h1_shuffle       5         0.3675 0.0287          0.6342 0.0277
+  bouncing_disks      latent_tda   z_fuse_laplacian_h1_shift       5         0.3677 0.0252          0.6339 0.0244
+  bouncing_disks      latent_tda   z_fuse_diffusion_h1_noise       5         0.3679 0.0294          0.6338 0.0285
+  bouncing_disks      latent_tda    z_fuse_laplacian_h1_zero       5         0.3682 0.0294          0.6335 0.0285
+  bouncing_disks      latent_tda       z_fuse_rff_h1_shuffle       5         0.3695 0.0276          0.6322 0.0268
+  bouncing_disks      latent_tda         z_fuse_rff_h1_noise       5         0.3700 0.0269          0.6317 0.0261
+  bouncing_disks      latent_tda    z_fuse_diffusion_h1_zero       5         0.3715 0.0281          0.6302 0.0270
+  bouncing_disks      latent_tda   z_fuse_laplacian_h1_noise       5         0.3724 0.0272          0.6293 0.0264
+  bouncing_disks topo_latent_tda                           z       5         0.2160 0.0101          0.7867 0.0099
+  bouncing_disks topo_latent_tda    z_fuse_laplacian_h1_zero       5         0.2206 0.0114          0.7821 0.0113
+  bouncing_disks topo_latent_tda         z_fuse_rff_h1_shift       5         0.2218 0.0097          0.7809 0.0096
+  bouncing_disks topo_latent_tda   z_fuse_laplacian_h1_shift       5         0.2222 0.0086          0.7806 0.0084
+  bouncing_disks topo_latent_tda    z_fuse_diffusion_h1_zero       5         0.2222 0.0127          0.7805 0.0126
+  bouncing_disks topo_latent_tda       z_fuse_rff_h1_shuffle       5         0.2234 0.0139          0.7794 0.0137
+  bouncing_disks topo_latent_tda         z_fuse_rff_h1_noise       5         0.2234 0.0126          0.7793 0.0125
+  bouncing_disks topo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.2241 0.0116          0.7787 0.0115
+  bouncing_disks topo_latent_tda          z_fuse_rff_h1_zero       5         0.2241 0.0079          0.7787 0.0078
+  bouncing_disks topo_latent_tda   z_fuse_laplacian_h1_noise       5         0.2244 0.0063          0.7784 0.0062
+  bouncing_disks topo_latent_tda   z_fuse_diffusion_h1_shift       5         0.2247 0.0069          0.7781 0.0068
+  bouncing_disks topo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.2269 0.0126          0.7759 0.0124
+  bouncing_disks topo_latent_tda   z_fuse_diffusion_h1_noise       5         0.2279 0.0112          0.7749 0.0110
+  orbiting_rings      latent_tda                           z       5         0.0045 0.0014          0.9956 0.0014
+  orbiting_rings      latent_tda   z_fuse_diffusion_h1_shift       5         0.0055 0.0020          0.9946 0.0020
+  orbiting_rings      latent_tda   z_fuse_diffusion_h1_noise       5         0.0055 0.0019          0.9946 0.0018
+  orbiting_rings      latent_tda       z_fuse_rff_h1_shuffle       5         0.0055 0.0020          0.9946 0.0019
+  orbiting_rings      latent_tda    z_fuse_diffusion_h1_zero       5         0.0055 0.0020          0.9946 0.0019
+  orbiting_rings      latent_tda z_fuse_diffusion_h1_shuffle       5         0.0056 0.0019          0.9945 0.0019
+  orbiting_rings      latent_tda         z_fuse_rff_h1_shift       5         0.0056 0.0020          0.9945 0.0020
+  orbiting_rings      latent_tda z_fuse_laplacian_h1_shuffle       5         0.0056 0.0021          0.9945 0.0020
+  orbiting_rings      latent_tda    z_fuse_laplacian_h1_zero       5         0.0056 0.0020          0.9945 0.0019
+  orbiting_rings      latent_tda          z_fuse_rff_h1_zero       5         0.0056 0.0020          0.9945 0.0020
+  orbiting_rings      latent_tda   z_fuse_laplacian_h1_noise       5         0.0056 0.0021          0.9945 0.0020
+  orbiting_rings      latent_tda   z_fuse_laplacian_h1_shift       5         0.0057 0.0019          0.9944 0.0019
+  orbiting_rings      latent_tda         z_fuse_rff_h1_noise       5         0.0057 0.0020          0.9944 0.0020
+  orbiting_rings topo_latent_tda                           z       5         0.2321 0.0145          0.7787 0.0133
+  orbiting_rings topo_latent_tda          z_fuse_rff_h1_zero       5         0.2623 0.0225          0.7500 0.0210
+  orbiting_rings topo_latent_tda   z_fuse_laplacian_h1_shift       5         0.2631 0.0235          0.7492 0.0220
+  orbiting_rings topo_latent_tda         z_fuse_rff_h1_shift       5         0.2661 0.0233          0.7463 0.0217
+  orbiting_rings topo_latent_tda    z_fuse_laplacian_h1_zero       5         0.2691 0.0260          0.7435 0.0242
+  orbiting_rings topo_latent_tda         z_fuse_rff_h1_noise       5         0.2698 0.0267          0.7428 0.0249
+  orbiting_rings topo_latent_tda   z_fuse_diffusion_h1_shift       5         0.2702 0.0259          0.7424 0.0242
+  orbiting_rings topo_latent_tda   z_fuse_laplacian_h1_noise       5         0.2708 0.0253          0.7419 0.0236
+  orbiting_rings topo_latent_tda    z_fuse_diffusion_h1_zero       5         0.2708 0.0258          0.7418 0.0240
+  orbiting_rings topo_latent_tda       z_fuse_rff_h1_shuffle       5         0.2720 0.0261          0.7407 0.0243
+  orbiting_rings topo_latent_tda   z_fuse_diffusion_h1_noise       5         0.2724 0.0263          0.7403 0.0245
+  orbiting_rings topo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.2736 0.0306          0.7391 0.0286
+  orbiting_rings topo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.2794 0.0321          0.7336 0.0300
+  orbiting_disks      latent_tda                           z       5         0.0052 0.0018          0.9949 0.0017
+  orbiting_disks      latent_tda   z_fuse_diffusion_h1_noise       5         0.0069 0.0026          0.9933 0.0026
+  orbiting_disks      latent_tda         z_fuse_rff_h1_shift       5         0.0069 0.0027          0.9932 0.0026
+  orbiting_disks      latent_tda         z_fuse_rff_h1_noise       5         0.0069 0.0027          0.9932 0.0026
+  orbiting_disks      latent_tda       z_fuse_rff_h1_shuffle       5         0.0069 0.0026          0.9932 0.0026
+  orbiting_disks      latent_tda   z_fuse_laplacian_h1_shift       5         0.0069 0.0027          0.9932 0.0026
+  orbiting_disks      latent_tda    z_fuse_laplacian_h1_zero       5         0.0069 0.0027          0.9932 0.0026
+  orbiting_disks      latent_tda z_fuse_laplacian_h1_shuffle       5         0.0069 0.0027          0.9932 0.0026
+  orbiting_disks      latent_tda    z_fuse_diffusion_h1_zero       5         0.0070 0.0027          0.9931 0.0026
+  orbiting_disks      latent_tda z_fuse_diffusion_h1_shuffle       5         0.0070 0.0027          0.9931 0.0027
+  orbiting_disks      latent_tda   z_fuse_laplacian_h1_noise       5         0.0070 0.0027          0.9931 0.0026
+  orbiting_disks      latent_tda          z_fuse_rff_h1_zero       5         0.0070 0.0026          0.9931 0.0026
+  orbiting_disks      latent_tda   z_fuse_diffusion_h1_shift       5         0.0070 0.0028          0.9931 0.0027
+  orbiting_disks topo_latent_tda                           z       5         0.2280 0.0124          0.7810 0.0117
+  orbiting_disks topo_latent_tda    z_fuse_diffusion_h1_zero       5         0.2630 0.0205          0.7473 0.0199
+  orbiting_disks topo_latent_tda         z_fuse_rff_h1_shift       5         0.2668 0.0072          0.7438 0.0066
+  orbiting_disks topo_latent_tda   z_fuse_laplacian_h1_noise       5         0.2677 0.0144          0.7429 0.0139
+  orbiting_disks topo_latent_tda   z_fuse_diffusion_h1_noise       5         0.2720 0.0287          0.7388 0.0275
+  orbiting_disks topo_latent_tda    z_fuse_laplacian_h1_zero       5         0.2746 0.0191          0.7362 0.0187
+  orbiting_disks topo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.2758 0.0064          0.7351 0.0061
+  orbiting_disks topo_latent_tda   z_fuse_diffusion_h1_shift       5         0.2832 0.0132          0.7280 0.0124
+  orbiting_disks topo_latent_tda   z_fuse_laplacian_h1_shift       5         0.2848 0.0218          0.7265 0.0210
+  orbiting_disks topo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.2852 0.0124          0.7261 0.0120
+  orbiting_disks topo_latent_tda       z_fuse_rff_h1_shuffle       5         0.2861 0.0190          0.7252 0.0186
+  orbiting_disks topo_latent_tda          z_fuse_rff_h1_zero       5         0.2899 0.0137          0.7216 0.0131
+  orbiting_disks topo_latent_tda         z_fuse_rff_h1_noise       5         0.2961 0.0213          0.7156 0.0205
+    moving_mnist      latent_tda                           z       5         0.0048 0.0019          0.9952 0.0019
+    moving_mnist      latent_tda          z_fuse_rff_h1_zero       5         0.0083 0.0027          0.9919 0.0026
+    moving_mnist      latent_tda    z_fuse_laplacian_h1_zero       5         0.0084 0.0026          0.9917 0.0025
+    moving_mnist      latent_tda         z_fuse_rff_h1_noise       5         0.0085 0.0027          0.9917 0.0026
+    moving_mnist      latent_tda z_fuse_laplacian_h1_shuffle       5         0.0085 0.0031          0.9917 0.0030
+    moving_mnist      latent_tda         z_fuse_rff_h1_shift       5         0.0086 0.0029          0.9916 0.0028
+    moving_mnist      latent_tda z_fuse_diffusion_h1_shuffle       5         0.0086 0.0029          0.9915 0.0028
+    moving_mnist      latent_tda    z_fuse_diffusion_h1_zero       5         0.0086 0.0029          0.9915 0.0028
+    moving_mnist      latent_tda       z_fuse_rff_h1_shuffle       5         0.0086 0.0033          0.9915 0.0032
+    moving_mnist      latent_tda   z_fuse_diffusion_h1_shift       5         0.0087 0.0025          0.9915 0.0024
+    moving_mnist      latent_tda   z_fuse_diffusion_h1_noise       5         0.0087 0.0028          0.9914 0.0027
+    moving_mnist      latent_tda   z_fuse_laplacian_h1_noise       5         0.0089 0.0026          0.9913 0.0025
+    moving_mnist      latent_tda   z_fuse_laplacian_h1_shift       5         0.0090 0.0028          0.9911 0.0028
+    moving_mnist topo_latent_tda                           z       5         0.2868 0.0056          0.7240 0.0053
+    moving_mnist topo_latent_tda         z_fuse_rff_h1_noise       5         0.3017 0.0110          0.7096 0.0103
+    moving_mnist topo_latent_tda   z_fuse_diffusion_h1_noise       5         0.3027 0.0138          0.7087 0.0131
+    moving_mnist topo_latent_tda    z_fuse_laplacian_h1_zero       5         0.3045 0.0150          0.7069 0.0141
+    moving_mnist topo_latent_tda       z_fuse_rff_h1_shuffle       5         0.3049 0.0094          0.7065 0.0090
+    moving_mnist topo_latent_tda          z_fuse_rff_h1_zero       5         0.3051 0.0062          0.7064 0.0057
+    moving_mnist topo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.3052 0.0133          0.7062 0.0126
+    moving_mnist topo_latent_tda   z_fuse_laplacian_h1_shift       5         0.3054 0.0124          0.7061 0.0117
+    moving_mnist topo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.3057 0.0108          0.7058 0.0102
+    moving_mnist topo_latent_tda   z_fuse_diffusion_h1_shift       5         0.3061 0.0090          0.7054 0.0083
+    moving_mnist topo_latent_tda    z_fuse_diffusion_h1_zero       5         0.3064 0.0126          0.7051 0.0118
+    moving_mnist topo_latent_tda   z_fuse_laplacian_h1_noise       5         0.3073 0.0116          0.7042 0.0108
+    moving_mnist topo_latent_tda         z_fuse_rff_h1_shift       5         0.3103 0.0107          0.7014 0.0101
+        lorenz96      latent_tda                           z       5         0.1534 0.0066          0.8465 0.0069
+        lorenz96      latent_tda   z_fuse_laplacian_h1_noise       5         0.1983 0.0231          0.8015 0.0235
+        lorenz96      latent_tda         z_fuse_rff_h1_noise       5         0.1984 0.0174          0.8015 0.0176
+        lorenz96      latent_tda z_fuse_diffusion_h1_shuffle       5         0.1984 0.0218          0.8014 0.0222
+        lorenz96      latent_tda       z_fuse_rff_h1_shuffle       5         0.1998 0.0203          0.8001 0.0207
+        lorenz96      latent_tda    z_fuse_diffusion_h1_zero       5         0.2003 0.0200          0.7996 0.0204
+        lorenz96      latent_tda         z_fuse_rff_h1_shift       5         0.2004 0.0241          0.7994 0.0245
+        lorenz96      latent_tda   z_fuse_diffusion_h1_noise       5         0.2011 0.0278          0.7987 0.0283
+        lorenz96      latent_tda          z_fuse_rff_h1_zero       5         0.2018 0.0211          0.7980 0.0215
+        lorenz96      latent_tda   z_fuse_laplacian_h1_shift       5         0.2027 0.0243          0.7971 0.0247
+        lorenz96      latent_tda    z_fuse_laplacian_h1_zero       5         0.2033 0.0258          0.7965 0.0262
+        lorenz96      latent_tda   z_fuse_diffusion_h1_shift       5         0.2037 0.0258          0.7961 0.0262
+        lorenz96      latent_tda z_fuse_laplacian_h1_shuffle       5         0.2041 0.0243          0.7957 0.0248
+        lorenz96 topo_latent_tda                           z       5         0.2717 0.0294          0.7252 0.0301
+        lorenz96 topo_latent_tda         z_fuse_rff_h1_noise       5         0.3140 0.0228          0.6825 0.0234
+        lorenz96 topo_latent_tda   z_fuse_laplacian_h1_shift       5         0.3182 0.0175          0.6783 0.0182
+        lorenz96 topo_latent_tda   z_fuse_diffusion_h1_shift       5         0.3196 0.0304          0.6768 0.0311
+        lorenz96 topo_latent_tda    z_fuse_laplacian_h1_zero       5         0.3226 0.0213          0.6738 0.0219
+        lorenz96 topo_latent_tda   z_fuse_laplacian_h1_noise       5         0.3235 0.0197          0.6729 0.0203
+        lorenz96 topo_latent_tda    z_fuse_diffusion_h1_zero       5         0.3244 0.0205          0.6720 0.0211
+        lorenz96 topo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.3263 0.0151          0.6700 0.0158
+        lorenz96 topo_latent_tda   z_fuse_diffusion_h1_noise       5         0.3269 0.0169          0.6694 0.0174
+        lorenz96 topo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.3303 0.0204          0.6660 0.0210
+        lorenz96 topo_latent_tda          z_fuse_rff_h1_zero       5         0.3335 0.0163          0.6628 0.0167
+        lorenz96 topo_latent_tda         z_fuse_rff_h1_shift       5         0.3335 0.0308          0.6627 0.0316
+        lorenz96 topo_latent_tda       z_fuse_rff_h1_shuffle       5         0.3351 0.0165          0.6612 0.0171
+electric_devices      latent_tda                           z       5         0.0138 0.0071          0.9869 0.0063
+electric_devices      latent_tda         z_fuse_rff_h1_noise       5         0.0151 0.0080          0.9857 0.0072
+electric_devices      latent_tda z_fuse_diffusion_h1_shuffle       5         0.0153 0.0082          0.9855 0.0073
+electric_devices      latent_tda   z_fuse_laplacian_h1_noise       5         0.0156 0.0088          0.9853 0.0079
+electric_devices      latent_tda         z_fuse_rff_h1_shift       5         0.0157 0.0090          0.9851 0.0081
+electric_devices      latent_tda       z_fuse_rff_h1_shuffle       5         0.0165 0.0090          0.9845 0.0081
+electric_devices      latent_tda    z_fuse_laplacian_h1_zero       5         0.0165 0.0093          0.9845 0.0083
+electric_devices      latent_tda   z_fuse_diffusion_h1_shift       5         0.0166 0.0085          0.9843 0.0076
+electric_devices      latent_tda   z_fuse_diffusion_h1_noise       5         0.0167 0.0096          0.9843 0.0087
+electric_devices      latent_tda z_fuse_laplacian_h1_shuffle       5         0.0169 0.0103          0.9841 0.0093
+electric_devices      latent_tda   z_fuse_laplacian_h1_shift       5         0.0170 0.0097          0.9840 0.0088
+electric_devices      latent_tda    z_fuse_diffusion_h1_zero       5         0.0170 0.0101          0.9839 0.0091
+electric_devices      latent_tda          z_fuse_rff_h1_zero       5         0.0182 0.0101          0.9828 0.0093
+electric_devices topo_latent_tda                           z       5         0.0612 0.0043          0.9472 0.0039
+electric_devices topo_latent_tda          z_fuse_rff_h1_zero       5         0.1043 0.0193          0.9100 0.0170
+electric_devices topo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.1067 0.0279          0.9084 0.0235
+electric_devices topo_latent_tda         z_fuse_rff_h1_shift       5         0.1070 0.0078          0.9077 0.0077
+electric_devices topo_latent_tda    z_fuse_laplacian_h1_zero       5         0.1086 0.0117          0.9065 0.0089
+electric_devices topo_latent_tda   z_fuse_diffusion_h1_noise       5         0.1093 0.0049          0.9058 0.0052
+electric_devices topo_latent_tda   z_fuse_laplacian_h1_noise       5         0.1097 0.0082          0.9054 0.0071
+electric_devices topo_latent_tda       z_fuse_rff_h1_shuffle       5         0.1169 0.0156          0.8992 0.0134
+electric_devices topo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.1178 0.0222          0.8984 0.0194
+electric_devices topo_latent_tda    z_fuse_diffusion_h1_zero       5         0.1212 0.0140          0.8955 0.0121
+electric_devices topo_latent_tda   z_fuse_laplacian_h1_shift       5         0.1238 0.0216          0.8934 0.0180
+electric_devices topo_latent_tda         z_fuse_rff_h1_noise       5         0.1248 0.0181          0.8924 0.0156
+electric_devices topo_latent_tda   z_fuse_diffusion_h1_shift       5         0.1311 0.0135          0.8870 0.0114
+    glioblastoma      latent_tda                           z       5         0.0027 0.0010          0.9970 0.0011
+    glioblastoma      latent_tda   z_fuse_diffusion_h1_shift       5         0.0065 0.0005          0.9929 0.0005
+    glioblastoma      latent_tda   z_fuse_laplacian_h1_shift       5         0.0066 0.0012          0.9929 0.0013
+    glioblastoma      latent_tda z_fuse_diffusion_h1_shuffle       5         0.0072 0.0025          0.9923 0.0026
+    glioblastoma      latent_tda   z_fuse_diffusion_h1_noise       5         0.0072 0.0016          0.9922 0.0018
+    glioblastoma      latent_tda    z_fuse_laplacian_h1_zero       5         0.0074 0.0023          0.9920 0.0026
+    glioblastoma      latent_tda         z_fuse_rff_h1_noise       5         0.0077 0.0034          0.9916 0.0037
+    glioblastoma      latent_tda   z_fuse_laplacian_h1_noise       5         0.0079 0.0023          0.9914 0.0025
+    glioblastoma      latent_tda z_fuse_laplacian_h1_shuffle       5         0.0080 0.0028          0.9914 0.0031
+    glioblastoma      latent_tda       z_fuse_rff_h1_shuffle       5         0.0082 0.0029          0.9911 0.0032
+    glioblastoma      latent_tda         z_fuse_rff_h1_shift       5         0.0087 0.0027          0.9906 0.0030
+    glioblastoma      latent_tda    z_fuse_diffusion_h1_zero       5         0.0092 0.0032          0.9901 0.0036
+    glioblastoma      latent_tda          z_fuse_rff_h1_zero       5         0.0101 0.0034          0.9891 0.0037
+    glioblastoma topo_latent_tda                           z       5         0.0042 0.0015          0.9955 0.0017
+    glioblastoma topo_latent_tda         z_fuse_rff_h1_noise       5         0.0080 0.0018          0.9913 0.0021
+    glioblastoma topo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0084 0.0036          0.9909 0.0041
+    glioblastoma topo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0086 0.0023          0.9907 0.0026
+    glioblastoma topo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0088 0.0023          0.9904 0.0027
+    glioblastoma topo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0089 0.0004          0.9904 0.0005
+    glioblastoma topo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0093 0.0037          0.9899 0.0042
+    glioblastoma topo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0097 0.0017          0.9895 0.0017
+    glioblastoma topo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0102 0.0029          0.9889 0.0032
+    glioblastoma topo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0103 0.0034          0.9887 0.0038
+    glioblastoma topo_latent_tda         z_fuse_rff_h1_shift       5         0.0105 0.0024          0.9886 0.0028
+    glioblastoma topo_latent_tda          z_fuse_rff_h1_zero       5         0.0112 0.0036          0.9878 0.0040
+    glioblastoma topo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0115 0.0019          0.9876 0.0021
+            hela      latent_tda                           z       5         0.0437 0.0107          0.9429 0.0151
+            hela      latent_tda         z_fuse_rff_h1_shift       5         0.0461 0.0038          0.9400 0.0064
+            hela      latent_tda    z_fuse_laplacian_h1_zero       5         0.0486 0.0064          0.9367 0.0098
+            hela      latent_tda       z_fuse_rff_h1_shuffle       5         0.0490 0.0088          0.9361 0.0128
+            hela      latent_tda          z_fuse_rff_h1_zero       5         0.0496 0.0090          0.9353 0.0131
+            hela      latent_tda z_fuse_laplacian_h1_shuffle       5         0.0499 0.0096          0.9349 0.0138
+            hela      latent_tda   z_fuse_laplacian_h1_shift       5         0.0502 0.0071          0.9346 0.0107
+            hela      latent_tda         z_fuse_rff_h1_noise       5         0.0504 0.0095          0.9342 0.0136
+            hela      latent_tda   z_fuse_diffusion_h1_shift       5         0.0507 0.0105          0.9339 0.0151
+            hela      latent_tda   z_fuse_laplacian_h1_noise       5         0.0511 0.0066          0.9335 0.0101
+            hela      latent_tda    z_fuse_diffusion_h1_zero       5         0.0513 0.0088          0.9332 0.0130
+            hela      latent_tda z_fuse_diffusion_h1_shuffle       5         0.0536 0.0106          0.9301 0.0152
+            hela      latent_tda   z_fuse_diffusion_h1_noise       5         0.0548 0.0098          0.9286 0.0143
+            hela topo_latent_tda                           z       5         0.0581 0.0351          0.9213 0.0557
+            hela topo_latent_tda   z_fuse_diffusion_h1_noise       5         0.0629 0.0362          0.9151 0.0584
+            hela topo_latent_tda   z_fuse_laplacian_h1_shift       5         0.0634 0.0357          0.9145 0.0578
+            hela topo_latent_tda          z_fuse_rff_h1_zero       5         0.0638 0.0363          0.9140 0.0587
+            hela topo_latent_tda         z_fuse_rff_h1_shift       5         0.0647 0.0387          0.9127 0.0615
+            hela topo_latent_tda         z_fuse_rff_h1_noise       5         0.0647 0.0365          0.9127 0.0593
+            hela topo_latent_tda z_fuse_laplacian_h1_shuffle       5         0.0648 0.0367          0.9127 0.0591
+            hela topo_latent_tda z_fuse_diffusion_h1_shuffle       5         0.0649 0.0364          0.9127 0.0586
+            hela topo_latent_tda   z_fuse_laplacian_h1_noise       5         0.0664 0.0411          0.9099 0.0660
+            hela topo_latent_tda    z_fuse_laplacian_h1_zero       5         0.0667 0.0374          0.9103 0.0604
+            hela topo_latent_tda   z_fuse_diffusion_h1_shift       5         0.0680 0.0398          0.9080 0.0645
+            hela topo_latent_tda       z_fuse_rff_h1_shuffle       5         0.0698 0.0425          0.9052 0.0681
+            hela topo_latent_tda    z_fuse_diffusion_h1_zero       5         0.0705 0.0387          0.9050 0.0635

@@ -1,0 +1,138 @@
+         dataset        scenario  n_runs  gate_h0_mean  gate_h0_seed_std  gate_h0_window_std  gate_h1_mean  gate_h1_seed_std  gate_h1_window_std
+  bouncing_disks  geo_latent_tda       5        0.6992            0.2512              0.0444        0.6521            0.2062              0.0809
+  bouncing_disks      latent_tda       5        0.8410            0.0851              0.1034        0.6191            0.0864              0.1642
+  bouncing_disks topo_latent_tda       5        0.8708            0.0435              0.0431        0.5464            0.2181              0.1405
+  bouncing_rings  geo_latent_tda       5        0.7521            0.2239              0.0332        0.7285            0.2063              0.0534
+  bouncing_rings      latent_tda       5        0.9071            0.0300              0.0442        0.7155            0.1778              0.0945
+  bouncing_rings topo_latent_tda       5        0.8166            0.0925              0.0704        0.7985            0.0625              0.0502
+electric_devices  geo_latent_tda       5        0.1585            0.1401              0.0591        0.2800            0.2269              0.0873
+electric_devices      latent_tda       5        0.5306            0.3587              0.0810        0.1486            0.1539              0.0883
+electric_devices topo_latent_tda       5        0.5961            0.1201              0.3637        0.3041            0.1510              0.2466
+    glioblastoma  geo_latent_tda       5        0.0595            0.0422              0.0615        0.0033            0.0039              0.0066
+    glioblastoma      latent_tda       5        0.2265            0.1195              0.1101        0.0230            0.0510              0.0302
+    glioblastoma topo_latent_tda       5        0.4987            0.2264              0.0858        0.1813            0.3926              0.0045
+            hela  geo_latent_tda       5        0.0615            0.0874              0.0290        0.0004            0.0006              0.0005
+            hela      latent_tda       5        0.0495            0.0865              0.0485        0.0096            0.0141              0.0178
+            hela topo_latent_tda       5        0.1529            0.1933              0.0929        0.0578            0.0862              0.0674
+        lorenz96  geo_latent_tda       5        0.0653            0.0932              0.0733        0.6443            0.4800              0.0376
+        lorenz96      latent_tda       5        0.1781            0.3970              0.0119        0.2024            0.3847              0.0216
+        lorenz96 topo_latent_tda       5        0.0026            0.0059              0.0042        0.0066            0.0147              0.0097
+    moving_mnist  geo_latent_tda       5        0.7250            0.2733              0.1075        0.7486            0.2018              0.0930
+    moving_mnist      latent_tda       5        0.7237            0.2589              0.0962        0.7055            0.2302              0.1143
+    moving_mnist topo_latent_tda       5        0.8424            0.0575              0.0299        0.8184            0.0427              0.0707
+  orbiting_disks  geo_latent_tda       5        0.8978            0.0031              0.0012        0.9018            0.0017              0.0012
+  orbiting_disks      latent_tda       5        0.9066            0.0085              0.0076        0.8635            0.0324              0.0416
+  orbiting_disks topo_latent_tda       5        0.5998            0.2760              0.0810        0.4974            0.3222              0.0959
+  orbiting_rings  geo_latent_tda       5        0.8985            0.0052              0.0013        0.8998            0.0048              0.0031
+  orbiting_rings      latent_tda       5        0.8981            0.0123              0.0079        0.7408            0.2946              0.0476
+  orbiting_rings topo_latent_tda       5        0.7153            0.1160              0.0720        0.4327            0.2065              0.1635
+
+         dataset        scenario        mode  n_runs test_mse mean +/- std latent_r2 mean +/- std
+  bouncing_rings      latent_tda z_gate_both       5         0.2894 0.0513          0.7113 0.0512
+  bouncing_rings      latent_tda           z       5         0.2932 0.0486          0.7075 0.0486
+  bouncing_rings      latent_tda      z_both       5         0.2960 0.0499          0.7046 0.0498
+  bouncing_rings      latent_tda z_fuse_both       5         0.3100 0.0558          0.6907 0.0558
+  bouncing_rings  geo_latent_tda z_gate_both       5         0.0011 0.0001          0.9989 0.0001
+  bouncing_rings  geo_latent_tda      z_both       5         0.0013 0.0003          0.9987 0.0003
+  bouncing_rings  geo_latent_tda           z       5         0.0013 0.0002          0.9987 0.0002
+  bouncing_rings  geo_latent_tda z_fuse_both       5         0.0023 0.0003          0.9977 0.0003
+  bouncing_rings topo_latent_tda z_gate_both       5         0.1702 0.0132          0.8321 0.0129
+  bouncing_rings topo_latent_tda      z_both       5         0.1711 0.0116          0.8312 0.0113
+  bouncing_rings topo_latent_tda           z       5         0.1733 0.0122          0.8290 0.0119
+  bouncing_rings topo_latent_tda z_fuse_both       5         0.1826 0.0111          0.8198 0.0109
+  bouncing_disks      latent_tda           z       5         0.3415 0.0251          0.6600 0.0245
+  bouncing_disks      latent_tda z_gate_both       5         0.3435 0.0240          0.6581 0.0232
+  bouncing_disks      latent_tda      z_both       5         0.3443 0.0253          0.6573 0.0246
+  bouncing_disks      latent_tda z_fuse_both       5         0.3638 0.0274          0.6379 0.0266
+  bouncing_disks  geo_latent_tda      z_both       5         0.0012 0.0002          0.9988 0.0002
+  bouncing_disks  geo_latent_tda z_gate_both       5         0.0013 0.0001          0.9987 0.0001
+  bouncing_disks  geo_latent_tda           z       5         0.0013 0.0003          0.9987 0.0003
+  bouncing_disks  geo_latent_tda z_fuse_both       5         0.0021 0.0003          0.9979 0.0003
+  bouncing_disks topo_latent_tda z_gate_both       5         0.1742 0.0102          0.8276 0.0101
+  bouncing_disks topo_latent_tda      z_both       5         0.1762 0.0074          0.8256 0.0073
+  bouncing_disks topo_latent_tda           z       5         0.1814 0.0101          0.8205 0.0100
+  bouncing_disks topo_latent_tda z_fuse_both       5         0.1899 0.0077          0.8121 0.0076
+  orbiting_rings      latent_tda      z_both       5         0.0043 0.0015          0.9958 0.0014
+  orbiting_rings      latent_tda z_gate_both       5         0.0045 0.0014          0.9956 0.0013
+  orbiting_rings      latent_tda           z       5         0.0045 0.0014          0.9956 0.0014
+  orbiting_rings      latent_tda z_fuse_both       5         0.0056 0.0020          0.9945 0.0019
+  orbiting_rings  geo_latent_tda      z_both       5         0.0011 0.0001          0.9989 0.0001
+  orbiting_rings  geo_latent_tda z_gate_both       5         0.0012 0.0002          0.9988 0.0002
+  orbiting_rings  geo_latent_tda z_fuse_both       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_rings  geo_latent_tda           z       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_rings topo_latent_tda           z       5         0.2152 0.0127          0.7951 0.0120
+  orbiting_rings topo_latent_tda      z_both       5         0.2313 0.0177          0.7798 0.0166
+  orbiting_rings topo_latent_tda z_gate_both       5         0.2361 0.0111          0.7752 0.0106
+  orbiting_rings topo_latent_tda z_fuse_both       5         0.2592 0.0263          0.7532 0.0246
+  orbiting_disks      latent_tda z_gate_both       5         0.0049 0.0018          0.9952 0.0017
+  orbiting_disks      latent_tda      z_both       5         0.0049 0.0017          0.9951 0.0016
+  orbiting_disks      latent_tda           z       5         0.0052 0.0018          0.9949 0.0017
+  orbiting_disks      latent_tda z_fuse_both       5         0.0068 0.0027          0.9933 0.0026
+  orbiting_disks  geo_latent_tda      z_both       5         0.0011 0.0001          0.9989 0.0001
+  orbiting_disks  geo_latent_tda z_gate_both       5         0.0012 0.0001          0.9988 0.0001
+  orbiting_disks  geo_latent_tda z_fuse_both       5         0.0015 0.0001          0.9985 0.0001
+  orbiting_disks  geo_latent_tda           z       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_disks topo_latent_tda           z       5         0.2173 0.0144          0.7916 0.0139
+  orbiting_disks topo_latent_tda z_gate_both       5         0.2189 0.0103          0.7900 0.0097
+  orbiting_disks topo_latent_tda      z_both       5         0.2283 0.0157          0.7811 0.0151
+  orbiting_disks topo_latent_tda z_fuse_both       5         0.2605 0.0229          0.7502 0.0218
+    moving_mnist      latent_tda      z_both       5         0.0048 0.0018          0.9953 0.0017
+    moving_mnist      latent_tda z_gate_both       5         0.0048 0.0017          0.9953 0.0017
+    moving_mnist      latent_tda           z       5         0.0048 0.0019          0.9952 0.0019
+    moving_mnist      latent_tda z_fuse_both       5         0.0082 0.0026          0.9920 0.0025
+    moving_mnist  geo_latent_tda           z       5         0.0009 0.0001          0.9991 0.0001
+    moving_mnist  geo_latent_tda z_gate_both       5         0.0010 0.0002          0.9990 0.0002
+    moving_mnist  geo_latent_tda      z_both       5         0.0011 0.0000          0.9989 0.0000
+    moving_mnist  geo_latent_tda z_fuse_both       5         0.0023 0.0003          0.9977 0.0003
+    moving_mnist topo_latent_tda           z       5         0.3033 0.0101          0.7080 0.0094
+    moving_mnist topo_latent_tda      z_both       5         0.3061 0.0077          0.7054 0.0074
+    moving_mnist topo_latent_tda z_gate_both       5         0.3077 0.0126          0.7038 0.0119
+    moving_mnist topo_latent_tda z_fuse_both       5         0.3118 0.0130          0.6998 0.0123
+        lorenz96      latent_tda z_gate_both       5         0.1508 0.0083          0.8491 0.0084
+        lorenz96      latent_tda      z_both       5         0.1524 0.0079          0.8475 0.0081
+        lorenz96      latent_tda           z       5         0.1538 0.0063          0.8461 0.0066
+        lorenz96      latent_tda z_fuse_both       5         0.2012 0.0236          0.7986 0.0240
+        lorenz96  geo_latent_tda           z       5         0.0011 0.0004          0.9989 0.0004
+        lorenz96  geo_latent_tda z_gate_both       5         0.0013 0.0003          0.9987 0.0003
+        lorenz96  geo_latent_tda      z_both       5         0.0014 0.0002          0.9986 0.0002
+        lorenz96  geo_latent_tda z_fuse_both       5         0.0016 0.0005          0.9984 0.0005
+        lorenz96 topo_latent_tda           z       5         0.2658 0.0216          0.7313 0.0220
+        lorenz96 topo_latent_tda z_gate_both       5         0.2692 0.0227          0.7280 0.0231
+        lorenz96 topo_latent_tda      z_both       5         0.2750 0.0222          0.7221 0.0226
+        lorenz96 topo_latent_tda z_fuse_both       5         0.3625 0.0183          0.6337 0.0187
+electric_devices      latent_tda z_gate_both       5         0.0117 0.0059          0.9889 0.0053
+electric_devices      latent_tda           z       5         0.0137 0.0070          0.9871 0.0063
+electric_devices      latent_tda      z_both       5         0.0146 0.0078          0.9862 0.0070
+electric_devices      latent_tda z_fuse_both       5         0.0163 0.0084          0.9846 0.0075
+electric_devices  geo_latent_tda      z_both       5         0.0014 0.0002          0.9986 0.0002
+electric_devices  geo_latent_tda           z       5         0.0015 0.0001          0.9985 0.0001
+electric_devices  geo_latent_tda z_gate_both       5         0.0016 0.0001          0.9984 0.0001
+electric_devices  geo_latent_tda z_fuse_both       5         0.0017 0.0003          0.9983 0.0003
+electric_devices topo_latent_tda           z       5         0.0551 0.0042          0.9573 0.0032
+electric_devices topo_latent_tda z_gate_both       5         0.0552 0.0058          0.9572 0.0042
+electric_devices topo_latent_tda      z_both       5         0.0590 0.0081          0.9543 0.0060
+electric_devices topo_latent_tda z_fuse_both       5         0.1745 0.0256          0.8646 0.0203
+    glioblastoma      latent_tda z_gate_both       5         0.0022 0.0004          0.9976 0.0005
+    glioblastoma      latent_tda      z_both       5         0.0024 0.0007          0.9973 0.0008
+    glioblastoma      latent_tda           z       5         0.0027 0.0010          0.9970 0.0011
+    glioblastoma      latent_tda z_fuse_both       5         0.0097 0.0025          0.9896 0.0025
+    glioblastoma  geo_latent_tda z_gate_both       5         0.0008 0.0002          0.9992 0.0002
+    glioblastoma  geo_latent_tda      z_both       5         0.0010 0.0002          0.9989 0.0003
+    glioblastoma  geo_latent_tda           z       5         0.0012 0.0002          0.9988 0.0002
+    glioblastoma  geo_latent_tda z_fuse_both       5         0.0103 0.0010          0.9896 0.0010
+    glioblastoma topo_latent_tda           z       5         0.0063 0.0015          0.9926 0.0017
+    glioblastoma topo_latent_tda z_gate_both       5         0.0066 0.0015          0.9923 0.0018
+    glioblastoma topo_latent_tda      z_both       5         0.0067 0.0020          0.9922 0.0024
+    glioblastoma topo_latent_tda z_fuse_both       5         0.0130 0.0033          0.9849 0.0038
+            hela      latent_tda z_gate_both       5         0.0406 0.0068          0.9470 0.0101
+            hela      latent_tda      z_both       5         0.0408 0.0089          0.9467 0.0127
+            hela      latent_tda           z       5         0.0437 0.0107          0.9429 0.0151
+            hela      latent_tda z_fuse_both       5         0.0473 0.0093          0.9383 0.0135
+            hela  geo_latent_tda z_gate_both       5         0.0069 0.0036          0.9931 0.0035
+            hela  geo_latent_tda           z       5         0.0070 0.0034          0.9930 0.0033
+            hela  geo_latent_tda      z_both       5         0.0074 0.0032          0.9926 0.0033
+            hela  geo_latent_tda z_fuse_both       5         0.0136 0.0022          0.9864 0.0020
+            hela topo_latent_tda z_gate_both       5         0.0580 0.0343          0.9204 0.0554
+            hela topo_latent_tda           z       5         0.0581 0.0333          0.9203 0.0544
+            hela topo_latent_tda      z_both       5         0.0619 0.0384          0.9144 0.0621
+            hela topo_latent_tda z_fuse_both       5         0.0700 0.0392          0.9040 0.0653

@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Input-to-latent representation fidelity by encoder. Entries are medians
+over datasets and random seeds. Metric distortion measures changes in normalized
+pairwise distances; \(H_0\) and \(H_1\) distortion are bottleneck distances between
+input- and latent-space persistence diagrams. Lower is better.}
+\label{tab:fidelity_encoder_main}
+\begin{tabular}{lccc}
+\toprule
+Encoder & Metric distortion & \(H_0\) distortion & \(H_1\) distortion \\
+\midrule
+AE & \(0.3561\) & \(0.4103\) & \(\mathbf{0.0209}\) \\
+GeoAE & \(\mathbf{0.1055}\) & \(\mathbf{0.1139}\) & \(0.0273\) \\
+TopoAE--Wasserstein & \(0.3416\) & \(0.3923\) & \(0.0229\) \\
+\bottomrule
+\end{tabular}
+\end{table}

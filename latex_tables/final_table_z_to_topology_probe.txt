@@ -1,0 +1,17 @@
+\begin{table*}[t]
+\centering
+\small
+\caption{Probe test for topology-feature redundancy. Ridge and MLP probes are trained to predict the cached $H_1$ topology vector from frozen $z$ and evaluated on held-out examples. Values are median $R^2$ with interquartile range; values near zero indicate that the topology descriptor is not reliably recoverable from $z$ by the corresponding probe.}
+\label{tab:z-to-topology-probe}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lccc ccc}
+\toprule
+ & \multicolumn{3}{c}{Linear ridge probe} & \multicolumn{3}{c}{Nonlinear MLP probe} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+ & AE & GeoAE & TopoAE & AE & GeoAE & TopoAE \\
+\midrule
+$H_1$ & $0.012\;[0.000,0.092]$ & $0.001\;[-0.001,0.257]$ & $0.027\;[0.009,0.143]$ & $0.032\;[-0.003,0.079]$ & $-0.022\;[-0.050,0.321]$ & $0.047\;[0.025,0.228]$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}

@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Datasets used in the forecasting experiments. Sequence counts report the effective train/test clips used by the experimental pipeline.}
+\label{tab:datasets}
+\begin{tabular}{llcccc}
+\toprule
+Dataset & Type & Sequence length & Frame size & Sequences & Link \\
+\midrule
+Bouncing disks & Synthetic video & 50 & $64{\times}64$ & $512/128$ &  \\
+Bouncing rings & Synthetic video & 50 & $64{\times}64$ & $512/128$ &  \\
+Orbiting disks & Synthetic video & 50 & $64{\times}64$ & $512/128$ &  \\
+Orbiting rings & Synthetic video & 50 & $64{\times}64$ & $512/128$ &  \\
+Moving MNIST & Synthetic video & 20 & $64{\times}64$ & $1000/200$ &  \\
+Lorenz-96 & Synthetic time series & 100 & $64{\times}64$ & $512/128$ &  \\
+ElectricDevices & Real time series & 96 & $32{\times}32$ & $1024/512$ &  \\
+HeLa & Real microscopy video & 50 & $64{\times}64$ & $14/28$ &  \\
+Glioblastoma & Real microscopy video & 50 & $64{\times}64$ & $128/64$ &  \\
+\bottomrule
+\end{tabular}
+\end{table}

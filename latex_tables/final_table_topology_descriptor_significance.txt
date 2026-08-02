@@ -1,0 +1,35 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Fixed paired comparisons of persistence descriptors with non-topological controls. Wins are reported over all 27 dataset--encoder settings, whereas statistical tests use nine independent dataset averages to avoid treating encoder variants as independent samples. Lower MSE is better.}
+\label{tab:topology-descriptor-significance}
+\begin{tabular}{lcccc}
+\toprule
+Topology descriptor & Wins & Avg. gain & Wilcoxon \(p\) & Two-sided \(p\) \\
+\midrule
+Betti $H_1$ vs. PCA & 25/27 & 25.9\% & 0.0020 & 0.0039 \\
+Betti $H_1$ vs. KPCA & 26/27 & 21.5\% & 0.0020 & 0.0039 \\
+Betti $H_1$ vs. Laplacian & 14/27 & 2.1\% & 0.0039 & 0.0078 \\
+Betti $H_1$ vs. Diffusion & 14/27 & 0.6\% & 0.0195 & 0.0391 \\
+Betti $H_1$ vs. RFF & 14/27 & 1.7\% & 0.1016 & 0.2031 \\
+\midrule
+PI $H_1$ vs. PCA & 23/27 & 24.3\% & 0.0020 & 0.0039 \\
+PI $H_1$ vs. KPCA & 24/27 & 20.0\% & 0.0020 & 0.0039 \\
+PI $H_1$ vs. Laplacian & 13/27 & -1.3\% & 0.1250 & 0.2500 \\
+PI $H_1$ vs. Diffusion & 12/27 & -3.1\% & 0.1250 & 0.2500 \\
+PI $H_1$ vs. RFF & 12/27 & -1.5\% & 0.4102 & 0.8203 \\
+\midrule
+Landscape $H_1$ vs. PCA & 25/27 & 28.7\% & 0.0020 & 0.0039 \\
+Landscape $H_1$ vs. KPCA & 26/27 & 24.5\% & 0.0020 & 0.0039 \\
+Landscape $H_1$ vs. Laplacian & 18/27 & 6.4\% & 0.0020 & 0.0039 \\
+Landscape $H_1$ vs. Diffusion & 16/27 & 5.1\% & 0.0059 & 0.0117 \\
+Landscape $H_1$ vs. RFF & 14/27 & 6.1\% & 0.0273 & 0.0547 \\
+\midrule
+PersLay $H_1$ vs. PCA & 24/27 & 27.5\% & 0.0020 & 0.0039 \\
+PersLay $H_1$ vs. KPCA & 25/27 & 23.2\% & 0.0020 & 0.0039 \\
+PersLay $H_1$ vs. Laplacian & 16/27 & 5.2\% & 0.0020 & 0.0039 \\
+PersLay $H_1$ vs. Diffusion & 18/27 & 3.8\% & 0.0020 & 0.0039 \\
+PersLay $H_1$ vs. RFF & 15/27 & 4.8\% & 0.0371 & 0.0742 \\
+\bottomrule
+\end{tabular}
+\end{table}

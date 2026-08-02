@@ -1,0 +1,25 @@
+\begin{table*}[t]
+\centering
+\small
+\caption{Two-component PCA explainability and $z$-forecasting MSE. Each PCA value is the percentage of latent variance explained by PC1 and PC2. The final column reports Spearman's $\rho$ across the three encoders within each dataset. Pooling within-dataset encoder ranks gives $\rho=0.67$; this is a descriptive association rather than a causal or independent-sample test.}
+\label{tab:pca-explainability-mse}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lccccccc}
+\toprule
+ & \multicolumn{2}{c}{AE} & \multicolumn{2}{c}{GeoAE} & \multicolumn{2}{c}{TopoAE} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Dataset & PC1+PC2 (\%) & MSE & PC1+PC2 (\%) & MSE & PC1+PC2 (\%) & MSE & Spearman $\rho$ \\
+\midrule
+Bouncing disks & 52.0 & 0.3429 & 21.3 & 0.0013 & 47.5 & 0.2158 & 1.00 \\
+Bouncing rings & 75.8 & 0.2972 & 18.3 & 0.0013 & 49.9 & 0.2104 & 1.00 \\
+Orbiting disks & 93.6 & 0.0052 & 13.7 & 0.0017 & 42.7 & 0.2281 & 0.50 \\
+Orbiting rings & 94.3 & 0.0045 & 15.4 & 0.0017 & 44.6 & 0.2321 & 0.50 \\
+Moving MNIST & 89.8 & 0.0048 & 35.8 & 0.0009 & 48.3 & 0.2868 & 0.50 \\
+Lorenz-96 & 33.2 & 0.1536 & 14.6 & 0.0012 & 25.3 & 0.2726 & 0.50 \\
+ElectricDevices & 99.6 & 0.0139 & 29.4 & 0.0014 & 64.7 & 0.0615 & 0.50 \\
+Glioblastoma & 49.8 & 0.0027 & 28.1 & 0.0011 & 59.9 & 0.0040 & 1.00 \\
+HeLa & 97.9 & 0.0437 & 72.9 & 0.0072 & 86.8 & 0.0587 & 0.50 \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}

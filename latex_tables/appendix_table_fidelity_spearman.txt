@@ -1,0 +1,19 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Spearman associations between representation distortion, persistence
+fidelity, and the relative forecasting gain from augmenting \(z\) with \(H_1\).
+Correlations use dataset--encoder--seed observations (\(n=135\)).}
+\label{tab:fidelity_spearman_appendix}
+\begin{tabular}{lrr}
+\toprule
+Association & \(\rho\) & \(p\) \\
+\midrule
+Metric distortion vs.\ \(H_0\) distortion & \(0.837\) & \(<0.001\) \\
+Metric distortion vs.\ \(H_1\) distortion & \(0.004\) & \(0.962\) \\
+Metric distortion vs.\ forecasting gain & \(0.064\) & \(0.462\) \\
+\(H_0\) distortion vs.\ forecasting gain & \(0.040\) & \(0.646\) \\
+\(H_1\) distortion vs.\ forecasting gain & \(0.064\) & \(0.462\) \\
+\bottomrule
+\end{tabular}
+\end{table}

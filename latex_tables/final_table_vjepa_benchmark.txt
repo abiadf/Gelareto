@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Single-run frozen V-JEPA robustness check. V-JEPA is frozen and only the temporal predictor/fusion head is trained. We cap the run at 64 training sequences and 32 test sequences. Lower MSE is better; Gain is the relative MSE reduction of the best topology-fusion mode over raw V-JEPA $z$.}
+\label{tab:vjepa_benchmark}
+\begin{tabular}{lccccc}
+\toprule
+Dataset & V-JEPA $z$ MSE & Best topo mode & Best topo MSE & Best topo $R^2$ & Gain \\
+\midrule
+Bouncing rings & 0.0228 & H1 & $\mathbf{0.0220}$ & $\mathbf{0.9780}$ & 3.5\% \\
+Bouncing disks & 0.0215 & PI-H1 & $\mathbf{0.0193}$ & $\mathbf{0.9806}$ & 10.2\% \\
+Orbiting rings & 0.0294 & PersLay-H1 & $\mathbf{0.0272}$ & $\mathbf{0.9726}$ & 7.5\% \\
+Orbiting disks & 0.0301 & PI-H1 & $\mathbf{0.0288}$ & $\mathbf{0.9711}$ & 4.3\% \\
+Moving MNIST & 0.0394 & PersLay-H1 & $\mathbf{0.0371}$ & $\mathbf{0.9629}$ & 5.8\% \\
+Lorenz-96 & 0.0116 & PI-H1 & $\mathbf{0.0095}$ & $\mathbf{0.9905}$ & 18.1\% \\
+ElectricDevices & 0.0430 & PersLay-H1 & $0.0480$ & $0.9526$ & -11.6\% \\
+Glioblastoma & 0.0290 & PersLay-H1 & $\mathbf{0.0289}$ & $\mathbf{0.9708}$ & 0.3\% \\
+HeLa & 0.0632 & PersLay-H1 & $\mathbf{0.0629}$ & $\mathbf{0.9358}$ & 0.5\% \\
+\bottomrule
+\end{tabular}
+\end{table}

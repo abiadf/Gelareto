@@ -1,0 +1,2 @@
+dataset,dataset_label,scenario,encoder,seed,target,model,n_train,n_test,split_mode,z_dim,target_dim,target_dim_total,target_std_threshold,r2_uniform,r2_variance_weighted,mse,train_payload,test_payload
+bouncing_disks,Bouncing disks,latent_tda,AE,0,h1,ridge,18432,4608,sequence_random,64,12,16,0.001,0.009273757226765156,0.03206048905849457,0.07489213347434998,models/bouncing_disks/latent_tda_features/seed0_train_T50_B512_H64_W64_latent64_win15_bins16.pt,models/bouncing_disks/latent_tda_features/seed0_test_T50_B128_H64_W64_latent64_win15_bins16.pt

@@ -1,0 +1,10 @@
+dataset,baseline_weighted,best_mode,best_weighted,delta_pct,best_pixel,best_r2
+bouncing_rings,0.1432,h0_h1,0.1323,7.6117,0.0796,-0.6440
+bouncing_disks,0.1509,h0_h1,0.1402,7.0908,0.0711,-0.1829
+orbiting_rings,0.1506,h0_h2,0.1488,1.1952,0.0677,-1.8169
+orbiting_disks,0.1765,h0,0.1751,0.7932,0.0971,-1.9125
+moving_mnist,0.2269,all,0.2264,0.2204,0.0987,-1.3877
+lorenz96,0.0233,h2,0.0227,2.5751,0.0130,0.4108
+electric_devices,0.0477,all,0.0474,0.6289,0.0304,0.3898
+glioblastoma,0.0220,h0,0.0217,1.3636,0.0020,-0.3807
+hela,0.1410,h0_h2,0.1202,14.7518,0.0112,-0.3394

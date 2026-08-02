@@ -1,0 +1,54 @@
+\begin{table*}[t]
+\centering
+\small
+\caption{GPU profiling summary at profile size 128, averaged over datasets after discarding profiling warmup runs. Runtime, added time, peak CPU RSS, peak accelerator memory, and phase times are reported as mean$\pm$std across datasets and measured repeats. Added time and Runtime/\(z\) are relative to the corresponding \(z\)-only run within the same dataset, encoder family, and profiling repeat. Persistence is CPU-side in our implementation.}
+\label{tab:profiling}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{llrrrrrrrrr}
+\toprule
+ & & & & & \multicolumn{2}{c}{Peak memory (MB)} & \multicolumn{4}{c}{Phase time (s)} \\
+\cmidrule(lr){6-7}\cmidrule(lr){8-11}
+Encoder & Input mode & Runtime (s) & Added time (s) & Runtime/\(z\) & CPU RSS & Accel. & Enc. & Feature/fuse & Persist. & Pred. \\
+\midrule
+AE & \(z\) & 0.05$\pm$0.02 & 0.00$\pm$0.00 & 1.00$\pm$0.00 & 4047$\pm$2020 & 134$\pm$19 & 0.03$\pm$0.02 & -- & -- & 0.00$\pm$0.00 \\
+AE & \(z+\mathrm{PCA}\) & 0.36$\pm$0.24 & 0.31$\pm$0.22 & 7.00$\pm$4.28 & 4051$\pm$2014 & 134$\pm$19 & 0.03$\pm$0.02 & 0.30$\pm$0.22 & -- & 0.00$\pm$0.00 \\
+AE & \(z+\mathrm{KPCA}\) & 0.51$\pm$0.35 & 0.46$\pm$0.33 & 10.05$\pm$6.31 & 4051$\pm$2014 & 134$\pm$19 & 0.03$\pm$0.02 & 0.46$\pm$0.33 & -- & 0.00$\pm$0.00 \\
+AE & \(z_{\mathrm{fuse}}+H_1\) & 1.74$\pm$1.19 & 1.69$\pm$1.17 & 33.81$\pm$23.22 & 4057$\pm$2008 & 138$\pm$18 & 0.03$\pm$0.02 & 0.00$\pm$0.00 & 1.31$\pm$0.90 & 0.01$\pm$0.00 \\
+AE & \(z_{\mathrm{fuse}}+\mathrm{PI}\) & 2.02$\pm$1.37 & 1.97$\pm$1.35 & 39.40$\pm$26.88 & 4058$\pm$2007 & 139$\pm$19 & 0.03$\pm$0.02 & 0.28$\pm$0.18 & 1.31$\pm$0.90 & 0.01$\pm$0.00 \\
+AE & \(z_{\mathrm{fuse}}+\mathrm{Landscape}\) & 1.86$\pm$1.27 & 1.82$\pm$1.25 & 36.29$\pm$24.56 & 4058$\pm$2007 & 140$\pm$19 & 0.03$\pm$0.02 & 0.13$\pm$0.08 & 1.30$\pm$0.90 & 0.01$\pm$0.00 \\
+AE & \(z_{\mathrm{fuse}}+\mathrm{PersLay}\) & 1.82$\pm$1.21 & 1.77$\pm$1.20 & 35.48$\pm$23.80 & 4058$\pm$2007 & 140$\pm$19 & 0.03$\pm$0.02 & 0.08$\pm$0.06 & 1.31$\pm$0.89 & 0.01$\pm$0.00 \\
+AE & \(z_{\mathrm{fuse}}+\mathrm{PCA}\) & 0.35$\pm$0.24 & 0.31$\pm$0.22 & 6.98$\pm$4.30 & 4058$\pm$2007 & 138$\pm$18 & 0.03$\pm$0.02 & 0.30$\pm$0.22 & -- & 0.01$\pm$0.00 \\
+AE & \(z_{\mathrm{fuse}}+\mathrm{KPCA}\) & 0.51$\pm$0.35 & 0.47$\pm$0.33 & 10.05$\pm$6.31 & 4061$\pm$2003 & 138$\pm$18 & 0.03$\pm$0.02 & 0.46$\pm$0.33 & -- & 0.01$\pm$0.00 \\
+AE & \(z_{\mathrm{fuse}}+\mathrm{Laplacian}\) & 0.72$\pm$0.49 & 0.67$\pm$0.47 & 14.03$\pm$8.64 & 4061$\pm$2003 & 138$\pm$18 & 0.03$\pm$0.02 & 0.66$\pm$0.47 & -- & 0.01$\pm$0.00 \\
+AE & \(z_{\mathrm{fuse}}+\mathrm{Diffusion}\) & 0.69$\pm$0.47 & 0.64$\pm$0.45 & 13.33$\pm$8.38 & 4061$\pm$2003 & 138$\pm$18 & 0.03$\pm$0.02 & 0.63$\pm$0.45 & -- & 0.01$\pm$0.00 \\
+AE & \(z_{\mathrm{fuse}}+\mathrm{RFF}\) & 0.25$\pm$0.16 & 0.20$\pm$0.14 & 4.93$\pm$2.72 & 4061$\pm$2003 & 138$\pm$18 & 0.03$\pm$0.02 & 0.20$\pm$0.14 & -- & 0.01$\pm$0.00 \\
+\midrule
+GeoAE & \(z\) & 0.05$\pm$0.02 & 0.00$\pm$0.00 & 1.00$\pm$0.00 & 4061$\pm$2003 & 134$\pm$19 & 0.03$\pm$0.02 & -- & -- & 0.00$\pm$0.00 \\
+GeoAE & \(z+\mathrm{PCA}\) & 0.36$\pm$0.24 & 0.31$\pm$0.22 & 6.95$\pm$4.40 & 4061$\pm$2003 & 134$\pm$19 & 0.03$\pm$0.02 & 0.31$\pm$0.22 & -- & 0.00$\pm$0.00 \\
+GeoAE & \(z+\mathrm{KPCA}\) & 0.52$\pm$0.36 & 0.47$\pm$0.34 & 9.95$\pm$6.53 & 4061$\pm$2003 & 134$\pm$19 & 0.03$\pm$0.02 & 0.47$\pm$0.34 & -- & 0.00$\pm$0.00 \\
+GeoAE & \(z_{\mathrm{fuse}}+H_1\) & 1.81$\pm$1.24 & 1.76$\pm$1.22 & 34.80$\pm$25.45 & 4061$\pm$2003 & 138$\pm$18 & 0.03$\pm$0.02 & 0.00$\pm$0.00 & 1.37$\pm$0.95 & 0.01$\pm$0.00 \\
+GeoAE & \(z_{\mathrm{fuse}}+\mathrm{PI}\) & 2.11$\pm$1.42 & 2.06$\pm$1.40 & 40.80$\pm$29.51 & 4061$\pm$2003 & 139$\pm$19 & 0.03$\pm$0.02 & 0.30$\pm$0.19 & 1.37$\pm$0.94 & 0.01$\pm$0.00 \\
+GeoAE & \(z_{\mathrm{fuse}}+\mathrm{Landscape}\) & 1.95$\pm$1.32 & 1.91$\pm$1.30 & 37.77$\pm$27.16 & 4061$\pm$2003 & 140$\pm$19 & 0.03$\pm$0.02 & 0.14$\pm$0.09 & 1.37$\pm$0.94 & 0.01$\pm$0.00 \\
+GeoAE & \(z_{\mathrm{fuse}}+\mathrm{PersLay}\) & 1.96$\pm$1.29 & 1.91$\pm$1.27 & 38.01$\pm$26.94 & 4061$\pm$2003 & 139$\pm$19 & 0.03$\pm$0.02 & 0.14$\pm$0.10 & 1.40$\pm$0.95 & 0.01$\pm$0.00 \\
+GeoAE & \(z_{\mathrm{fuse}}+\mathrm{PCA}\) & 0.36$\pm$0.24 & 0.31$\pm$0.22 & 7.01$\pm$4.41 & 4061$\pm$2003 & 138$\pm$18 & 0.03$\pm$0.02 & 0.31$\pm$0.22 & -- & 0.01$\pm$0.00 \\
+GeoAE & \(z_{\mathrm{fuse}}+\mathrm{KPCA}\) & 0.52$\pm$0.35 & 0.47$\pm$0.33 & 9.97$\pm$6.47 & 4061$\pm$2003 & 138$\pm$18 & 0.03$\pm$0.02 & 0.47$\pm$0.33 & -- & 0.01$\pm$0.00 \\
+GeoAE & \(z_{\mathrm{fuse}}+\mathrm{Laplacian}\) & 0.72$\pm$0.48 & 0.67$\pm$0.46 & 13.70$\pm$8.79 & 4064$\pm$2000 & 138$\pm$18 & 0.03$\pm$0.02 & 0.66$\pm$0.46 & -- & 0.01$\pm$0.00 \\
+GeoAE & \(z_{\mathrm{fuse}}+\mathrm{Diffusion}\) & 0.68$\pm$0.46 & 0.63$\pm$0.44 & 13.06$\pm$8.15 & 4064$\pm$2000 & 138$\pm$18 & 0.03$\pm$0.02 & 0.63$\pm$0.44 & -- & 0.01$\pm$0.00 \\
+GeoAE & \(z_{\mathrm{fuse}}+\mathrm{RFF}\) & 0.25$\pm$0.15 & 0.20$\pm$0.14 & 4.85$\pm$2.68 & 4064$\pm$2000 & 138$\pm$18 & 0.03$\pm$0.02 & 0.19$\pm$0.14 & -- & 0.01$\pm$0.00 \\
+\midrule
+TopoAE & \(z\) & 0.05$\pm$0.02 & 0.00$\pm$0.00 & 1.00$\pm$0.00 & 4064$\pm$2000 & 134$\pm$19 & 0.03$\pm$0.02 & -- & -- & 0.00$\pm$0.00 \\
+TopoAE & \(z+\mathrm{PCA}\) & 0.35$\pm$0.23 & 0.30$\pm$0.22 & 6.81$\pm$4.29 & 4064$\pm$2000 & 134$\pm$19 & 0.03$\pm$0.02 & 0.30$\pm$0.22 & -- & 0.00$\pm$0.00 \\
+TopoAE & \(z+\mathrm{KPCA}\) & 0.51$\pm$0.35 & 0.46$\pm$0.33 & 9.88$\pm$6.67 & 4064$\pm$2000 & 134$\pm$19 & 0.03$\pm$0.02 & 0.46$\pm$0.33 & -- & 0.00$\pm$0.00 \\
+TopoAE & \(z_{\mathrm{fuse}}+H_1\) & 1.75$\pm$1.21 & 1.70$\pm$1.20 & 33.50$\pm$24.59 & 4064$\pm$2000 & 139$\pm$19 & 0.03$\pm$0.02 & 0.00$\pm$0.00 & 1.31$\pm$0.92 & 0.01$\pm$0.00 \\
+TopoAE & \(z_{\mathrm{fuse}}+\mathrm{PI}\) & 2.00$\pm$1.38 & 1.96$\pm$1.36 & 38.51$\pm$27.87 & 4064$\pm$1999 & 139$\pm$19 & 0.03$\pm$0.02 & 0.28$\pm$0.18 & 1.30$\pm$0.91 & 0.01$\pm$0.00 \\
+TopoAE & \(z_{\mathrm{fuse}}+\mathrm{Landscape}\) & 1.87$\pm$1.29 & 1.82$\pm$1.27 & 35.84$\pm$26.15 & 4064$\pm$1999 & 141$\pm$20 & 0.03$\pm$0.02 & 0.13$\pm$0.08 & 1.30$\pm$0.90 & 0.01$\pm$0.00 \\
+TopoAE & \(z_{\mathrm{fuse}}+\mathrm{PersLay}\) & 1.82$\pm$1.24 & 1.77$\pm$1.22 & 35.05$\pm$25.28 & 4065$\pm$1999 & 139$\pm$19 & 0.03$\pm$0.02 & 0.08$\pm$0.06 & 1.31$\pm$0.91 & 0.01$\pm$0.00 \\
+TopoAE & \(z_{\mathrm{fuse}}+\mathrm{PCA}\) & 0.36$\pm$0.24 & 0.31$\pm$0.22 & 6.86$\pm$4.27 & 4068$\pm$1995 & 138$\pm$18 & 0.03$\pm$0.02 & 0.30$\pm$0.22 & -- & 0.01$\pm$0.00 \\
+TopoAE & \(z_{\mathrm{fuse}}+\mathrm{KPCA}\) & 0.52$\pm$0.35 & 0.47$\pm$0.33 & 9.93$\pm$6.66 & 4071$\pm$1992 & 138$\pm$18 & 0.03$\pm$0.02 & 0.46$\pm$0.33 & -- & 0.01$\pm$0.00 \\
+TopoAE & \(z_{\mathrm{fuse}}+\mathrm{Laplacian}\) & 0.72$\pm$0.49 & 0.67$\pm$0.47 & 13.69$\pm$9.01 & 4071$\pm$1992 & 138$\pm$18 & 0.03$\pm$0.02 & 0.66$\pm$0.47 & -- & 0.01$\pm$0.00 \\
+TopoAE & \(z_{\mathrm{fuse}}+\mathrm{Diffusion}\) & 0.69$\pm$0.46 & 0.64$\pm$0.45 & 13.13$\pm$8.51 & 4072$\pm$1991 & 138$\pm$18 & 0.03$\pm$0.02 & 0.64$\pm$0.45 & -- & 0.01$\pm$0.00 \\
+TopoAE & \(z_{\mathrm{fuse}}+\mathrm{RFF}\) & 0.25$\pm$0.15 & 0.20$\pm$0.13 & 4.79$\pm$2.67 & 4079$\pm$1983 & 138$\pm$18 & 0.03$\pm$0.02 & 0.19$\pm$0.13 & -- & 0.01$\pm$0.00 \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}

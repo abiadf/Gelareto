@@ -1,0 +1,80 @@
+lambda=0
+  bouncing_rings geo_latent_tda    z       5         0.0080 0.0046          0.9920 0.0046
+  bouncing_disks geo_latent_tda    z       5         0.0196 0.0156          0.9805 0.0155
+  orbiting_rings geo_latent_tda    z       5         0.0047 0.0014          0.9954 0.0014
+  orbiting_disks geo_latent_tda    z       5         0.0051 0.0016          0.9950 0.0016
+    moving_mnist geo_latent_tda    z       5         0.0045 0.0016          0.9955 0.0015
+        lorenz96 geo_latent_tda    z       5         0.0031 0.0011          0.9969 0.0011
+electric_devices geo_latent_tda    z       5         0.0278 0.0067          0.9746 0.0059
+    glioblastoma geo_latent_tda    z       5         0.0025 0.0009          0.9972 0.0010
+            hela geo_latent_tda    z       5         0.0321 0.0110          0.9584 0.0152
+lambda=0.001
+  bouncing_rings geo_latent_tda    z       5         0.0025 0.0014          0.9975 0.0014
+  bouncing_disks geo_latent_tda    z       5         0.0054 0.0076          0.9946 0.0076
+  orbiting_rings geo_latent_tda    z       5         0.0018 0.0004          0.9982 0.0004
+  orbiting_disks geo_latent_tda    z       5         0.0021 0.0007          0.9979 0.0007
+    moving_mnist geo_latent_tda    z       5         0.0017 0.0011          0.9983 0.0011
+        lorenz96 geo_latent_tda    z       5         0.0022 0.0005          0.9978 0.0005
+electric_devices geo_latent_tda    z       5         0.0052 0.0029          0.9948 0.0028
+    glioblastoma geo_latent_tda    z       5         0.0012 0.0002          0.9988 0.0002
+            hela geo_latent_tda    z       5         0.0109 0.0075          0.9870 0.0094
+lambda=0.01
+  bouncing_rings geo_latent_tda    z       5         0.0013 0.0002          0.9987 0.0002
+  bouncing_disks geo_latent_tda    z       5         0.0012 0.0003          0.9988 0.0003
+  orbiting_rings geo_latent_tda    z       5         0.0015 0.0002          0.9985 0.0002
+  orbiting_disks geo_latent_tda    z       5         0.0016 0.0001          0.9984 0.0001
+    moving_mnist geo_latent_tda    z       5         0.0009 0.0001          0.9991 0.0001
+        lorenz96 geo_latent_tda    z       5         0.0018 0.0003          0.9982 0.0003
+electric_devices geo_latent_tda    z       5         0.0015 0.0002          0.9985 0.0002
+    glioblastoma geo_latent_tda    z       5         0.0012 0.0003          0.9988 0.0003
+            hela geo_latent_tda    z       5         0.0050 0.0024          0.9950 0.0024
+lambda=0.1
+  bouncing_rings geo_latent_tda    z       5         0.0013 0.0002          0.9987 0.0002
+  bouncing_disks geo_latent_tda    z       5         0.0013 0.0003          0.9987 0.0003
+  orbiting_rings geo_latent_tda    z       5         0.0017 0.0001          0.9983 0.0001
+  orbiting_disks geo_latent_tda    z       5         0.0017 0.0001          0.9983 0.0001
+    moving_mnist geo_latent_tda    z       5         0.0009 0.0001          0.9991 0.0001
+        lorenz96 geo_latent_tda    z       5         0.0011 0.0003          0.9989 0.0003
+electric_devices geo_latent_tda    z       5         0.0014 0.0001          0.9986 0.0001
+    glioblastoma geo_latent_tda    z       5         0.0011 0.0001          0.9989 0.0001
+            hela geo_latent_tda    z       5         0.0069 0.0034          0.9931 0.0033
+lambda=0.2
+  bouncing_rings geo_latent_tda    z       5         0.0014 0.0001          0.9986 0.0001
+  bouncing_disks geo_latent_tda    z       5         0.0013 0.0002          0.9987 0.0002
+  orbiting_rings geo_latent_tda    z       5         0.0019 0.0001          0.9981 0.0001
+  orbiting_disks geo_latent_tda    z       5         0.0017 0.0001          0.9983 0.0001
+    moving_mnist geo_latent_tda    z       5         0.0009 0.0000          0.9991 0.0000
+        lorenz96 geo_latent_tda    z       5         0.0012 0.0003          0.9988 0.0003
+electric_devices geo_latent_tda    z       5         0.0016 0.0002          0.9984 0.0002
+    glioblastoma geo_latent_tda    z       5         0.0012 0.0002          0.9988 0.0002
+            hela geo_latent_tda    z       5         0.0078 0.0032          0.9922 0.0032
+lambda=0.5
+  bouncing_rings geo_latent_tda    z       5         0.0011 0.0002          0.9989 0.0002
+  bouncing_disks geo_latent_tda    z       5         0.0013 0.0003          0.9987 0.0003
+  orbiting_rings geo_latent_tda    z       5         0.0019 0.0002          0.9981 0.0002
+  orbiting_disks geo_latent_tda    z       5         0.0017 0.0002          0.9983 0.0002
+    moving_mnist geo_latent_tda    z       5         0.0009 0.0000          0.9991 0.0000
+        lorenz96 geo_latent_tda    z       5         0.0015 0.0003          0.9985 0.0003
+electric_devices geo_latent_tda    z       5         0.0015 0.0001          0.9985 0.0001
+    glioblastoma geo_latent_tda    z       5         0.0013 0.0002          0.9987 0.0002
+            hela geo_latent_tda    z       5         0.0083 0.0035          0.9917 0.0035
+lambda=0.7
+  bouncing_rings geo_latent_tda    z       5         0.0013 0.0002          0.9987 0.0002
+  bouncing_disks geo_latent_tda    z       5         0.0014 0.0003          0.9986 0.0003
+  orbiting_rings geo_latent_tda    z       5         0.0018 0.0001          0.9982 0.0001
+  orbiting_disks geo_latent_tda    z       5         0.0018 0.0002          0.9982 0.0002
+    moving_mnist geo_latent_tda    z       5         0.0010 0.0002          0.9990 0.0002
+        lorenz96 geo_latent_tda    z       5         0.0014 0.0004          0.9986 0.0004
+electric_devices geo_latent_tda    z       5         0.0017 0.0003          0.9983 0.0003
+    glioblastoma geo_latent_tda    z       5         0.0015 0.0001          0.9985 0.0001
+            hela geo_latent_tda    z       5         0.0093 0.0047          0.9908 0.0045
+lambda=1
+  bouncing_rings geo_latent_tda    z       5         0.0013 0.0001          0.9987 0.0001
+  bouncing_disks geo_latent_tda    z       5         0.0013 0.0002          0.9987 0.0002
+  orbiting_rings geo_latent_tda    z       5         0.0018 0.0002          0.9982 0.0002
+  orbiting_disks geo_latent_tda    z       5         0.0017 0.0001          0.9983 0.0001
+    moving_mnist geo_latent_tda    z       5         0.0011 0.0002          0.9989 0.0002
+        lorenz96 geo_latent_tda    z       5         0.0014 0.0004          0.9986 0.0004
+electric_devices geo_latent_tda    z       5         0.0016 0.0004          0.9984 0.0004
+    glioblastoma geo_latent_tda    z       5         0.0015 0.0003          0.9985 0.0003
+            hela geo_latent_tda    z       5         0.0084 0.0040          0.9916 0.0039
