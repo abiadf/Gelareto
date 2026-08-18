@@ -30,6 +30,7 @@ except ImportError:  # pragma: no cover - optional vectorization dependency
     PersistenceImage = None
 
 import topo.ml_tda as ml_tda
+from topo import ml_tda_curvature
 from topo.utils import tqdm_progress_bar
 from topo.ml_tda import (
     SpatialEncoder,
@@ -42,6 +43,8 @@ from topo.ml_tda import (
 
 
 DATASET = "default"
+PREDICTOR_SEED_NAMESPACE = DATASET
+DETERMINISTIC_PREDICTOR = False
 LATENT_DIM = 128
 HIDDEN_DIM = 128
 RETRAIN_ENCODER = False
@@ -60,6 +63,7 @@ PERSISTENCE_LANDSCAPE_RESOLUTION = 32
 PERSLAY_OUT_DIM = 64
 PERSLAY_SIGMA = 0.25
 ACTIVE_PROFILER = None
+DEFAULT_TORCH_NUM_THREADS = torch.get_num_threads()
 
 
 def _profile_phase(name):
@@ -70,6 +74,11 @@ def _profile_phase(name):
 
 def configure_runtime(**kwargs):
     """Update notebook-controlled globals used by latent-TDA helpers."""
+    # Predictor files may need distinct DATASET namespaces (for example, one
+    # per VR distance), while paired ablations must still share initialization.
+    # Unless explicitly overridden, preserve the historical DATASET behavior.
+    kwargs.setdefault("PREDICTOR_SEED_NAMESPACE", kwargs.get("DATASET", DATASET))
+    kwargs.setdefault("DETERMINISTIC_PREDICTOR", False)
     globals().update(kwargs)
     ml_tda.configure_runtime(
         DATASET=globals().get("DATASET", DATASET),
@@ -918,6 +927,8 @@ def _parse_vectorized_latent_mode(base_mode):
 
 def _latent_mode_needs_persistence(mode):
     mode = canonicalize_latent_tda_mode(mode)
+    if ml_tda_curvature.is_curvature_mode(mode):
+        return ml_tda_curvature.curvature_mode_needs_vr(mode)
     if mode in {"z", "z_temporal_stats"}:
         return False
     if mode.startswith("z_temporal_stats_"):
@@ -1095,6 +1106,13 @@ def _topology_tensor_pair(train_payload, test_payload, topo_spec, train_control_
 
 def features_for_latent_tda_mode(payload, mode):
     mode = canonicalize_latent_tda_mode(mode)
+    if ml_tda_curvature.is_curvature_mode(mode):
+        return ml_tda_curvature.features_for_curvature_mode(
+            payload,
+            mode,
+            window=LATENT_TDA_WINDOW,
+            n_bins=LATENT_TDA_BINS,
+        )
     z = payload["z"]
     if mode == "z":
         return z
@@ -1133,6 +1151,15 @@ def features_for_latent_tda_mode(payload, mode):
 
 def _features_for_latent_tda_mode_pair_impl(train_payload, test_payload, mode, train_control_seed=0, test_control_seed=10_000):
     mode = canonicalize_latent_tda_mode(mode)
+    if ml_tda_curvature.is_curvature_mode(mode):
+        return (
+            ml_tda_curvature.features_for_curvature_mode(
+                train_payload, mode, window=LATENT_TDA_WINDOW, n_bins=LATENT_TDA_BINS
+            ),
+            ml_tda_curvature.features_for_curvature_mode(
+                test_payload, mode, window=LATENT_TDA_WINDOW, n_bins=LATENT_TDA_BINS
+            ),
+        )
     if mode == "z":
         return train_payload["z"], test_payload["z"]
 
@@ -1408,23 +1435,71 @@ def _stable_int_seed(*parts):
     return int(digest[:8], 16)
 
 
-def _set_predictor_seed(seed, mode):
-    stable_seed = _stable_int_seed(DATASET, seed, mode, HORIZON, LATENT_TDA_WINDOW, LATENT_TDA_BINS)
+def predictor_seed(seed, mode, namespace=None):
+    """Return the reproducible initialization seed for one predictor run."""
+    return _stable_int_seed(
+        PREDICTOR_SEED_NAMESPACE if namespace is None else namespace,
+        seed,
+        mode,
+        HORIZON,
+        LATENT_TDA_WINDOW,
+        LATENT_TDA_BINS,
+    )
+
+
+def _set_predictor_seed(seed, mode, *, namespace=None, deterministic=None):
+    seed_namespace = PREDICTOR_SEED_NAMESPACE if namespace is None else namespace
+    deterministic = DETERMINISTIC_PREDICTOR if deterministic is None else bool(deterministic)
+    stable_seed = predictor_seed(seed, mode, namespace=seed_namespace)
+    if deterministic:
+        # Full-batch CPU LSTM reductions may otherwise vary with thread
+        # scheduling across separate Python processes.  Paired VR controls
+        # require bitwise-repeatable optimization, not only equal RNG seeds.
+        torch.set_num_threads(1)
+        torch.use_deterministic_algorithms(True)
+        if hasattr(torch.backends, "mkldnn"):
+            torch.backends.mkldnn.enabled = False
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+    else:
+        torch.set_num_threads(DEFAULT_TORCH_NUM_THREADS)
+        torch.use_deterministic_algorithms(False)
+        if hasattr(torch.backends, "mkldnn"):
+            torch.backends.mkldnn.enabled = True
     random.seed(stable_seed)
     np.random.seed(stable_seed % (2**32))
     torch.manual_seed(stable_seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(stable_seed)
+    print(
+        f"Predictor seed={stable_seed} namespace={seed_namespace} "
+        f"deterministic={deterministic}"
+    )
 
 
-def train_or_load_latent_tda_predictor(seed, mode, train_features, train_z):
+def train_or_load_latent_tda_predictor(
+    seed,
+    mode,
+    train_features,
+    train_z,
+    *,
+    predictor_seed_namespace=None,
+    deterministic=None,
+):
+    """Train/load a predictor, optionally forcing a paired-ablation seed."""
     with _profile_phase("predictor"):
         if HORIZON >= train_features.shape[0]:
             raise ValueError(
                 f"HORIZON={HORIZON} must be smaller than sequence length "
                 f"{train_features.shape[0]}"
             )
-        _set_predictor_seed(seed, mode)
+        _set_predictor_seed(
+            seed,
+            mode,
+            namespace=predictor_seed_namespace,
+            deterministic=deterministic,
+        )
         model_dir = Path("models") / DATASET / "latent_tda_predictors"
         model_dir.mkdir(parents=True, exist_ok=True)
         if not STANDARDIZE_LATENT_PREDICTOR:

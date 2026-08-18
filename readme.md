@@ -1,3 +1,8 @@
+### Geo-preserving data + TDA signals improve predictions
+
+
+
+=================
 
 ### Pechstre: a **Pe**rsistence method for **Ch**unks **Stre**aming
 This project computes the persistent homology of arrays that expand in a streaming fashion, meaning chunks arrive and keep incrementing a base array.

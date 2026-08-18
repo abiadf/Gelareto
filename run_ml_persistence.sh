@@ -1,167 +1,233 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Scenarios:
-# real_tda: AE z-history + optional frame/real-space TDA -> future z
-# geo_real_tda: geoAE z-history + optional frame/real-space TDA -> future z
-# topo_real_tda: topoAE z-history + optional frame/real-space TDA -> future z
-# latent_tda: AE z-history + optional latent-trajectory TDA -> future z
-# latent_stability/geo_latent_stability/topo_latent_stability: noised-input diagnostic measuring latent Hausdorff and diagram bottleneck changes
-# representation_fidelity/geo_representation_fidelity/topo_representation_fidelity: input-to-latent metric distortion and H0/H1 bottleneck fidelity
-# geo_latent_tda: geoAE z-history + optional latent-trajectory TDA -> future z
-# pwgeo_latent_tda: persistence-weighted GeoAE z-history + optional latent-trajectory TDA -> future z
-# topo_latent_tda: topoAE z-history + optional latent-trajectory TDA -> future z
-# vae_latent_tda: VAE encoder z-history + optional latent-trajectory TDA -> future z
-# byol_latent_tda: BYOL-style encoder z-history + optional latent-trajectory TDA -> future z
-# vjepa_latent_tda: frozen V-JEPA video embeddings + optional latent-trajectory TDA -> future V-JEPA embedding
-# clip_latent_tda: frozen CLIP frame embeddings + optional latent-trajectory TDA -> future CLIP embedding
-# simvp: SimVP-style pixel predictor; frames is the standard pixel baseline, z_* modes add AE latent/TDA conditioning
-# latent_classification: classify complete synthetic trajectories by motion regime or object type using latent/TDA summaries
-# video3d_tda: AE z-history + streaming 3D cubical H0/H1/H2 features from growing frame volumes -> future X
-# decode_z: AE z-history -> future z -> decoded future X
-# geo_decode_z: geoAE z-history -> future z -> decoded future X
-# topo_decode_z: topoAE z-history -> future z -> decoded future X
-# pixel_tda: AE z-history + optional frame TDA -> future X
-# geo_pixel_tda: geoAE z-history + optional frame TDA -> future X
-# topo_pixel_tda: topoAE z-history + optional frame TDA -> future X
-# aux_tda: AE z-history -> future z, with optional auxiliary Betti prediction head/loss
-# geo_* preserves all pairwise distances uniformly; pwgeo_* emphasizes local, H0-critical, and cycle-closing edges.
-# topo_* models use the H0 persistence-signature AE.
-# VAE/BYOL/V-JEPA/CLIP are representation baselines for latent_tda; SimVP/video3d_tda are pixel-space video prediction baselines.
-
-# Modes:
-#   real_tda:   none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
-#   geo_real_tda/topo_real_tda: same as real_tda
-#   latent_tda: z,z_temporal_stats,z_temporal_stats_h0,z_temporal_stats_h1,z_temporal_stats_both,z_h0,z_h1,z_both,z_gate_both,z_pca_h0,z_pca_h1,z_pca_both,z_kpca_h0,z_kpca_h1,z_kpca_both,z_laplacian_h1,z_diffusion_h1,z_rff_h1,z_pi_h0,z_pi_h1,z_pi_both,z_landscape_h0,z_landscape_h1,z_landscape_both,z_perslay_h0,z_perslay_h1,z_perslay_both,z_temporal_stats_pi_h1,z_temporal_stats_landscape_h1,z_temporal_stats_perslay_h1,z_temporal_stats_pca_h1,z_temporal_stats_kpca_h1,topo_h1,topo_pi_h1,topo_pca_h1,topo_kpca_h1,z_fuse_h1,z_fuse_both,z_fuse_pi_h1,z_fuse_landscape_h1,z_fuse_perslay_h1,z_fuse_pca_h1,z_fuse_kpca_h1,z_fuse_laplacian_h1,z_fuse_diffusion_h1,z_fuse_rff_h1, plus *_zero,*_shuffle,*_noise,*_shift controls
-#   geo_latent_tda/pwgeo_latent_tda/topo_latent_tda/vae_latent_tda/byol_latent_tda/vjepa_latent_tda: same as latent_tda
-#   simvp: frames, plus latent-TDA modes such as z,z_temporal_stats,z_fuse_h1,z_fuse_pi_h1
-#   latent_classification: z,h0,h1,both,z_h0,z_h1,z_both,z_h0_shuffle,z_h1_shuffle
-#   video3d_tda: none,h0,h1,h2,h0_h1,h0_h2,h1_h2,all, plus *_zero,*_shuffle,*_noise,*_shift controls
-#   pixel_tda:  none,h0,h1,both,h0_zero,h1_zero,both_zero,h0_shuffle,h1_shuffle,both_shuffle,h0_noise,h1_noise,both_noise,h0_shift,h1_shift,both_shift
-#   geo_pixel_tda/topo_pixel_tda: same as pixel_tda; none is AE z-only -> future X
-#   decode_z/geo_decode_z/topo_decode_z: z_decode only
-#   aux_tda:    none,aux_h0,aux_h1,aux_both
-
-# Synthetic/video/time-series datasets:
-#   bouncing_rings: hollow/ring objects with Lorenz-like irregular motion
-#   bouncing_disks: filled objects with Lorenz-like irregular motion
-#   orbiting_rings: hollow/ring objects with periodic circular/elliptical orbit motion
-#   orbiting_disks: filled objects with periodic circular/elliptical orbit motion
-#   synthetic_motion_classification: matched four-source corpus for motion/object classification
-#   character_trajectories: raw 3D pen trajectories with 20 character labels (downloaded through aeon)
-#   natops: raw 24D body-joint trajectories with 6 gesture labels (downloaded through aeon)
-#   moving_mnist: MNIST digits with random translation and rotation, rendered as sparkline clips
-#   lorenz96: synthetic multivariate Lorenz-96 trajectories rasterized as heatmap frames
-#   electric_devices: UCR/Aeon ElectricDevices time-series samples rendered as sparkline clips
-#   noisy_frames: iid random-frame negative control; topology should not reliably help
-#   glioblastoma/hela: CTC TIFF sequences windowed as full-frame clips by default
-
-# Encoder workflow:
-#   First fair run for a scenario/dataset: add --include-retrain-encoder and list all modes.
-#   The encoder is refreshed once per seed, frozen, then reused for every mode including none/z.
-#   Later reruns: remove --include-retrain-encoder to reuse the existing frozen encoder checkpoint.
-# Stacked runs print each scenario/dataset as they finish, then print combined tables at the end.
-# Use --decoder-type conv for new paper-quality decoded-image runs; default mlp preserves old results/checkpoints.
+# Final paper experiment (CPU-safe):
+#   latent_tda: baseline AE
+#   geo_latent_tda: Euclidean distance-preserving GeoAE
+#   manifold_mixed_geo_latent_tda: mixed-curvature GeoAE
+# Modes: z is latent-only; z_both appends H0/H1 persistence features.
+# The default run uses the product-manifold metric for the manifold model's VR.
+# After it finishes, run the Euclidean-VR control shown below.
 #
-# Quick hyperparameter tuning protocol:
-#   uv run python scripts/tune_latent_z_hparams.py --device auto
-#   Then uncomment --hparam-file below. The tuner selects dataset-level predictor
-#   params using z-only validation MSE, then all modes/scenarios reuse those params.
+# Main scenario reference:
+#   real_tda / geo_real_tda / topo_real_tda:
+#     Predict future z using optional persistence computed directly on frames.
+#   latent_tda:
+#     Standard AE followed by latent-trajectory persistence and forecasting.
+#   geo_latent_tda:
+#     Euclidean distance-preserving GeoAE followed by latent TDA.
+#   topo_latent_tda:
+#     Topology-regularized AE followed by latent TDA.
+#   mixed_geo_latent_tda:
+#     Mixed-curvature GeoAE; latent persistence still uses ordinary Euclidean distance.
+#   manifold_mixed_geo_latent_tda:
+#     The same mixed-curvature encoder with a selectable Euclidean or product-manifold
+#     distance for the Vietoris--Rips filtration. This is the proposed full method.
+#   triangle_curvature:
+#     Training-data kNN triangle diagnostic used to propose H/S/E signatures.
+#   routed_mixed_geo_latent_tda:
+#     Experimental per-relation routing ablation; retained, but not a main method.
+#   pwgeo_latent_tda:
+#     Experimental persistence-weighted geometry-loss ablation.
+#   latent_stability / representation_fidelity:
+#     Diagnostics for noise stability and input-to-latent metric/topology fidelity.
+#   decode_z / geo_decode_z / topo_decode_z:
+#     Forecast in latent space and decode the predicted future frame.
+#   simvp / pixel_tda / video3d_tda:
+#     Pixel-space and spatiotemporal persistence baselines.
+#
+# Common latent modes:
+#   z                 latent trajectory only
+#   z_h0 / z_h1       append H0 or H1 persistence features
+#   z_both            append both H0 and H1 persistence features
+#   z_pca_*            PCA controls
+#   z_kpca_*           kernel-PCA controls
+#   z_fuse_*           learned feature-fusion variants
+#   *_zero             replace topology features with zeros
+#   *_shuffle          shuffle topology features
+#   *_noise            replace topology features with noise
+#   *_shift            temporally shift topology features
+#
+# Curvature-feature ablation modes:
+#   z_curv_both        z plus curvature-persistence features
+#   z_both_curv_both   z plus ordinary and curvature-persistence features
+#
+# Dataset reference:
+#   bouncing_rings / bouncing_disks       irregular synthetic motion
+#   orbiting_rings / orbiting_disks       periodic synthetic motion
+#   moving_mnist                           translated/rotated MNIST sequences
+#   lorenz96                               rasterized multivariate dynamics
+#   electric_devices                       rasterized UCR time series
+#   glioblastoma / hela                    CTC microscopy sequences
+#
+# Encoder/cache workflow:
+#   Add --include-retrain-encoder when intentionally refreshing encoders. Otherwise,
+#   compatible frozen checkpoints and feature caches are reused. Add
+#   --recompute-latent-tda-features only when the encoder, window, bins, signature,
+#   or VR metric changed and the cache cannot safely be reused.
+#
+# Hyperparameter tuning:
+#   uv run python scripts/tune_latent_z_hparams.py --device cpu
+# Predictor learning rate, hidden size, and epochs are selected using z-only
+# validation MSE and then reused across every scenario/mode for that dataset.
+
+export PYTHONWARNINGS="ignore::SyntaxWarning"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-$PWD/.cache/matplotlib}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
+export VECLIB_MAXIMUM_THREADS="${VECLIB_MAXIMUM_THREADS:-4}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
+mkdir -p "$MPLCONFIGDIR"
 
 args=(
-  # PW-GeoAE prototype: first compare these results with the existing AE,
-  # GeoAE and TopoAE rows before launching all nine datasets.
-  --scenario pwgeo_latent_tda,geo_latent_tda
-  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
+  --scenario latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda
+  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks # ,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
   --seeds 0,1,2,3,4
-  --modes z,z_h0,z_h1,z_both
-  # Resume-safe: existing encoders/TDA caches/predictors are reused; missing
-  # artifacts are still trained automatically. Re-enable retraining only when
-  # intentionally replacing every checkpoint in the sweep.
-  --reuse-predictor
-  --pwgeo-ae-lambda 0.1
-  --pwgeo-ae-epochs 10
-  --pwgeo-ae-pair-batch-size 64
-  --pwgeo-blend 0,0.1,0.25
-  --pwgeo-knn 5
-  --pwgeo-h0-weight 2.0
-  --pwgeo-h1-weight 1.0
+  --modes z,z_both
+  --latent-dim 16
+
+  # Candidate signatures come from the training-only triangle diagnostic and
+  # include Euclidean-softened alternatives selected later by validation.
+  # --manifold-signature-policy triangle_shrinkage
+  # --signature-shrinkages 0,0.5,0.75,1
+  # --triangle-knn 4,8,12
+  # --triangle-samples 10000
+  # --triangle-max-points 512
+
+  # product_manifold: H/S/E geodesics; euclidean: ordinary cdist on the same z.
+  --vr-distance product_manifold # product_manifold
+  --device cpu
   --geo-ae-epochs 10
-  --predictor-epochs 10
-  --latent-tda-window 20
+  --ae-epochs 10
+  --geo-ae-lambda 0.1
+  --learning-rate 1e-3
+  --hparam-file results/hparam_search/latent_z_best_hparams.json
+  --horizon 5
+  --latent-tda-window 15
   --latent-tda-bins 16
-  # For the matched synthetic version instead use:
-  # --dataset synthetic_motion_classification --ae-epochs 10
-  # --stability-noise-levels 0,0.01,0.03,0.05,0.10 # use for latent_stability scenario
-  # --vae-beta 0.001                 # vae_latent_tda: KL weight
-  # --vae-epochs 10                  # vae_latent_tda: pretraining epochs; default falls back to --ae-epochs
-  # --byol-epochs 10                 # byol_latent_tda: pretraining epochs; default falls back to --ae-epochs
-  # --byol-noise-std 0.05            # byol_latent_tda: two-view augmentation noise
-  # --vjepa-repo facebook/vjepa2-vitl-fpc64-256 # vjepa_latent_tda: Hugging Face checkpoint
-  # --vjepa-batch-size 1             # vjepa_latent_tda: lower this if GPU memory is tight
-  # --vjepa-num-frames 16            # vjepa_latent_tda: frames per context window ending at each time step
-  # --clip-repo openai/clip-vit-base-patch32 # clip_latent_tda: lightweight frozen CLIP frame encoder
+  --output-dir results/mixed_curvature_cpu
+
+  # Useful optional overrides:
+  # --manifold-signature-policy manual
+  # --manifold-signatures e16,h3_s4_e9
+  # --include-retrain-encoder
+  # --recompute-latent-tda-features
+  # --hidden-dim 128
+  # --predictor-learning-rate 1e-3
+  # --predictor-epochs 40
+  # --ae-frame-batch-size 256
+  # --ae-max-frames-per-epoch 8192
+  # --geo-ae-pair-batch-size 64
+  # --latent-tda-max-train 200
+  # --latent-tda-max-test 100
+  # --num-train-clips 512
+  # --num-test-clips 128
+  # --profile-run
+  # --profile-sizes 16,32,64,128
+
+  # General experiment controls:
+  # --device auto                    # auto | cpu | cuda | mps
+  # --seeds 0,1,2                    # comma-separated repeat seeds
+  # --horizon 5                      # forecast steps ahead
+  # --latent-dim 16                  # common encoder output dimension
+  # --decoder-type conv              # conv for decoded-image runs; mlp is legacy default
+  # --reuse-predictor                # load compatible predictor checkpoints
+  # --no-save                        # print results without writing CSV/config output
+  # --output-dir results/ml_persistence
+
+  # Predictor controls (normally supplied per dataset by --hparam-file):
+  # --predictor-type lstm            # lstm | xlstm
+  # --hidden-dim 128                 # LSTM internal hidden dimension
+  # --predictor-learning-rate 1e-3   # predictor only; distinct from encoder LR
+  # --predictor-epochs 40
+
+  # Standard AE controls:
+  # --learning-rate 1e-3             # fixed encoder/autoencoder learning rate
+  # --ae-epochs 10
+  # --ae-frame-batch-size 256
+  # --ae-max-frames-per-epoch 8192
+  # --include-retrain-encoder        # refresh encoder once per seed
+  # --retrain-encoder                # alias of --include-retrain-encoder
+
+  # Latent-persistence controls:
+  # --latent-tda-window 15
+  # --latent-tda-bins 16
+  # --latent-tda-max-train 200
+  # --latent-tda-max-test 100
+  # --recompute-latent-tda-features  # rebuild cached latent/PH features
+
+  # Euclidean GeoAE controls:
+  # --geo-ae-lambda 0.1
+  # --geo-ae-epochs 10
+  # --geo-ae-pair-batch-size 64
+
+  # TopoAE controls:
+  # --topo-ae-lambda 0.1
+  # --topo-ae-epochs 10
+  # --topo-ae-pair-batch-size 64
+  # --topo-ae-distance signature     # signature | wasserstein
+
+  # Product-manifold controls:
+  # --vr-distance product_manifold   # product_manifold | euclidean
+  # --manifold-signature-policy triangle_shrinkage # triangle_shrinkage | manual
+  # --signature-shrinkages 0,0.5,0.75,1
+  # --manifold-signatures e16,h3_s4_e9
+  # --triangle-knn 4,8,12
+  # --triangle-samples 10000
+  # --triangle-max-points 512
+
+  # Real/frame-space persistence:
+  # --real-tda-scale 15
+  # --real-tda-bins 25
+
+  # Pixel and SimVP baselines:
+  # --simvp-input-frames 5
+  # --pixel-tda-batch-size 32
+  # --pixel-tda-fg-weight 10.0
+  # --pixel-tda-fg-threshold 0.05
+
+  # Streaming 3D persistence:
+  # --video3d-tda-bins 16
+  # --video3d-tda-scale 15
+  # --video3d-tda-boundary-slices 2
+  # --recompute-video3d-tda-features
+
+  # Auxiliary topology prediction:
+  # --aux-tda-lambda 1.0
+
+  # VAE/BYOL representation baselines:
+  # --vae-beta 0.001
+  # --vae-epochs 10
+  # --byol-epochs 10
+  # --byol-noise-std 0.05
+
+  # Frozen foundation-model baselines:
+  # --vjepa-repo facebook/vjepa2-vitl-fpc64-256
+  # --vjepa-batch-size 1
+  # --vjepa-num-frames 16
+  # --clip-repo openai/clip-vit-base-patch32
   # --clip-batch-size 64
   # --clip-image-size 224
-  # --simvp-input-frames 5           # simvp: past frames used to predict the horizon frame
-  # --pixel-tda-batch-size 16        # simvp/pixel_tda minibatch size
-  # --video3d-tda-bins 16            # video3d_tda: bins per H0/H1/H2 Betti curve
-  # --video3d-tda-scale 15           # video3d_tda: normalizes Betti counts before concatenation
-  # --video3d-tda-boundary-slices 2  # video3d_tda: rolling damage-region radius recorded in stream state
-  # --recompute-video3d-tda-features   # video3d_tda: refresh cached H0/H1/H2 volume features
-  # --latent-tda-bins 16
-  # --aux-tda-lambda 1                 # aux_tda: auxiliary Betti loss weight
-  # --num-train-clips 128 \
-  # --num-test-clips 64 \
-  # --profile-run                    # save profile.csv with wall time, peak memory, throughput, topo fraction, and mode overhead
-  # --profile-sizes 16,32,64,128     # scaling curve: rerun with train/test and latent-TDA clip caps set to each size
 
-  # --device auto                    # auto | cpu | cuda | mps
-  # --horizon 5                      # override forecast horizon
-  # --latent-dim 64                  # override encoder latent dimension
-  # --hidden-dim 64                  # override LSTM hidden dimension
-  # --predictor-epochs 10            # predictor training epochs; scenario-specific where applicable
-  # --predictor-type lstm            # lstm | xlstm temporal predictor
-  # --learning-rate 3e-4             # predictor learning rate
-  # --real-tda-scale 15              # real/frame-space Betti curve normalization
-  # --real-tda-bins 25               # real/frame-space Betti curve bins
-  # --ae-epochs 10                   # baseline AE pretraining epochs
-  # --ae-frame-batch-size 256        # autoencoder frame batch size
-  # --ae-max-frames-per-epoch 8192   # autoencoder frame subsample cap
-  # --force-rebuild-data-cache       # synthetic datasets: rebuild cached clips
-  # --num-train-clips 512            # synthetic datasets: train clips
-  # --num-test-clips 128             # synthetic datasets: test clips
-  # --include-retrain-encoder        # refresh shared encoder once per seed, then freeze for all modes
-  # --retrain-encoder                # same as --include-retrain-encoder
-  # --reuse-predictor                # load predictor checkpoint if present
-  # --latent-tda-window 20           # latent_tda: trajectory window
-  # --latent-tda-bins 16             # latent_tda: Betti bins
-  # --latent-tda-max-train 200       # latent_tda: train clip subset
-  # --latent-tda-max-test 100        # latent_tda: test clip subset
-  # --recompute-latent-tda-features  # latent_tda: rebuild feature cache
-  # --geo-ae-lambda 0.1              # geo_*: pairwise-distance geometry proxy weight
-  # --geo-ae-epochs 3                # geo_*: geo-AE pretraining epochs
-  # --geo-ae-pair-batch-size 64      # geo_*: minibatch size for geometry proxy
-  # --pwgeo-ae-lambda 0.1            # pwgeo_*: persistence-weighted geometry loss weight
-  # --pwgeo-ae-epochs 10             # pwgeo_*: encoder pretraining epochs
-  # --pwgeo-ae-pair-batch-size 64    # pwgeo_*: graph/loss minibatch size
-  # --pwgeo-blend 0,0.1,0.25,0.5    # pwgeo_*: each blend setting is evaluated over all requested seeds
-  # --pwgeo-knn 5                    # pwgeo_*: local neighbours per input point
-  # --pwgeo-h0-weight 2.0            # pwgeo_*: extra MST/H0-critical edge weight
-  # --pwgeo-h1-weight 1.0            # pwgeo_*: cycle-closing edge weight; 0 is H0-only ablation
-  # --topo-ae-lambda 0.1             # topo_*: H0 persistence regularizer weight
-  # --topo-ae-epochs 3               # topo_*: topo-AE pretraining epochs
-  # --topo-ae-pair-batch-size 64     # topo_*: minibatch size for persistence signature
-  # --topo-ae-distance signature     # topo_*: signature | wasserstein
-  # --pixel-tda-batch-size 32        # pixel_tda: predictor batch size
-  # --pixel-tda-fg-weight 10.0       # pixel_tda: foreground loss weight
-  # --pixel-tda-fg-threshold 0.05    # pixel_tda: foreground threshold
-  # --profile-run                    # enable profiling metrics; multiple --modes are profiled as separate runs
-  # --profile-sizes 16,32,64,128     # profile scaling over clip caps; use one small dataset first
-  # --output-dir results/ml_persistence # output folder
-  # --no-save                        # print only, no CSV/config output
+  # Stability/fidelity diagnostics:
+  # --stability-noise-levels 0,0.01,0.03,0.05,0.10
+
+  # Retained research-ablation parameters:
+  # --route-lambda 0.03
+  # --route-knn 5
+  # --route-temperature 0.1
+  # --pwgeo-ae-lambda 0.1
+  # --pwgeo-knn 5
+  # --pwgeo-h0-weight 2.0
+  # --pwgeo-h1-weight 1.0
+  # --pwgeo-blend 0,0.1,0.25,0.5
 )
 
 printf 'Running topo.ml_runner with args:\n'
 printf '  %q\n' "${args[@]}" "$@"
 uv run python -m topo.ml_runner "${args[@]}" "$@"
+
+# Euclidean-VR control (do not rerun the baseline scenarios or manifold z):
+# bash run_ml_persistence.sh \
+#   --scenario manifold_mixed_geo_latent_tda \
+#   --modes z_both \
+#   --vr-distance euclidean

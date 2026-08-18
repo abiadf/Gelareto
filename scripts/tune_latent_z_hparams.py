@@ -60,6 +60,16 @@ def make_base_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig
             "z",
             "--seeds",
             ",".join(str(seed) for seed in args.seeds),
+            "--latent-dim",
+            str(args.latent_dim),
+            "--horizon",
+            str(args.horizon),
+            "--latent-tda-window",
+            str(args.latent_tda_window),
+            "--ae-epochs",
+            str(args.ae_epochs),
+            "--learning-rate",
+            str(args.encoder_learning_rate),
             "--output-dir",
             str(args.output_dir / "_internal"),
             "--no-save",
@@ -128,16 +138,24 @@ def run_one_dataset(dataset: str, args: argparse.Namespace) -> tuple[list[dict],
         )
         cfg = replace(
             base_cfg,
-            learning_rate=float(lr),
+            predictor_learning_rate=float(lr),
             hidden_dim=int(hidden_dim),
             predictor_epochs=int(epochs),
         )
-        result_df, summary_df = run_scenario(cfg, replace(context, hidden_dim=int(hidden_dim)))
+        result_df, summary_df = run_scenario(
+            cfg,
+            replace(
+                context,
+                hidden_dim=int(hidden_dim),
+                predictor_epochs=int(epochs),
+                predictor_learning_rate=float(lr),
+            ),
+        )
         val_mse = float(result_df["test_mse"].mean())
         val_r2 = float(result_df["latent_r2"].mean())
         row = {
             "dataset": dataset,
-            "learning_rate": float(lr),
+            "predictor_learning_rate": float(lr),
             "hidden_dim": int(hidden_dim),
             "predictor_epochs": int(epochs),
             "n_runs": int(result_df["seed"].nunique()) if "seed" in result_df else len(result_df),
@@ -162,12 +180,17 @@ def main() -> None:
     )
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
     parser.add_argument("--seeds", type=parse_csv_ints, default=[0])
-    parser.add_argument("--learning-rates", type=parse_csv_floats, default=[1e-4, 3e-4, 1e-3])
-    parser.add_argument("--hidden-dims", type=parse_csv_ints, default=[64, 128])
-    parser.add_argument("--predictor-epochs", type=parse_csv_ints, default=[8])
+    parser.add_argument("--learning-rates", type=parse_csv_floats, default=[1e-4, 3e-4, 1e-3, 3e-3, 5e-3, 1e-2])
+    parser.add_argument("--hidden-dims", type=parse_csv_ints, default=[64, 128, 256])
+    parser.add_argument("--predictor-epochs", type=parse_csv_ints, default=[8, 20, 40])
+    parser.add_argument("--latent-dim", type=int, default=16)
+    parser.add_argument("--horizon", type=int, default=5)
+    parser.add_argument("--latent-tda-window", type=int, default=15)
+    parser.add_argument("--ae-epochs", type=int, default=10)
+    parser.add_argument("--encoder-learning-rate", type=float, default=1e-3)
     parser.add_argument("--val-fraction", type=float, default=0.2)
-    parser.add_argument("--max-train-clips", type=int, default=128)
-    parser.add_argument("--max-val-clips", type=int, default=64)
+    parser.add_argument("--max-train-clips", type=int, default=None)
+    parser.add_argument("--max-val-clips", type=int, default=None)
     parser.add_argument("--dinov2-repo", default="facebook/dinov2-small")
     parser.add_argument("--dinov2-batch-size", type=int, default=64)
     parser.add_argument("--dinov2-image-size", type=int, default=224)
@@ -184,13 +207,19 @@ def main() -> None:
     args.datasets = parse_csv_strs(args.datasets)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    best_json = args.output_dir / "latent_z_best_hparams.json"
+    grid_csv = args.output_dir / "latent_z_hparam_grid.csv"
+    existing_payload = json.loads(best_json.read_text()) if best_json.exists() else {}
+    existing_best = dict(existing_payload.get("best_by_dataset", {}))
+    existing_grid = pd.read_csv(grid_csv) if grid_csv.exists() else pd.DataFrame()
+
     all_rows = []
     best_by_dataset = {}
     for dataset in args.datasets:
         rows, best = run_one_dataset(dataset, args)
         all_rows.extend(rows)
         best_by_dataset[dataset] = {
-            "learning_rate": best["learning_rate"],
+            "predictor_learning_rate": best["predictor_learning_rate"],
             "hidden_dim": best["hidden_dim"],
             "predictor_epochs": best["predictor_epochs"],
             "val_mse": best["val_mse"],
@@ -198,9 +227,11 @@ def main() -> None:
             "selection": "z-only validation MSE",
         }
 
-    grid_df = pd.DataFrame(all_rows).sort_values(["dataset", "val_mse"])
-    grid_csv = args.output_dir / "latent_z_hparam_grid.csv"
-    best_json = args.output_dir / "latent_z_best_hparams.json"
+    new_grid = pd.DataFrame(all_rows)
+    if not existing_grid.empty:
+        existing_grid = existing_grid[~existing_grid["dataset"].isin(args.datasets)]
+        new_grid = pd.concat([existing_grid, new_grid], ignore_index=True)
+    grid_df = new_grid.sort_values(["dataset", "val_mse"])
     best_txt = args.output_dir / "latent_z_best_hparams.txt"
 
     grid_df.to_csv(grid_csv, index=False)
@@ -212,20 +243,25 @@ def main() -> None:
         ),
         "grid": {
             "scenario": args.scenario,
-            "learning_rates": args.learning_rates,
+            "predictor_learning_rates": args.learning_rates,
             "hidden_dims": args.hidden_dims,
             "predictor_epochs": args.predictor_epochs,
+            "latent_dim": args.latent_dim,
+            "horizon": args.horizon,
+            "latent_tda_window": args.latent_tda_window,
+            "ae_epochs": args.ae_epochs,
+            "encoder_learning_rate": args.encoder_learning_rate,
             "seeds": args.seeds,
             "val_fraction": args.val_fraction,
             "max_train_clips": args.max_train_clips,
             "max_val_clips": args.max_val_clips,
         },
-        "best_by_dataset": best_by_dataset,
+        "best_by_dataset": {**existing_best, **best_by_dataset},
     }
     best_json.write_text(json.dumps(payload, indent=2) + "\n")
 
     best_df = pd.DataFrame(
-        [{"dataset": dataset, **params} for dataset, params in best_by_dataset.items()]
+        [{"dataset": dataset, **params} for dataset, params in payload["best_by_dataset"].items()]
     ).sort_values("dataset")
     best_txt.write_text(best_df.to_string(index=False, float_format=lambda value: f"{value:.6g}") + "\n")
 

@@ -39,6 +39,10 @@ import topo.ml_tda_latent as ml_tda_latent
 import topo.ml_tda_pixel as ml_tda_pixel
 import topo.ml_tda_geoae as ml_tda_geoae
 import topo.ml_tda_pwgeoae as ml_tda_pwgeoae
+import topo.ml_tda_mixedgeo as ml_tda_mixedgeo
+import topo.ml_tda_routed_mixedgeo as ml_tda_routed_mixedgeo
+import topo.ml_tda_manifold_ph as ml_tda_manifold_ph
+import topo.ml_tda_triangle as ml_tda_triangle
 import topo.ml_tda_topoae as ml_tda_topoae
 import topo.ml_tda_repr as ml_tda_repr
 import topo.ml_tda_vjepa as ml_tda_vjepa
@@ -75,6 +79,10 @@ RUNNER_SCENARIOS = {
     "topo_representation_fidelity",
     "geo_latent_tda",
     "pwgeo_latent_tda",
+    "mixed_geo_latent_tda",
+    "routed_mixed_geo_latent_tda",
+    "manifold_mixed_geo_latent_tda",
+    "triangle_curvature",
     "geo_latent_spectrum",
     "topo_latent_tda",
     "vae_latent_tda",
@@ -104,6 +112,7 @@ class VideoContext:
     hidden_dim: int
     predictor_epochs: int
     learning_rate: float
+    predictor_learning_rate: float
     real_tda_scale: int | float
     real_tda_bins: int
     horizon: int
@@ -123,6 +132,7 @@ class RunConfig:
     hidden_dim: int | None
     predictor_epochs: int | None
     learning_rate: float | None
+    predictor_learning_rate: float | None
     real_tda_scale: float | None
     real_tda_bins: int | None
     ae_epochs: int | None
@@ -145,6 +155,17 @@ class RunConfig:
     geo_ae_lambda: float
     geo_ae_epochs: int | None
     geo_ae_pair_batch_size: int
+    manifold_signatures: list[str]
+    manifold_signature_policy: str
+    signature_shrinkages: list[float]
+    route_lambda: float
+    route_knn: int
+    route_temperature: float
+    vr_distance: str
+    triangle_knn: list[int]
+    triangle_samples: int
+    triangle_max_points: int
+    triangle_flat_threshold: float
     pwgeo_ae_lambda: float
     pwgeo_ae_epochs: int | None
     pwgeo_ae_pair_batch_size: int
@@ -259,15 +280,16 @@ def _apply_tuned_hparams(cfg: RunConfig) -> RunConfig:
         updates["hidden_dim"] = int(params["hidden_dim"])
     if cfg.predictor_epochs is None and "predictor_epochs" in params:
         updates["predictor_epochs"] = int(params["predictor_epochs"])
-    if cfg.learning_rate is None and "learning_rate" in params:
-        updates["learning_rate"] = float(params["learning_rate"])
+    tuned_predictor_lr = params.get("predictor_learning_rate", params.get("learning_rate"))
+    if cfg.predictor_learning_rate is None and tuned_predictor_lr is not None:
+        updates["predictor_learning_rate"] = float(tuned_predictor_lr)
     if not updates:
         return cfg
     tuned = replace(cfg, **updates)
     print(
         f"Using tuned hyperparameters for dataset={cfg.dataset}: "
         f"hidden_dim={tuned.hidden_dim}, predictor_epochs={tuned.predictor_epochs}, "
-        f"learning_rate={tuned.learning_rate}"
+        f"predictor_learning_rate={tuned.predictor_learning_rate}"
     )
     return tuned
 
@@ -537,6 +559,7 @@ def _save_results(
         "hidden_dim": context.hidden_dim,
         "predictor_epochs": context.predictor_epochs,
         "learning_rate": context.learning_rate,
+        "predictor_learning_rate": context.predictor_learning_rate,
         "real_tda_scale": context.real_tda_scale,
         "real_tda_bins": context.real_tda_bins,
         "horizon": context.horizon,
@@ -630,6 +653,7 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
     hidden_dim = int(_override(cfg.hidden_dim, run_config.get("HIDDEN_DIM", 128)))
     predictor_epochs = int(_override(cfg.predictor_epochs, run_config.get("PREDICTOR_EPOCHS", 10)))
     learning_rate = float(_override(cfg.learning_rate, run_config.get("learning_rate", 3e-4)))
+    predictor_learning_rate = float(_override(cfg.predictor_learning_rate, learning_rate))
     real_tda_scale = _override(cfg.real_tda_scale, run_config.get("REAL_TDA_SCALE", 15))
     real_tda_bins = int(_override(cfg.real_tda_bins, run_config.get("REAL_TDA_BINS", 25)))
     horizon = int(
@@ -679,6 +703,7 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         hidden_dim=hidden_dim,
         predictor_epochs=predictor_epochs,
         learning_rate=learning_rate,
+        predictor_learning_rate=predictor_learning_rate,
         real_tda_scale=real_tda_scale,
         real_tda_bins=real_tda_bins,
         horizon=horizon,
@@ -741,7 +766,7 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
                 False,
                 cfg.retrain_predictor,
                 use_tda,
-                context.learning_rate,
+                context.predictor_learning_rate,
             )
             test_mse, per_frame_mse = test_predictor(model, encoder, context.x_test, use_tda)
             total_test_features, test_z_features = ml_tda.build_real_tda_features(
@@ -788,6 +813,18 @@ def _pwgeo_model_namespace(cfg: RunConfig) -> str:
     return (
         f"{cfg.dataset}_pwgeoae_lam{cfg.pwgeo_ae_lambda:g}_k{cfg.pwgeo_knn}_"
         f"blend{cfg.pwgeo_blend:g}_h0{cfg.pwgeo_h0_weight:g}_h1{cfg.pwgeo_h1_weight:g}"
+    )
+
+
+def _mixedgeo_model_namespace(cfg: RunConfig, signature: str) -> str:
+    return f"{cfg.dataset}_mixedgeo_lam{cfg.geo_ae_lambda:g}_{signature}"
+
+
+def _routed_mixedgeo_model_namespace(cfg: RunConfig, signature: str) -> str:
+    """Namespace routed checkpoints separately from fixed mixed-GeoAE models."""
+    return (
+        f"{cfg.dataset}_routed_mixedgeo_geo{cfg.geo_ae_lambda:g}_"
+        f"route{cfg.route_lambda:g}_k{cfg.route_knn}_temp{cfg.route_temperature:g}_{signature}"
     )
 
 
@@ -936,7 +973,7 @@ def _train_or_load_decode_z_predictor(
 
     reason = "retraining" if model_path.exists() else "missing; training once"
     print(f"Decode-z predictor {reason}: {model_path}")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=context.learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=context.predictor_learning_rate)
     criterion = torch.nn.MSELoss()
     x_train = train_z[:-context.horizon].to(device)
     y_train = train_z[context.horizon:].to(device)
@@ -1106,7 +1143,7 @@ def _train_or_load_geo_real_tda_predictor(
         context.x_train,
         predictor_epochs=context.predictor_epochs,
         use_tda=use_tda,
-        learning_rate=context.learning_rate,
+        learning_rate=context.predictor_learning_rate,
     )
     torch.save(model.state_dict(), model_path)
     print(f"Saved geo-real-tda predictor: {model_path}")
@@ -1159,6 +1196,62 @@ def _load_pwgeo_encoder_for_seed(
         frame_batch_size=context.ae_frame_batch_size or 256,
         max_frames_per_epoch=context.ae_max_frames_per_epoch,
         pair_batch_size=cfg.pwgeo_ae_pair_batch_size,
+        retrain=cfg.retrain_encoder,
+        decoder_type=cfg.decoder_type,
+    )
+    return encoder, encoder_path, model_namespace
+
+
+def _load_mixedgeo_encoder_for_seed(
+    cfg: RunConfig,
+    context: VideoContext,
+    seed: int,
+    signature: str,
+) -> tuple[SpatialEncoder, Path, str]:
+    epochs = int(_override(cfg.geo_ae_epochs, context.dataset_config.get("GEO_AE_EPOCHS", 3)))
+    model_namespace = _mixedgeo_model_namespace(cfg, signature)
+    encoder, encoder_path = ml_tda_mixedgeo.load_or_train_mixedgeo_encoder(
+        context.x_train,
+        dataset_name=cfg.dataset,
+        model_namespace=model_namespace,
+        signature=signature,
+        seed=seed,
+        latent_dim=context.latent_dim,
+        geo_lambda=cfg.geo_ae_lambda,
+        ae_epochs=epochs,
+        frame_batch_size=context.ae_frame_batch_size or 256,
+        max_frames_per_epoch=context.ae_max_frames_per_epoch,
+        pair_batch_size=cfg.geo_ae_pair_batch_size,
+        retrain=cfg.retrain_encoder,
+        decoder_type=cfg.decoder_type,
+    )
+    return encoder, encoder_path, model_namespace
+
+
+def _load_routed_mixedgeo_encoder_for_seed(
+    cfg: RunConfig,
+    context: VideoContext,
+    seed: int,
+    signature: str,
+) -> tuple[SpatialEncoder, Path, str]:
+    """Load one persistence-routed product-manifold encoder."""
+    epochs = int(_override(cfg.geo_ae_epochs, context.dataset_config.get("GEO_AE_EPOCHS", 3)))
+    model_namespace = _routed_mixedgeo_model_namespace(cfg, signature)
+    encoder, encoder_path = ml_tda_routed_mixedgeo.load_or_train_routed_mixedgeo_encoder(
+        context.x_train,
+        dataset_name=cfg.dataset,
+        model_namespace=model_namespace,
+        signature=signature,
+        seed=seed,
+        latent_dim=context.latent_dim,
+        geo_lambda=cfg.geo_ae_lambda,
+        route_lambda=cfg.route_lambda,
+        route_knn=cfg.route_knn,
+        route_temperature=cfg.route_temperature,
+        ae_epochs=epochs,
+        frame_batch_size=context.ae_frame_batch_size or 256,
+        max_frames_per_epoch=context.ae_max_frames_per_epoch,
+        pair_batch_size=cfg.geo_ae_pair_batch_size,
         retrain=cfg.retrain_encoder,
         decoder_type=cfg.decoder_type,
     )
@@ -1377,7 +1470,7 @@ def run_topo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
                     context.x_train,
                     predictor_epochs=context.predictor_epochs,
                     use_tda=use_tda,
-                    learning_rate=context.learning_rate,
+                    learning_rate=context.predictor_learning_rate,
                 )
                 torch.save(model.state_dict(), model_path)
                 print(f"Saved topo-real-tda predictor: {model_path}")
@@ -1432,7 +1525,7 @@ def run_aux_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
     aux_lambda = float(_override(cfg.aux_tda_lambda, context.dataset_config.get("AUX_TDA_LAMBDA", 0.1)))
     aux_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("AUX_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    aux_lr = float(_override(cfg.learning_rate, context.dataset_config.get("AUX_TDA_LR", context.learning_rate)))
+    aux_lr = float(_override(cfg.predictor_learning_rate, context.dataset_config.get("AUX_TDA_LR", context.predictor_learning_rate)))
 
     ml_tda.configure_runtime(
         DATASET=cfg.dataset,
@@ -1487,7 +1580,7 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
     latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    latent_lr = context.predictor_learning_rate
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
@@ -1699,11 +1792,27 @@ def run_geo_latent_tda(
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
     latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    latent_lr = context.predictor_learning_rate
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     is_pwgeo = encoder_kind == "pwgeo"
-    model_namespace = _pwgeo_model_namespace(cfg) if is_pwgeo else _geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda)
+    is_mixedgeo = encoder_kind in {"mixedgeo", "routed_mixedgeo", "manifold_mixedgeo"}
+    is_routed = encoder_kind == "routed_mixedgeo"
+    is_manifold_ph = encoder_kind == "manifold_mixedgeo"
+    signature = cfg.manifold_signatures[0] if is_mixedgeo else None
+    if is_manifold_ph:
+        ml_tda_mixedgeo.parse_manifold_signature(signature, context.latent_dim)
+        model_namespace = f"{_mixedgeo_model_namespace(cfg, signature)}_vr_{cfg.vr_distance}"
+    elif is_routed:
+        ml_tda_mixedgeo.parse_manifold_signature(signature, context.latent_dim)
+        model_namespace = _routed_mixedgeo_model_namespace(cfg, signature)
+    elif is_mixedgeo:
+        ml_tda_mixedgeo.parse_manifold_signature(signature, context.latent_dim)
+        model_namespace = _mixedgeo_model_namespace(cfg, signature)
+    elif is_pwgeo:
+        model_namespace = _pwgeo_model_namespace(cfg)
+    else:
+        model_namespace = _geo_model_namespace(cfg.dataset, cfg.geo_ae_lambda)
     recompute_features = cfg.recompute_latent_tda_features or context.dataset_config.get(
         "RECOMPUTE_LATENT_TDA_FEATURES",
         False,
@@ -1723,6 +1832,12 @@ def run_geo_latent_tda(
     )
     ml_tda_latent.configure_runtime(
         DATASET=model_namespace,
+        # Euclidean/product VR controls retain separate caches/checkpoints but
+        # must initialize predictors identically for a paired comparison.
+        PREDICTOR_SEED_NAMESPACE=(
+            _mixedgeo_model_namespace(cfg, signature) if is_manifold_ph else model_namespace
+        ),
+        DETERMINISTIC_PREDICTOR=is_manifold_ph,
         LATENT_DIM=context.latent_dim,
         HIDDEN_DIM=context.hidden_dim,
         RETRAIN_ENCODER=cfg.retrain_encoder,
@@ -1735,8 +1850,13 @@ def run_geo_latent_tda(
         RECOMPUTE_LATENT_TDA_FEATURES=recompute_features,
     )
     print(
-        f"{'PW-Geo' if is_pwgeo else 'Geo'} latent-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, "
+        f"{'Manifold-PH-Mixed-Geo' if is_manifold_ph else ('Routed-Mixed-Geo' if is_routed else ('Mixed-Geo' if is_mixedgeo else ('PW-Geo' if is_pwgeo else 'Geo')))} latent-TDA config: dataset={cfg.dataset}, namespace={model_namespace}, "
         f"seeds={seeds}, modes={modes}, lambda={cfg.pwgeo_ae_lambda if is_pwgeo else cfg.geo_ae_lambda}, "
+        f"signature={signature}, "
+        f"route_lambda={cfg.route_lambda if is_routed else None}, "
+        f"route_knn={cfg.route_knn if is_routed else None}, "
+        f"route_temperature={cfg.route_temperature if is_routed else None}, "
+        f"vr_distance={cfg.vr_distance if is_manifold_ph else None}, "
         f"window={window}, bins={bins}, predictor_epochs={latent_epochs}, lr={latent_lr}, "
         f"horizon={context.horizon}, "
         f"max_train={max_train}, max_test={max_test}, recompute_features={recompute_features}"
@@ -1744,30 +1864,34 @@ def run_geo_latent_tda(
 
     rows = []
     require_persistence = ml_tda_latent._latent_modes_need_persistence(modes)
-    scenario_name = "pwgeo_latent_tda" if is_pwgeo else "geo_latent_tda"
+    scenario_name = "manifold_mixed_geo_latent_tda" if is_manifold_ph else ("routed_mixed_geo_latent_tda" if is_routed else ("mixed_geo_latent_tda" if is_mixedgeo else ("pwgeo_latent_tda" if is_pwgeo else "geo_latent_tda")))
     for seed in tqdm_progress_bar(seeds, desc=f"{scenario_name} seeds", total=len(seeds), leave=True):
         print(f"\n================ {scenario_name} seed={seed} ================")
         _set_all_seeds(seed)
-        if is_pwgeo:
+        if is_routed:
+            encoder, encoder_path, _ = _load_routed_mixedgeo_encoder_for_seed(cfg, context, seed, signature)
+        elif is_mixedgeo:
+            encoder, encoder_path, _ = _load_mixedgeo_encoder_for_seed(cfg, context, seed, signature)
+        elif is_pwgeo:
             encoder, encoder_path, _ = _load_pwgeo_encoder_for_seed(cfg, context, seed)
         else:
             encoder, encoder_path, _ = _load_geo_encoder_for_seed(cfg, context, seed)
         x_train_subset = ml_tda_latent.take_batch_subset(context.x_train, max_train, seed=seed)
         x_test_subset = ml_tda_latent.take_batch_subset(context.x_test, max_test, seed=seed + 1)
-        train_payload = ml_tda_latent.load_or_compute_latent_tda_features(
-            seed,
-            "train",
-            x_train_subset,
-            encoder,
-            require_persistence=require_persistence,
-        )
-        test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
-            seed,
-            "test",
-            x_test_subset,
-            encoder,
-            require_persistence=require_persistence,
-        )
+        if is_manifold_ph and require_persistence:
+            train_payload = ml_tda_manifold_ph.load_or_compute_manifold_tda_features(
+                seed, "train", x_train_subset, encoder, signature, cfg.vr_distance
+            )
+            test_payload = ml_tda_manifold_ph.load_or_compute_manifold_tda_features(
+                seed, "test", x_test_subset, encoder, signature, cfg.vr_distance
+            )
+        else:
+            train_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+                seed, "train", x_train_subset, encoder, require_persistence=require_persistence,
+            )
+            test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+                seed, "test", x_test_subset, encoder, require_persistence=require_persistence,
+            )
         diagnostics = (
             ml_tda_latent.latent_geometry_diagnostics(x_test_subset, test_payload["z"])
             if not cfg.profile_run
@@ -1783,11 +1907,16 @@ def run_geo_latent_tda(
                 train_control_seed=seed,
                 test_control_seed=seed + 10_000,
             )
+            paired_seed_namespace = (
+                _mixedgeo_model_namespace(cfg, signature) if is_manifold_ph else None
+            )
             model = ml_tda_latent.train_or_load_latent_tda_predictor(
                 seed,
                 mode,
                 train_features,
                 train_payload["z"],
+                predictor_seed_namespace=paired_seed_namespace,
+                deterministic=True if is_manifold_ph else None,
             )
             test_mse, per_frame_mse, latent_r2 = ml_tda_latent.eval_latent_tda_predictor(
                 model,
@@ -1796,10 +1925,18 @@ def run_geo_latent_tda(
             )
             row = {
                 "dataset": cfg.dataset,
-                "encoder": "pwgeo_ae" if is_pwgeo else "geo_ae",
+                "encoder": "routed_mixed_geo_ae" if is_routed else ("mixed_geo_ae" if is_mixedgeo else ("pwgeo_ae" if is_pwgeo else "geo_ae")),
+                "manifold_signature": signature,
                 "geo_ae_lambda": np.nan if is_pwgeo else cfg.geo_ae_lambda,
                 "pwgeo_ae_lambda": cfg.pwgeo_ae_lambda if is_pwgeo else np.nan,
                 "pwgeo_blend": float(cfg.pwgeo_blend) if is_pwgeo else np.nan,
+                "route_lambda": cfg.route_lambda if is_routed else np.nan,
+                "route_knn": cfg.route_knn if is_routed else np.nan,
+                "route_temperature": cfg.route_temperature if is_routed else np.nan,
+                "vr_distance": cfg.vr_distance if is_manifold_ph else "legacy_euclidean",
+                "predictor_seed": ml_tda_latent.predictor_seed(
+                    seed, mode, namespace=paired_seed_namespace
+                ),
                 "seed": seed,
                 "mode": mode,
                 "horizon": context.horizon,
@@ -1831,6 +1968,116 @@ def run_pwgeo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Data
     return run_geo_latent_tda(cfg, context, encoder_kind="pwgeo")
 
 
+def run_triangle_curvature(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    rows = []
+    for knn in cfg.triangle_knn:
+        for seed in seeds:
+            row = ml_tda_triangle.triangle_curvature_diagnostic(
+                context.x_train,
+                latent_dim=context.latent_dim,
+                knn=knn,
+                n_samples=cfg.triangle_samples,
+                max_points=cfg.triangle_max_points,
+                flat_threshold=cfg.triangle_flat_threshold,
+                seed=seed,
+            )
+            row["dataset"] = cfg.dataset
+            rows.append(row)
+            print("triangle-curvature:", row)
+    results = pd.DataFrame(rows)
+    summary = ml_tda.summarize_metric_runs(
+        results,
+        group_cols=["knn", "suggested_signature"],
+        metric_cols=[
+            "k_mean", "k_median", "negative_fraction", "flat_fraction",
+            "positive_fraction", "largest_component_fraction",
+        ],
+    )
+    print("\nTriangle-curvature per-seed results:")
+    print(results.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\nTriangle-curvature summary:")
+    print(summary.to_string(float_format=lambda value: f"{value:.4f}"))
+    return results, summary
+
+
+def _resolved_manifold_signatures(cfg: RunConfig, context: VideoContext) -> list[str]:
+    """Return manual signatures or training-only triangle-shrinkage candidates."""
+    if cfg.manifold_signature_policy == "manual":
+        return cfg.manifold_signatures
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    diagnostics = [
+        ml_tda_triangle.triangle_curvature_diagnostic(
+            context.x_train,
+            latent_dim=context.latent_dim,
+            knn=knn,
+            n_samples=cfg.triangle_samples,
+            max_points=cfg.triangle_max_points,
+            flat_threshold=cfg.triangle_flat_threshold,
+            seed=seed,
+        )
+        for knn in cfg.triangle_knn
+        for seed in seeds
+    ]
+    negative = float(np.mean([row["negative_fraction"] for row in diagnostics]))
+    flat = float(np.mean([row["flat_fraction"] for row in diagnostics]))
+    positive = float(np.mean([row["positive_fraction"] for row in diagnostics]))
+    diagnostic = ml_tda_triangle.suggested_signature(
+        negative, flat, positive, context.latent_dim
+    )
+    candidates = ml_tda_triangle.softened_signature_candidates(
+        diagnostic, context.latent_dim, cfg.signature_shrinkages
+    )
+    print(
+        "Triangle-shrinkage signature policy: "
+        f"fractions=(H={negative:.4f}, E={flat:.4f}, S={positive:.4f}), "
+        f"diagnostic={diagnostic}, candidates={candidates}"
+    )
+    return candidates
+
+
+def run_mixed_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    result_frames, summary_frames = [], []
+    for signature in _resolved_manifold_signatures(cfg, context):
+        signature_cfg = replace(cfg, manifold_signatures=[signature])
+        results, summary = run_geo_latent_tda(signature_cfg, context, encoder_kind="mixedgeo")
+        results["manifold_signature"] = signature
+        summary["manifold_signature"] = signature
+        result_frames.append(results)
+        summary_frames.append(summary)
+    # Preserve the named ``mode`` index; the shared output writer resets it into
+    # a proper mode column when combining scenario summaries.
+    return pd.concat(result_frames, ignore_index=True), pd.concat(summary_frames)
+
+
+def run_routed_mixed_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Sweep signatures for persistence-routed mixed-geometry encoders."""
+    result_frames, summary_frames = [], []
+    for signature in _resolved_manifold_signatures(cfg, context):
+        signature_cfg = replace(cfg, manifold_signatures=[signature])
+        results, summary = run_geo_latent_tda(signature_cfg, context, encoder_kind="routed_mixedgeo")
+        results["manifold_signature"] = signature
+        summary["manifold_signature"] = signature
+        result_frames.append(results)
+        summary_frames.append(summary)
+    return pd.concat(result_frames, ignore_index=True), pd.concat(summary_frames)
+
+
+def run_manifold_mixed_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Sweep fixed product signatures using the requested VR distance."""
+    result_frames, summary_frames = [], []
+    for signature in _resolved_manifold_signatures(cfg, context):
+        signature_cfg = replace(cfg, manifold_signatures=[signature])
+        results, summary = run_geo_latent_tda(signature_cfg, context, encoder_kind="manifold_mixedgeo")
+        results["manifold_signature"] = signature
+        results["vr_distance"] = cfg.vr_distance
+        summary["manifold_signature"] = signature
+        summary["vr_distance"] = cfg.vr_distance
+        result_frames.append(results)
+        summary_frames.append(summary)
+    return pd.concat(result_frames, ignore_index=True), pd.concat(summary_frames)
+
+
 def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
@@ -1844,7 +2091,7 @@ def run_topo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
     latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    latent_lr = context.predictor_learning_rate
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     model_namespace = _topo_model_namespace(cfg.dataset, cfg.topo_ae_lambda, cfg.topo_ae_distance)
@@ -1984,7 +2231,7 @@ def _run_representation_latent_tda(
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
     latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    latent_lr = context.predictor_learning_rate
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     if rep_kind == "vae":
@@ -2229,7 +2476,7 @@ def run_dinov2_latent_tda(
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
     latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    latent_lr = context.predictor_learning_rate
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     repo = str(cfg.dinov2_repo)
@@ -2466,7 +2713,7 @@ def run_clip_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataF
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
     latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    latent_lr = context.predictor_learning_rate
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     repo = str(cfg.clip_repo)
@@ -2645,7 +2892,7 @@ def run_vjepa_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Data
     window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
     bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
     latent_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("LATENT_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    latent_lr = float(_override(cfg.learning_rate, context.learning_rate))
+    latent_lr = context.predictor_learning_rate
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     repo = str(cfg.vjepa_repo)
@@ -3064,7 +3311,7 @@ def run_latent_classification(cfg: RunConfig, context: VideoContext) -> tuple[pd
                     seed=seed,
                     hidden_dim=context.hidden_dim,
                     epochs=context.predictor_epochs,
-                    learning_rate=context.learning_rate,
+                    learning_rate=context.predictor_learning_rate,
                     device=device,
                 )
                 row = {
@@ -3154,7 +3401,7 @@ def run_simvp(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.D
     max_train = _override(cfg.latent_tda_max_train, context.dataset_config.get("LATENT_TDA_MAX_TRAIN"))
     max_test = _override(cfg.latent_tda_max_test, context.dataset_config.get("LATENT_TDA_MAX_TEST"))
     simvp_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("SIMVP_EPOCHS", context.predictor_epochs)))
-    simvp_lr = float(_override(cfg.learning_rate, context.dataset_config.get("SIMVP_LR", context.learning_rate)))
+    simvp_lr = float(_override(cfg.predictor_learning_rate, context.dataset_config.get("SIMVP_LR", context.predictor_learning_rate)))
     simvp_batch_size = int(
         _override(cfg.pixel_tda_batch_size, context.dataset_config.get("SIMVP_BATCH_SIZE", 16))
     )
@@ -3297,7 +3544,7 @@ def run_geo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFra
     )
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
     pixel_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("PIXEL_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    pixel_lr = float(_override(cfg.learning_rate, context.dataset_config.get("PIXEL_TDA_LR", context.learning_rate)))
+    pixel_lr = float(_override(cfg.predictor_learning_rate, context.dataset_config.get("PIXEL_TDA_LR", context.predictor_learning_rate)))
     pixel_batch_size = int(
         _override(cfg.pixel_tda_batch_size, context.dataset_config.get("PIXEL_TDA_BATCH_SIZE", 32))
     )
@@ -3417,7 +3664,7 @@ def run_topo_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFr
     )
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
     pixel_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("PIXEL_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    pixel_lr = float(_override(cfg.learning_rate, context.dataset_config.get("PIXEL_TDA_LR", context.learning_rate)))
+    pixel_lr = float(_override(cfg.predictor_learning_rate, context.dataset_config.get("PIXEL_TDA_LR", context.predictor_learning_rate)))
     pixel_batch_size = int(
         _override(cfg.pixel_tda_batch_size, context.dataset_config.get("PIXEL_TDA_BATCH_SIZE", 32))
     )
@@ -3539,7 +3786,7 @@ def run_pixel_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, 
     )
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
     pixel_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("PIXEL_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    pixel_lr = float(_override(cfg.learning_rate, context.dataset_config.get("PIXEL_TDA_LR", context.learning_rate)))
+    pixel_lr = float(_override(cfg.predictor_learning_rate, context.dataset_config.get("PIXEL_TDA_LR", context.predictor_learning_rate)))
     pixel_batch_size = int(
         _override(cfg.pixel_tda_batch_size, context.dataset_config.get("PIXEL_TDA_BATCH_SIZE", 32))
     )
@@ -3599,7 +3846,7 @@ def run_video3d_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame
     )
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
     pixel_epochs = int(_override(cfg.predictor_epochs, context.dataset_config.get("VIDEO3D_TDA_PREDICTOR_EPOCHS", context.predictor_epochs)))
-    pixel_lr = float(_override(cfg.learning_rate, context.dataset_config.get("VIDEO3D_TDA_LR", context.learning_rate)))
+    pixel_lr = float(_override(cfg.predictor_learning_rate, context.dataset_config.get("VIDEO3D_TDA_LR", context.predictor_learning_rate)))
     batch_size = int(
         _override(cfg.pixel_tda_batch_size, context.dataset_config.get("VIDEO3D_TDA_BATCH_SIZE", 32))
     )
@@ -3743,6 +3990,12 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument("--hidden-dim", type=int, default=None)
     parser.add_argument("--predictor-epochs", type=int, default=None)
     parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument(
+        "--predictor-learning-rate",
+        type=float,
+        default=None,
+        help="Predictor-only learning rate; leaves encoder training at --learning-rate.",
+    )
     parser.add_argument("--real-tda-scale", type=float, default=None)
     parser.add_argument("--real-tda-bins", type=int, default=None)
     parser.add_argument("--ae-epochs", type=int, default=None, help="Baseline AE pretraining epochs.")
@@ -3788,6 +4041,37 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
     parser.add_argument("--geo-ae-lambda", type=float, default=0.1)
     parser.add_argument("--geo-ae-epochs", type=int, default=None)
     parser.add_argument("--geo-ae-pair-batch-size", type=int, default=64)
+    parser.add_argument(
+        "--manifold-signatures",
+        type=_parse_str_list,
+        default=["e16", "h8_e8", "s8_e8", "h6_s6_e4"],
+        help="Mixed-GeoAE signatures, e.g. e16,h8_e8,s8_e8,h6_s6_e4.",
+    )
+    parser.add_argument(
+        "--manifold-signature-policy",
+        choices=["manual", "triangle_shrinkage"],
+        default="manual",
+        help="Use explicit signatures or generate candidates from training-only triangle diagnostics.",
+    )
+    parser.add_argument(
+        "--signature-shrinkages",
+        type=_parse_float_list,
+        default=[0.0, 0.5, 0.75, 1.0],
+        help="Curvature strengths for triangle_shrinkage; released H/S dimensions become Euclidean.",
+    )
+    parser.add_argument("--route-lambda", type=float, default=0.1)
+    parser.add_argument("--route-knn", type=int, default=5)
+    parser.add_argument("--route-temperature", type=float, default=0.1)
+    parser.add_argument(
+        "--vr-distance",
+        choices=sorted(ml_tda_manifold_ph.VR_DISTANCES),
+        default="product_manifold",
+        help="Distance used to build VR persistence in manifold_mixed_geo_latent_tda.",
+    )
+    parser.add_argument("--triangle-knn", type=_parse_int_list, default=[4, 8, 12])
+    parser.add_argument("--triangle-samples", type=int, default=10_000)
+    parser.add_argument("--triangle-max-points", type=int, default=512)
+    parser.add_argument("--triangle-flat-threshold", type=float, default=1e-6)
     parser.add_argument("--pwgeo-ae-lambda", type=float, default=0.1)
     parser.add_argument("--pwgeo-ae-epochs", type=int, default=None)
     parser.add_argument("--pwgeo-ae-pair-batch-size", type=int, default=64)
@@ -3929,6 +4213,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         hidden_dim=args.hidden_dim,
         predictor_epochs=args.predictor_epochs,
         learning_rate=args.learning_rate,
+        predictor_learning_rate=args.predictor_learning_rate,
         real_tda_scale=args.real_tda_scale,
         real_tda_bins=args.real_tda_bins,
         ae_epochs=args.ae_epochs,
@@ -3951,6 +4236,17 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         geo_ae_lambda=args.geo_ae_lambda,
         geo_ae_epochs=args.geo_ae_epochs,
         geo_ae_pair_batch_size=args.geo_ae_pair_batch_size,
+        manifold_signatures=args.manifold_signatures,
+        manifold_signature_policy=args.manifold_signature_policy,
+        signature_shrinkages=args.signature_shrinkages,
+        route_lambda=args.route_lambda,
+        route_knn=args.route_knn,
+        route_temperature=args.route_temperature,
+        vr_distance=args.vr_distance,
+        triangle_knn=args.triangle_knn,
+        triangle_samples=args.triangle_samples,
+        triangle_max_points=args.triangle_max_points,
+        triangle_flat_threshold=args.triangle_flat_threshold,
         pwgeo_ae_lambda=args.pwgeo_ae_lambda,
         pwgeo_ae_epochs=args.pwgeo_ae_epochs,
         pwgeo_ae_pair_batch_size=args.pwgeo_ae_pair_batch_size,
@@ -4037,6 +4333,14 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
         return run_geo_latent_tda(cfg, context)
     if cfg.scenario == "pwgeo_latent_tda":
         return run_pwgeo_latent_tda(cfg, context)
+    if cfg.scenario == "mixed_geo_latent_tda":
+        return run_mixed_geo_latent_tda(cfg, context)
+    if cfg.scenario == "routed_mixed_geo_latent_tda":
+        return run_routed_mixed_geo_latent_tda(cfg, context)
+    if cfg.scenario == "manifold_mixed_geo_latent_tda":
+        return run_manifold_mixed_geo_latent_tda(cfg, context)
+    if cfg.scenario == "triangle_curvature":
+        return run_triangle_curvature(cfg, context)
     if cfg.scenario == "geo_latent_spectrum":
         return run_geo_latent_spectrum(cfg, context)
     if cfg.scenario == "topo_latent_tda":

@@ -138,12 +138,12 @@ DATASET_CONFIGS = {
         "kind": "ctc_tif_clips",
         "root": "datasets/2D/glioblastoma",
         "train_sequence_dirs": [
-            "datasets/2D/glioblastoma/glioblastoma_train/01",
-            "datasets/2D/glioblastoma/glioblastoma_train/02",
+            "datasets/2D/glioblastoma/PhC-C2DH-U373 train/01",
+            "datasets/2D/glioblastoma/PhC-C2DH-U373 train/02",
         ],
         "test_sequence_dirs": [
-            "datasets/2D/glioblastoma/glioblastoma_test/01",
-            "datasets/2D/glioblastoma/glioblastoma_test/02",
+            "datasets/2D/glioblastoma/PhC-C2DH-U373 test/01",
+            "datasets/2D/glioblastoma/PhC-C2DH-U373 test/02",
         ],
         "learning_rate": 1e-2,
         "LATENT_DIM": 128,
@@ -194,12 +194,12 @@ DATASET_CONFIGS = {
         "kind": "ctc_tif_clips",
         "root": "datasets/2D/hela",
         "train_sequence_dirs": [
-            "datasets/2D/hela/HeLa_DIC-C2DH_train/01",
-            "datasets/2D/hela/HeLa_DIC-C2DH_train/02",
+            "datasets/2D/hela/DIC-C2DH-HeLa train/01",
+            "datasets/2D/hela/DIC-C2DH-HeLa train/02",
         ],
         "test_sequence_dirs": [
-            "datasets/2D/hela/HeLa_DIC-C2DH_test/01",
-            "datasets/2D/hela/HeLa_DIC-C2DH_test/02",
+            "datasets/2D/hela/DIC-C2DH-HeLa test/01",
+            "datasets/2D/hela/DIC-C2DH-HeLa test/02",
         ],
         "learning_rate": 1e-2,
         "LATENT_DIM": 128,

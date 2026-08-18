@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pechstre"
+version = "0.1.0"
+description = "Streaming persistent homology and topology-aware video representation experiments"
+readme = "readme.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Fouad Abiad" },
+]
+dependencies = [
+  "aeon",
+  "cripser",
+  "dionysus",
+  "gudhi",
+  "ipykernel",
+  "jupyter",
+  "matplotlib",
+  "nbstripout",
+  "numba",
+  "numpy",
+  "opencv-python",
+  "opt-einsum",
+  "pandas",
+  "persim",
+  "polars",
+  "POT",
+  "psutil",
+  "PyYAML",
+  "ripser",
+  "scikit-image",
+  "scipy",
+  "stochman",
+  "tifffile",
+  "torch==2.8.0",
+  "torchcodec",
+  "torchvision",
+  "tqdm",
+  "transformers @ git+https://github.com/huggingface/transformers.git",
+  "ucimlrepo",
+  "umap-learn",
+]
+
+[project.urls]
+Repository = "https://github.com/abiadf/Pechstre"
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+include = ["topo*"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]

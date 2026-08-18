@@ -91,7 +91,7 @@ def normalize_video_stack(video_stack, mode="minmax", percentiles=(1, 99.8), sta
         lo, hi = stats if stats is not None else (float(video_stack.min()), float(video_stack.max()))
         if hi <= lo:
             hi = lo + 1.0
-        video_stack = (video_stack - lo) / (hi - lo)
+        video_stack = np.clip((video_stack - lo) / (hi - lo), 0.0, 1.0)
     elif mode in {None, "none"}:
         if video_stack.max() > 1.0:
             video_stack = video_stack / video_stack.max()

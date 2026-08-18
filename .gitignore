@@ -1,11 +1,15 @@
 .vscode/
 *venv*/*
+*.egg-info/
+*.egg
+.eggs/
 
 *.DS_Store*
 *.ipynb_checkpoints
 *.$*.bkp
 .DS_Store
 .idea/
+.cache/
 *.$*.kp
 **/__pycache__/
 *.cpython-310.pyc
@@ -26,3 +30,5 @@ models/*
 # latex_tables
 latent_images/
 decoded_images/
+
+tests/
