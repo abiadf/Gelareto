@@ -66,8 +66,9 @@ set -euo pipefail
 #   --recompute-latent-tda-features only when the encoder, window, bins, signature,
 #   or VR metric changed and the cache cannot safely be reused.
 #
-# Hyperparameter tuning:
+# Hyperparameter and manifold-signature selection:
 #   uv run python scripts/tune_latent_z_hparams.py --device cpu
+#   uv run python scripts/select_manifold_signatures.py --device cpu
 # Predictor learning rate, hidden size, and epochs are selected using z-only
 # validation MSE and then reused across every scenario/mode for that dataset.
 
@@ -79,10 +80,10 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
 mkdir -p "$MPLCONFIGDIR"
 
 args=(
-  --scenario latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda
-  --dataset bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks # ,moving_mnist,lorenz96,electric_devices,glioblastoma,hela
+  --scenario manifold_mixed_geo_latent_tda #latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda
+  --dataset moving_mnist,lorenz96,electric_devices,glioblastoma,hela # bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks
   --seeds 0,1,2,3,4
-  --modes z,z_both
+  --modes z_both #z,z_both
   --latent-dim 16
 
   # Candidate signatures come from the training-only triangle diagnostic and
@@ -92,9 +93,11 @@ args=(
   # --triangle-knn 4,8,12
   # --triangle-samples 10000
   # --triangle-max-points 512
+  # Final runs load exactly one training/validation-selected signature per dataset.
+  --manifold-signature-file results/signature_selection/selected_manifold_signatures.json
 
   # product_manifold: H/S/E geodesics; euclidean: ordinary cdist on the same z.
-  --vr-distance product_manifold # product_manifold
+  --vr-distance euclidean #product_manifold # euclidean
   --device cpu
   --geo-ae-epochs 10
   --ae-epochs 10
@@ -109,6 +112,7 @@ args=(
   # Useful optional overrides:
   # --manifold-signature-policy manual
   # --manifold-signatures e16,h3_s4_e9
+  # --manifold-signature-file results/signature_selection/selected_manifold_signatures.json
   # --include-retrain-encoder
   # --recompute-latent-tda-features
   # --hidden-dim 128

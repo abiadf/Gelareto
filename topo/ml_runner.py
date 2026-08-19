@@ -157,6 +157,7 @@ class RunConfig:
     geo_ae_pair_batch_size: int
     manifold_signatures: list[str]
     manifold_signature_policy: str
+    manifold_signature_file: Path | None
     signature_shrinkages: list[float]
     route_lambda: float
     route_knn: int
@@ -577,7 +578,7 @@ def _save_results(
         encoding="utf-8",
     )
     if results_df is not None:
-        float_format = "%.8g" if "representation_fidelity" in cfg.scenario else "%.4f"
+        float_format = "%.8g" if "representation_fidelity" in cfg.scenario else "%.5f"
         results_df.to_csv(out_dir / "results.csv", index=False, float_format=float_format)
         gate_columns = [
             "gate_h0_mean",
@@ -596,15 +597,15 @@ def _save_results(
                 gate_results[identity_columns + gate_columns].to_csv(
                     out_dir / "gate_results.csv",
                     index=False,
-                    float_format="%.4f",
+                    float_format="%.5f",
                 )
                 gate_summary = gate_results.groupby("mode")[gate_columns].agg(["mean", "std"])
-                gate_summary.to_csv(out_dir / "gate_summary.csv", float_format="%.4f")
+                gate_summary.to_csv(out_dir / "gate_summary.csv", float_format="%.5f")
     if summary_df is not None:
-        float_format = "%.8g" if "representation_fidelity" in cfg.scenario else "%.4f"
+        float_format = "%.8g" if "representation_fidelity" in cfg.scenario else "%.5f"
         summary_df.to_csv(out_dir / "summary.csv", float_format=float_format)
     if profile_df is not None:
-        profile_df.to_csv(out_dir / "profile.csv", index=False, float_format="%.4f")
+        profile_df.to_csv(out_dir / "profile.csv", index=False, float_format="%.5f")
     print(f"\nSaved run outputs to {out_dir}")
 
 
@@ -799,7 +800,7 @@ def run_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, p
         sort_metric="test_mse",
     )
     print("\nReal-TDA per-run results:")
-    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.5f}"))
     print("\nReal-TDA mean +/- std by mode:")
     print(summary_df)
     return results_df, summary_df
@@ -1418,7 +1419,7 @@ def run_geo_real_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFram
     print("\nGeo-real-TDA per-run results:")
     print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
     print("\nGeo-real-TDA mean +/- std by mode:")
-    with pd.option_context("display.float_format", "{:.4f}".format):
+    with pd.option_context("display.float_format", "{:.5f}".format):
         print(summary_df)
     return results_df, summary_df
 
@@ -1957,9 +1958,9 @@ def run_geo_latent_tda(
         sort_metric="test_mse",
     )
     print("\nGeo latent-TDA per-run results:")
-    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print(results_df.to_string(index=False, float_format=lambda value: f"{value:.5f}"))
     print("\nGeo latent-TDA mean +/- std:")
-    with pd.option_context("display.float_format", "{:.4f}".format):
+    with pd.option_context("display.float_format", "{:.5f}".format):
         print(summary_df)
     return results_df, summary_df
 
@@ -2003,6 +2004,25 @@ def run_triangle_curvature(cfg: RunConfig, context: VideoContext) -> tuple[pd.Da
 
 def _resolved_manifold_signatures(cfg: RunConfig, context: VideoContext) -> list[str]:
     """Return manual signatures or training-only triangle-shrinkage candidates."""
+    if cfg.manifold_signature_file is not None:
+        if not cfg.manifold_signature_file.exists():
+            raise FileNotFoundError(
+                f"Manifold-signature file not found: {cfg.manifold_signature_file}"
+            )
+        payload = json.loads(cfg.manifold_signature_file.read_text())
+        selected = payload.get("selected_by_dataset", payload).get(cfg.dataset)
+        if isinstance(selected, dict):
+            selected = selected.get("manifold_signature")
+        if not selected:
+            raise KeyError(
+                f"No selected manifold signature for dataset={cfg.dataset!r} "
+                f"in {cfg.manifold_signature_file}"
+            )
+        print(
+            f"Using validation-selected manifold signature for dataset={cfg.dataset}: "
+            f"{selected}"
+        )
+        return [str(selected)]
     if cfg.manifold_signature_policy == "manual":
         return cfg.manifold_signatures
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
@@ -4054,6 +4074,12 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         help="Use explicit signatures or generate candidates from training-only triangle diagnostics.",
     )
     parser.add_argument(
+        "--manifold-signature-file",
+        type=Path,
+        default=None,
+        help="JSON containing one validation-selected manifold signature per dataset.",
+    )
+    parser.add_argument(
         "--signature-shrinkages",
         type=_parse_float_list,
         default=[0.0, 0.5, 0.75, 1.0],
@@ -4238,6 +4264,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         geo_ae_pair_batch_size=args.geo_ae_pair_batch_size,
         manifold_signatures=args.manifold_signatures,
         manifold_signature_policy=args.manifold_signature_policy,
+        manifold_signature_file=args.manifold_signature_file,
         signature_shrinkages=args.signature_shrinkages,
         route_lambda=args.route_lambda,
         route_knn=args.route_knn,
@@ -4436,10 +4463,10 @@ def _format_mean_std(value: object, std: object) -> str:
     if pd.isna(value) and pd.isna(std):
         return "—"
     if pd.isna(std):
-        return f"{float(value):.4f}"
+        return f"{float(value):.5f}"
     if pd.isna(value):
-        return f"{float(std):.4f}"
-    return f"{float(value):.4f} {float(std):.4f}"
+        return f"{float(std):.5f}"
+    return f"{float(value):.5f} {float(std):.5f}"
 
 
 def _combine_summary_mean_std_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -4473,7 +4500,7 @@ def _print_grouped_aggregate_frame(title: str, df: pd.DataFrame) -> None:
     group_cols = [col for col in ["dataset", "scenario"] if col in df.columns]
     if not group_cols:
         compact = _drop_empty_columns(df)
-        print(compact.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+        print(compact.to_string(index=False, float_format=lambda value: f"{value:.5f}"))
         return
 
     grouped_blocks: dict[tuple[str, ...], list[pd.DataFrame]] = {}
@@ -4484,7 +4511,7 @@ def _print_grouped_aggregate_frame(title: str, df: pd.DataFrame) -> None:
     for _, blocks in grouped_blocks.items():
         combined = pd.concat(blocks, ignore_index=True, sort=False)
         print("\n" + "-" * 88)
-        print(combined.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+        print(combined.to_string(index=False, float_format=lambda value: f"{value:.5f}"))
 
 
 def _print_aggregate_tables(
