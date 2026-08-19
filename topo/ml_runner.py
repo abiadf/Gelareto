@@ -96,6 +96,9 @@ RUNNER_SCENARIOS = {
     "video3d_tda",
     "aux_tda",
     "pixel_tda",
+    "wikispeedia_next_node",
+    "wikispeedia_triangle",
+    "graph_next_node",
     "geo_pixel_tda",
     "topo_pixel_tda",
     "geo_decode_z",
@@ -4425,6 +4428,23 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
 
 def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame | None, pd.DataFrame | None]:
     print(f"Control panel: scenario={cfg.scenario}, dataset={cfg.dataset}")
+    if cfg.scenario in {"wikispeedia_next_node", "wikispeedia_triangle", "graph_next_node"}:
+        if cfg.scenario != "graph_next_node" and cfg.dataset != "wikispeedia":
+            raise ValueError(f"{cfg.scenario} requires --dataset wikispeedia")
+        if cfg.scenario == "graph_next_node" and cfg.dataset not in {"wikispeedia", "retailrocket"}:
+            raise ValueError("graph_next_node requires wikispeedia or retailrocket")
+        from topo.ml_tda_wikispeedia_forecast import (
+            run_graph_next_node, run_wikispeedia_next_node, run_wikispeedia_triangle,
+        )
+
+        runner = (
+            run_wikispeedia_triangle if cfg.scenario == "wikispeedia_triangle"
+            else run_graph_next_node if cfg.scenario == "graph_next_node"
+            else run_wikispeedia_next_node
+        )
+        results_df, summary_df = runner(cfg, dict(topo_config.DATASET_CONFIGS[cfg.dataset]))
+        _save_results(cfg, None, results_df, summary_df)
+        return results_df, summary_df, None
     context = load_video_context(cfg)
     profile_df = None
     if cfg.profile_run:

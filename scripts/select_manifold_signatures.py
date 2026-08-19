@@ -20,7 +20,7 @@ import torch
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.tune_latent_z_hparams import parse_csv_floats, parse_csv_ints, parse_csv_strs, split_train_val
+from scripts.tune_latent_z_hparams import parse_csv_floats, parse_csv_ints, parse_csv_strs, selection_folds
 from topo import ml_runner
 
 
@@ -69,17 +69,32 @@ def make_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig:
 def select_dataset(dataset: str, args: argparse.Namespace) -> tuple[pd.DataFrame, dict]:
     cfg = make_cfg(dataset, args)
     base = ml_runner.load_video_context(cfg)
-    train, validation = split_train_val(
-        base.x_train, val_fraction=args.val_fraction, max_train=None, max_val=None
-    )
-    context = replace(base, x_train=train, x_test=validation)
-    results, _ = ml_runner.run_manifold_mixed_geo_latent_tda(cfg, context)
+    folds = selection_folds(base, val_fraction=args.val_fraction, max_train=None, max_val=None)
+    signatures = ml_runner._resolved_manifold_signatures(cfg, base)
+    result_frames = []
+    for signature in signatures:
+        for fold_name, train, validation in folds:
+            fold_cfg = replace(
+                cfg,
+                dataset=f"{dataset}_selection_{fold_name}",
+                manifold_signature_file=None,
+                manifold_signature_policy="manual",
+                manifold_signatures=[signature],
+            )
+            context = replace(base, x_train=train, x_test=validation)
+            results, _ = ml_runner.run_geo_latent_tda(
+                fold_cfg, context, encoder_kind="manifold_mixedgeo"
+            )
+            results["validation_fold"] = fold_name
+            results["manifold_signature"] = signature
+            result_frames.append(results)
+    results = pd.concat(result_frames, ignore_index=True)
     candidates = (
         results.groupby("manifold_signature", as_index=False)
         .agg(
             val_mse=("test_mse", "mean"),
             val_mse_std=("test_mse", "std"),
-            n_runs=("seed", "nunique"),
+            n_runs=("test_mse", "size"),
         )
         .sort_values("val_mse")
     )
@@ -140,7 +155,7 @@ def main() -> None:
     selected_path.write_text(
         json.dumps(
             {
-                "protocol": "Training-only triangle candidates; 80/20 train-validation split; select lowest mean z_both validation MSE using product-manifold VR.",
+                "protocol": "Training-only triangle candidates; grouped source-sequence validation when available; select lowest mean z_both validation MSE using product-manifold VR.",
                 "seeds": args.seeds,
                 "selected_by_dataset": selected_by_dataset,
             },

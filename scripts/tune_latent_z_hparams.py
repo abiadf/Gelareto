@@ -47,6 +47,34 @@ def split_train_val(x_train: torch.Tensor, *, val_fraction: float, max_train: in
     return train, val
 
 
+def selection_folds(context, *, val_fraction: float, max_train: int | None, max_val: int | None):
+    """Return leakage-free source-sequence folds when grouping is available."""
+    counts = context.dataset_config.get("selection_sequence_clip_counts")
+    if not counts:
+        train, val = split_train_val(
+            context.x_train, val_fraction=val_fraction, max_train=max_train, max_val=max_val
+        )
+        return [("holdout", train, val)]
+    if sum(map(int, counts)) != int(context.x_train.shape[1]):
+        raise ValueError(
+            f"selection_sequence_clip_counts={counts} does not match "
+            f"{context.x_train.shape[1]} training clips"
+        )
+    groups, start = [], 0
+    for count in map(int, counts):
+        groups.append(context.x_train[:, start:start + count])
+        start += count
+    folds = []
+    for val_idx, val in enumerate(groups):
+        train = torch.cat([group for idx, group in enumerate(groups) if idx != val_idx], dim=1)
+        if max_train is not None:
+            train = train[:, :max_train]
+        if max_val is not None:
+            val = val[:, :max_val]
+        folds.append((f"sequence_{val_idx + 1}", train, val))
+    return folds
+
+
 def make_base_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig:
     cfg = ml_runner.parse_args(
         [
@@ -97,6 +125,9 @@ def make_base_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig
     )
     return replace(
         cfg,
+        # Fold-specific namespaces make these caches isolated. Train each fold's
+        # encoder once, then reuse it across the predictor grid.
+        retrain_encoder=False,
         retrain_predictor=True,
         recompute_latent_tda_features=False,
         latent_tda_max_train=None,
@@ -121,13 +152,12 @@ def run_scenario(cfg: ml_runner.RunConfig, context: ml_runner.VideoContext):
 def run_one_dataset(dataset: str, args: argparse.Namespace) -> tuple[list[dict], dict]:
     base_cfg = make_base_cfg(dataset, args)
     base_context = ml_runner.load_video_context(base_cfg)
-    train, val = split_train_val(
-        base_context.x_train,
+    folds = selection_folds(
+        base_context,
         val_fraction=args.val_fraction,
         max_train=args.max_train_clips,
         max_val=args.max_val_clips,
     )
-    context = replace(base_context, x_train=train, x_test=val)
 
     rows = []
     grid = list(itertools.product(args.learning_rates, args.hidden_dims, args.predictor_epochs))
@@ -142,15 +172,23 @@ def run_one_dataset(dataset: str, args: argparse.Namespace) -> tuple[list[dict],
             hidden_dim=int(hidden_dim),
             predictor_epochs=int(epochs),
         )
-        result_df, summary_df = run_scenario(
-            cfg,
-            replace(
-                context,
-                hidden_dim=int(hidden_dim),
-                predictor_epochs=int(epochs),
-                predictor_learning_rate=float(lr),
-            ),
-        )
+        fold_results = []
+        for fold_name, train, val in folds:
+            fold_cfg = replace(cfg, dataset=f"{dataset}_selection_{fold_name}")
+            result_df, _ = run_scenario(
+                fold_cfg,
+                replace(
+                    base_context,
+                    x_train=train,
+                    x_test=val,
+                    hidden_dim=int(hidden_dim),
+                    predictor_epochs=int(epochs),
+                    predictor_learning_rate=float(lr),
+                ),
+            )
+            result_df["validation_fold"] = fold_name
+            fold_results.append(result_df)
+        result_df = pd.concat(fold_results, ignore_index=True)
         val_mse = float(result_df["test_mse"].mean())
         val_r2 = float(result_df["latent_r2"].mean())
         row = {
@@ -158,7 +196,7 @@ def run_one_dataset(dataset: str, args: argparse.Namespace) -> tuple[list[dict],
             "predictor_learning_rate": float(lr),
             "hidden_dim": int(hidden_dim),
             "predictor_epochs": int(epochs),
-            "n_runs": int(result_df["seed"].nunique()) if "seed" in result_df else len(result_df),
+            "n_runs": len(result_df),
             "val_mse": val_mse,
             "val_r2": val_r2,
         }

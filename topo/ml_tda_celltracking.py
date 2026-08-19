@@ -163,6 +163,33 @@ def generate_sliding_window_clips(
     return clips
 
 
+def augment_temporal_clip(clip, transforms):
+    """Return deterministic spatial variants without disrupting temporal motion.
+
+    Every transform is applied identically to all frames in a clip.  This is
+    essential for forecasting: independently augmenting frames would introduce
+    artificial motion.  Augmentation is intended for training clips only.
+    """
+    variants = []
+    for transform in transforms:
+        if transform == "identity":
+            variant = clip
+        elif transform == "hflip":
+            variant = torch.flip(clip, dims=(-1,))
+        elif transform == "vflip":
+            variant = torch.flip(clip, dims=(-2,))
+        elif transform == "rot90":
+            variant = torch.rot90(clip, k=1, dims=(-2, -1))
+        elif transform == "rot180":
+            variant = torch.rot90(clip, k=2, dims=(-2, -1))
+        elif transform == "rot270":
+            variant = torch.rot90(clip, k=3, dims=(-2, -1))
+        else:
+            raise ValueError(f"Unknown temporal clip augmentation: {transform}")
+        variants.append(variant.contiguous())
+    return variants
+
+
 def build_clips_from_sequence_dirs(sequence_dirs, cfg, split_name, normalization_stats=None):
     all_clips = []
     for seq_dir in sequence_dirs:
@@ -188,11 +215,17 @@ def build_clips_from_sequence_dirs(sequence_dirs, cfg, split_name, normalization
         clips = generate_sliding_window_clips(
             timelines,
             win_len=cfg.get("win_len", 20),
-            stride=cfg.get("temporal_stride", 5),
+            stride=cfg.get(
+                f"{split_name}_temporal_stride",
+                cfg.get("temporal_stride", 5),
+            ),
             min_std=cfg.get("min_temporal_std", 0.01),
             min_mean=cfg.get("min_mean_intensity", 0.01),
             empty_patch_filter=cfg.get("empty_patch_filter", True),
         )
+        if split_name == "train":
+            transforms = cfg.get("train_augmentations", ["identity"])
+            clips = [variant for clip in clips for variant in augment_temporal_clip(clip, transforms)]
         print(f"{split_name} {seq_dir}: kept {len(clips)} clips")
         all_clips.extend(clips)
     if not all_clips:

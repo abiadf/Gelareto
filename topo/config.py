@@ -1,5 +1,30 @@
 """Config file of datasets and their params"""
 DATASET_CONFIGS = {
+    "retailrocket": {
+        "kind": "retailrocket",
+        "root": "datasets/2D/retailrocket",
+        "cache_path": "datasets/2D/retailrocket/processed/retailrocket_v2.pt",
+        "event_types": ["view", "addtocart", "transaction"],
+        "session_gap_minutes": 30,
+        "min_path_length": 6,
+        "train_fraction": 0.70,
+        "val_fraction": 0.15,
+        "HORIZON": 1,
+        "LATENT_TDA_WINDOW": 5,
+        "LATENT_DIM": 16,
+        "HIDDEN_DIM": 64,
+        "PREDICTOR_EPOCHS": 8,
+        "learning_rate": 3e-3,
+        "BATCH_SIZE": 256,
+        "MAX_TRAIN_WINDOWS": 50_000,
+        "GRAPH_GEO_LAMBDA": 0.1,
+        "GRAPH_GEO_PAIR_BATCH": 64,
+        # Validation winner among the triangle-softened candidates.
+        "MANIFOLD_SIGNATURE": "e16",
+        "TDA_BINS": 8,
+        "TDA_FUSION_EPOCHS": 3,
+        "RUN_SEEDS": list(range(5)),
+    },
     "wikispeedia": {
         "kind": "wikispeedia",
         # The downloaded directory is intentionally left at the user's existing
@@ -13,6 +38,17 @@ DATASET_CONFIGS = {
         "HORIZON": 1,
         "LATENT_TDA_WINDOW": 5,
         "LATENT_DIM": 16,
+        "HIDDEN_DIM": 64,
+        "PREDICTOR_EPOCHS": 8,
+        "learning_rate": 3e-3,
+        "BATCH_SIZE": 256,
+        "MAX_TRAIN_WINDOWS": 50_000,
+        "GRAPH_GEO_LAMBDA": 0.1,
+        "GRAPH_GEO_PAIR_BATCH": 64,
+        # Validation winner among triangle-softened candidates (test paths untouched).
+        "MANIFOLD_SIGNATURE": "e16",
+        "TDA_BINS": 8,
+        "TDA_FUSION_EPOCHS": 3,
         "RUN_SEEDS": list(range(5)),
     },
     "hirros": {
@@ -309,6 +345,36 @@ DATASET_CONFIGS = {
         "LATENT_TDA_BINS": 16,
         "LATENT_TDA_PREDICTOR_EPOCHS": 40,
     },}
+
+# Fluorescent HeLa nuclei from the Cell Tracking Challenge.  Keep this separate
+# from ``hela`` (DIC-C2DH-HeLa): the modalities and cached tensors differ.  The
+# current forecasting scenarios consume the raw image timelines; ``*_GT/TRA``
+# lineage annotations are intentionally preserved for a later lineage task.
+DATASET_CONFIGS["hela_fluo"] = {
+    **DATASET_CONFIGS["hela"],
+    "root": "datasets/2D/hela_fluo",
+    "train_sequence_dirs": [
+        "datasets/2D/hela_fluo/Fluo-N2DL-HeLa train/01",
+        "datasets/2D/hela_fluo/Fluo-N2DL-HeLa train/02",
+    ],
+    "test_sequence_dirs": [
+        "datasets/2D/hela_fluo/Fluo-N2DL-HeLa test/01",
+        "datasets/2D/hela_fluo/Fluo-N2DL-HeLa test/02",
+    ],
+    "preprocessed_train_tensor": "datasets/2D/hela_fluo/processed/train_full_frame_clips.pt",
+    "preprocessed_test_tensor": "datasets/2D/hela_fluo/processed/test_full_frame_clips.pt",
+    # Use dense temporal windows without spatial duplication.  Spatially
+    # transformed copies destabilized the GeoAE distance-preservation loss.
+    # Test sequences remain untouched and retain stride 5.
+    "train_temporal_stride": 1,
+    "test_temporal_stride": 5,
+    "train_augmentations": ["identity"],
+    # Dense clips are ordered by source sequence: 43 from 01, then 43 from 02.
+    # Selection scripts use these groups for leakage-free two-fold validation.
+    "selection_sequence_clip_counts": [43, 43],
+    "max_train_clips": None,
+    "max_test_clips": None,
+}
 
 DATASET_CONFIGS["lorenz96"] = {
     "kind": "lorenz96_timeseries",

@@ -58,7 +58,7 @@ set -euo pipefail
 #   moving_mnist                           translated/rotated MNIST sequences
 #   lorenz96                               rasterized multivariate dynamics
 #   electric_devices                       rasterized UCR time series
-#   glioblastoma / hela                    CTC microscopy sequences
+#   glioblastoma / hela / hela_fluo        CTC microscopy sequences
 #   growing_tree                           explicitly tree-metric synthetic videos
 #   hirros                                 real HIRROS root-growth time-lapse stacks
 #
@@ -82,10 +82,11 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
 mkdir -p "$MPLCONFIGDIR"
 
 args=(
-  --scenario latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda
-  --dataset growing_tree #moving_mnist,lorenz96,electric_devices,glioblastoma,hela,growing_tree # bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks
+  # Sequential graph: embed five category/page nodes and predict the next.
+  --scenario latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda #graph_next_node
+  --dataset hela_fluo #growing_tree,moving_mnist,lorenz96,electric_devices #bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks #retailrocket,wikispeedia
   --seeds 0,1,2,3,4
-  --modes z,z_both
+  --modes z,z_both #graph_geo,graph_mixed,graph_mixed_tda
   --latent-dim 16
 
   # Candidate signatures come from the training-only triangle diagnostic and
@@ -115,8 +116,8 @@ args=(
   # --manifold-signature-policy manual
   # --manifold-signatures e16,h3_s4_e9
   # --manifold-signature-file results/signature_selection/selected_manifold_signatures.json
-  # --include-retrain-encoder
-  # --recompute-latent-tda-features
+  --include-retrain-encoder
+  --recompute-latent-tda-features
   # --hidden-dim 128
   # --predictor-learning-rate 1e-3
   # --predictor-epochs 40
