@@ -59,6 +59,8 @@ set -euo pipefail
 #   lorenz96                               rasterized multivariate dynamics
 #   electric_devices                       rasterized UCR time series
 #   glioblastoma / hela                    CTC microscopy sequences
+#   growing_tree                           explicitly tree-metric synthetic videos
+#   hirros                                 real HIRROS root-growth time-lapse stacks
 #
 # Encoder/cache workflow:
 #   Add --include-retrain-encoder when intentionally refreshing encoders. Otherwise,
@@ -80,10 +82,10 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
 mkdir -p "$MPLCONFIGDIR"
 
 args=(
-  --scenario manifold_mixed_geo_latent_tda #latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda
-  --dataset moving_mnist,lorenz96,electric_devices,glioblastoma,hela # bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks
+  --scenario latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda
+  --dataset growing_tree #moving_mnist,lorenz96,electric_devices,glioblastoma,hela,growing_tree # bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks
   --seeds 0,1,2,3,4
-  --modes z_both #z,z_both
+  --modes z,z_both
   --latent-dim 16
 
   # Candidate signatures come from the training-only triangle diagnostic and
@@ -97,7 +99,7 @@ args=(
   --manifold-signature-file results/signature_selection/selected_manifold_signatures.json
 
   # product_manifold: H/S/E geodesics; euclidean: ordinary cdist on the same z.
-  --vr-distance euclidean #product_manifold # euclidean
+  --vr-distance product_manifold # euclidean
   --device cpu
   --geo-ae-epochs 10
   --ae-epochs 10

@@ -26,7 +26,7 @@ from topo import ml_runner
 
 DEFAULT_DATASETS = (
     "bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks,"
-    "moving_mnist,lorenz96,electric_devices,glioblastoma,hela"
+    "moving_mnist,lorenz96,electric_devices,glioblastoma,hela,growing_tree,hirros"
 )
 
 

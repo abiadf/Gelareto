@@ -616,7 +616,7 @@ def load_video_context(cfg: RunConfig) -> VideoContext:
         raise ValueError(f"Unknown dataset {cfg.dataset!r}. Valid datasets: {valid}")
 
     run_config = dict(dataset_configs[cfg.dataset])
-    if run_config.get("kind") in {"lorenz_moving_shapes", "orbiting_shapes", "lorenz96_timeseries", "noisy_video"}:
+    if run_config.get("kind") in {"lorenz_moving_shapes", "orbiting_shapes", "lorenz96_timeseries", "noisy_video", "growing_tree", "hirros"}:
         if cfg.num_train_clips is not None:
             run_config["num_train_clips"] = cfg.num_train_clips
         if cfg.num_test_clips is not None:
@@ -1969,20 +1969,46 @@ def run_pwgeo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.Data
     return run_geo_latent_tda(cfg, context, encoder_kind="pwgeo")
 
 
+def _triangle_diagnostic(
+    cfg: RunConfig, context: VideoContext, *, knn: int, seed: int
+) -> dict:
+    """Use the known graph for growing_tree and image-space kNN otherwise."""
+    if context.dataset_config.get("kind") == "growing_tree":
+        return ml_tda_triangle.regular_tree_curvature_diagnostic(
+            branching_factor=int(context.dataset_config.get("branching_factor", 6)),
+            depth=int(context.dataset_config.get("tree_depth", 4)),
+            latent_dim=context.latent_dim,
+            n_samples=cfg.triangle_samples,
+            flat_threshold=cfg.triangle_flat_threshold,
+            seed=seed,
+            knn=knn,
+        )
+    if context.dataset_config.get("kind") == "hirros":
+        return ml_tda_triangle.sequence_triangle_curvature_diagnostic(
+            context.x_train,
+            latent_dim=context.latent_dim,
+            knn=knn,
+            n_samples=cfg.triangle_samples,
+            flat_threshold=cfg.triangle_flat_threshold,
+            seed=seed,
+        )
+    return ml_tda_triangle.triangle_curvature_diagnostic(
+        context.x_train,
+        latent_dim=context.latent_dim,
+        knn=knn,
+        n_samples=cfg.triangle_samples,
+        max_points=cfg.triangle_max_points,
+        flat_threshold=cfg.triangle_flat_threshold,
+        seed=seed,
+    )
+
+
 def run_triangle_curvature(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
     rows = []
     for knn in cfg.triangle_knn:
         for seed in seeds:
-            row = ml_tda_triangle.triangle_curvature_diagnostic(
-                context.x_train,
-                latent_dim=context.latent_dim,
-                knn=knn,
-                n_samples=cfg.triangle_samples,
-                max_points=cfg.triangle_max_points,
-                flat_threshold=cfg.triangle_flat_threshold,
-                seed=seed,
-            )
+            row = _triangle_diagnostic(cfg, context, knn=knn, seed=seed)
             row["dataset"] = cfg.dataset
             rows.append(row)
             print("triangle-curvature:", row)
@@ -2027,15 +2053,7 @@ def _resolved_manifold_signatures(cfg: RunConfig, context: VideoContext) -> list
         return cfg.manifold_signatures
     seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
     diagnostics = [
-        ml_tda_triangle.triangle_curvature_diagnostic(
-            context.x_train,
-            latent_dim=context.latent_dim,
-            knn=knn,
-            n_samples=cfg.triangle_samples,
-            max_points=cfg.triangle_max_points,
-            flat_threshold=cfg.triangle_flat_threshold,
-            seed=seed,
-        )
+        _triangle_diagnostic(cfg, context, knn=knn, seed=seed)
         for knn in cfg.triangle_knn
         for seed in seeds
     ]

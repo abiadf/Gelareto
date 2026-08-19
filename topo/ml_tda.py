@@ -1536,6 +1536,14 @@ def load_video_dataset(config):
     elif config["kind"] == "noisy_video":
         train, test = load_noisy_video(config)
         return train, test
+    elif config["kind"] == "growing_tree":
+        from topo.ml_tda_growing_tree import load_growing_tree
+
+        return load_growing_tree(config)
+    elif config["kind"] == "hirros":
+        from topo.ml_tda_hirros import load_hirros
+
+        return load_hirros(config)
     elif config["kind"] == "synthetic_motion_classification":
         train_parts = []
         test_parts = []

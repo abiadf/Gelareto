@@ -46,6 +46,20 @@ def gu_triangle_curvature_samples(
 ) -> tuple[np.ndarray, dict]:
     """Sample Gu et al.'s normalized median-deviation proxy xi_G (Algorithm 3)."""
     adjacency = knn_graph(points, knn=knn)
+    values, metadata = gu_triangle_curvature_samples_from_adjacency(
+        adjacency, n_samples=n_samples, seed=seed
+    )
+    metadata["n_input_points"] = int(len(points))
+    return values, metadata
+
+
+def gu_triangle_curvature_samples_from_adjacency(
+    adjacency: csr_matrix,
+    *,
+    n_samples: int = 10_000,
+    seed: int = 0,
+) -> tuple[np.ndarray, dict]:
+    """Apply Gu et al.'s triangle proxy directly to a known graph."""
     n_components, labels = connected_components(adjacency, directed=False)
     counts = np.bincount(labels)
     largest_label = int(np.argmax(counts))
@@ -70,12 +84,90 @@ def gu_triangle_curvature_samples(
         xi -= (distances[a, b]**2 + distances[a, c]**2) / 2.0
         values[sample_index] = xi / (2.0 * d_am)
     metadata = {
-        "n_input_points": int(len(points)),
+        "n_input_points": int(adjacency.shape[0]),
         "n_graph_points": int(len(keep)),
         "n_components": int(n_components),
         "largest_component_fraction": float(retained_fraction),
     }
     return values, metadata
+
+
+def regular_tree_curvature_diagnostic(
+    *,
+    branching_factor: int,
+    depth: int,
+    latent_dim: int,
+    n_samples: int = 10_000,
+    flat_threshold: float = 1e-6,
+    seed: int = 0,
+    knn: int = 0,
+) -> dict:
+    """Diagnose the exact generative graph of the ``growing_tree`` videos.
+
+    Unlike ordinary datasets, this synthetic benchmark has a known underlying
+    graph. Using it avoids replacing the tree with an unrelated image-space kNN
+    graph and is the direct graph setting for which Gu's diagnostic was defined.
+    """
+    branching_factor, depth = int(branching_factor), int(depth)
+    n_nodes = (branching_factor ** (depth + 1) - 1) // (branching_factor - 1)
+    children = np.arange(1, n_nodes, dtype=int)
+    parents = (children - 1) // branching_factor
+    rows = np.concatenate([parents, children])
+    cols = np.concatenate([children, parents])
+    adjacency = csr_matrix((np.ones(len(rows)), (rows, cols)), shape=(n_nodes, n_nodes))
+    values, metadata = gu_triangle_curvature_samples_from_adjacency(
+        adjacency, n_samples=n_samples, seed=seed
+    )
+    result = _diagnostic_summary(
+        values, metadata, latent_dim=latent_dim,
+        flat_threshold=flat_threshold, seed=seed, knn=knn,
+    )
+    result["graph_source"] = "known_generative_tree"
+    return result
+
+
+def sequence_triangle_curvature_diagnostic(
+    x,
+    *,
+    latent_dim: int,
+    knn: int = 8,
+    n_samples: int = 10_000,
+    flat_threshold: float = 1e-6,
+    seed: int = 0,
+) -> dict:
+    """Pool triangle scores from independent sequence-level kNN graphs."""
+    if hasattr(x, "detach"):
+        x = x.detach().cpu().numpy()
+    array = np.asarray(x)
+    n_sequences = int(array.shape[1])
+    samples_per_sequence = max(1, int(np.ceil(int(n_samples) / n_sequences)))
+    values, retained = [], []
+    for sequence_index in range(n_sequences):
+        points = array[:, sequence_index].reshape(array.shape[0], -1)
+        sequence_values, metadata = gu_triangle_curvature_samples(
+            points,
+            knn=knn,
+            n_samples=samples_per_sequence,
+            seed=int(seed) * 1009 + sequence_index,
+        )
+        values.append(sequence_values)
+        retained.append(metadata["largest_component_fraction"])
+    pooled = np.concatenate(values)[: int(n_samples)]
+    result = _diagnostic_summary(
+        pooled,
+        {
+            "n_input_points": int(array.shape[0] * n_sequences),
+            "n_graph_points": int(array.shape[0] * n_sequences),
+            "n_components": n_sequences,
+            "largest_component_fraction": float(np.mean(retained)),
+        },
+        latent_dim=latent_dim,
+        flat_threshold=flat_threshold,
+        seed=seed,
+        knn=knn,
+    )
+    result["graph_source"] = "independent_sequence_knn"
+    return result
 
 
 def suggested_signature(negative: float, flat: float, positive: float, latent_dim: int) -> str:
@@ -153,6 +245,22 @@ def triangle_curvature_diagnostic(
     values, metadata = gu_triangle_curvature_samples(
         points, knn=knn, n_samples=n_samples, seed=seed
     )
+    return _diagnostic_summary(
+        values, metadata, latent_dim=latent_dim,
+        flat_threshold=flat_threshold, seed=seed, knn=knn,
+    )
+
+
+def _diagnostic_summary(
+    values: np.ndarray,
+    metadata: dict,
+    *,
+    latent_dim: int,
+    flat_threshold: float,
+    seed: int,
+    knn: int,
+) -> dict:
+    """Summarize signed triangle scores and allocate candidate dimensions."""
     threshold = float(flat_threshold)
     negative = float(np.mean(values < -threshold))
     positive = float(np.mean(values > threshold))
