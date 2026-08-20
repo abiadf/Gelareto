@@ -4,7 +4,7 @@ set -euo pipefail
 # Final paper experiment (CPU-safe):
 #   latent_tda: baseline AE
 #   geo_latent_tda: Euclidean distance-preserving GeoAE
-#   manifold_mixed_geo_latent_tda: mixed-curvature GeoAE
+#   manif_geo_latent_tda: mixed-curvature GeoAE
 # Modes: z is latent-only; z_both appends H0/H1 persistence features.
 # The default run uses the product-manifold metric for the manifold model's VR.
 # After it finishes, run the Euclidean-VR control shown below.
@@ -20,7 +20,7 @@ set -euo pipefail
 #     Topology-regularized AE followed by latent TDA.
 #   mixed_geo_latent_tda:
 #     Mixed-curvature GeoAE; latent persistence still uses ordinary Euclidean distance.
-#   manifold_mixed_geo_latent_tda:
+#   manif_geo_latent_tda:
 #     The same mixed-curvature encoder with a selectable Euclidean or product-manifold
 #     distance for the Vietoris--Rips filtration. This is the proposed full method.
 #   triangle_curvature:
@@ -82,11 +82,11 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
 mkdir -p "$MPLCONFIGDIR"
 
 args=(
-  # Sequential graph: embed five category/page nodes and predict the next.
-  --scenario graph_next_node # latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda #graph_next_node
-  --dataset diginetica #growing_tree,moving_mnist,lorenz96,electric_devices,hela,hela_fluo #bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks #retailrocket,wikispeedia
-  --seeds 0,1,2 #,3,4
-  --modes z,graph_geo,graph_mixed,graph_mixed_tda #z,z_both 
+  # Final YouTube-video comparison: ordinary AE, GeoAE, and selected product-manifold GeoAE.
+  --scenario manif_geo_latent_tda #latent_tda,geo_latent_tda,manif_geo_latent_tda
+  --dataset yt_diffusion,yt_dendrite # growing_tree,moving_mnist,lorenz96,electric_devices,hela,hela_fluo,glioblastoma,hirros,bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks # yt_instability
+  --seeds 0,1,2,3,4
+  --modes z_both #z,z_both
   --latent-dim 16
 
   # Candidate signatures come from the training-only triangle diagnostic and
@@ -100,15 +100,15 @@ args=(
   --manifold-signature-file results/signature_selection/selected_manifold_signatures.json
 
   # product_manifold: H/S/E geodesics; euclidean: ordinary cdist on the same z.
-  --vr-distance product_manifold # euclidean
+  --vr-distance euclidean #product_manifold # euclidean
   --device cpu
   --geo-ae-epochs 10
   --ae-epochs 10
   --geo-ae-lambda 0.1
   --learning-rate 1e-3
   --hparam-file results/hparam_search/latent_z_best_hparams.json
-  --horizon 1 #5
-  --latent-tda-window 5 #15
+  --horizon 5
+  --latent-tda-window 15
   --latent-tda-bins 16
   --output-dir results/mixed_curvature_cpu
 
@@ -235,6 +235,6 @@ uv run python -m topo.ml_runner "${args[@]}" "$@"
 
 # Euclidean-VR control (do not rerun the baseline scenarios or manifold z):
 # bash run_ml_persistence.sh \
-#   --scenario manifold_mixed_geo_latent_tda \
+#   --scenario manif_geo_latent_tda \
 #   --modes z_both \
 #   --vr-distance euclidean

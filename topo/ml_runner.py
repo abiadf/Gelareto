@@ -81,7 +81,7 @@ RUNNER_SCENARIOS = {
     "pwgeo_latent_tda",
     "mixed_geo_latent_tda",
     "routed_mixed_geo_latent_tda",
-    "manifold_mixed_geo_latent_tda",
+    "manif_geo_latent_tda",
     "triangle_curvature",
     "geo_latent_spectrum",
     "topo_latent_tda",
@@ -1868,7 +1868,7 @@ def run_geo_latent_tda(
 
     rows = []
     require_persistence = ml_tda_latent._latent_modes_need_persistence(modes)
-    scenario_name = "manifold_mixed_geo_latent_tda" if is_manifold_ph else ("routed_mixed_geo_latent_tda" if is_routed else ("mixed_geo_latent_tda" if is_mixedgeo else ("pwgeo_latent_tda" if is_pwgeo else "geo_latent_tda")))
+    scenario_name = "manif_geo_latent_tda" if is_manifold_ph else ("routed_mixed_geo_latent_tda" if is_routed else ("mixed_geo_latent_tda" if is_mixedgeo else ("pwgeo_latent_tda" if is_pwgeo else "geo_latent_tda")))
     for seed in tqdm_progress_bar(seeds, desc=f"{scenario_name} seeds", total=len(seeds), leave=True):
         print(f"\n================ {scenario_name} seed={seed} ================")
         _set_all_seeds(seed)
@@ -2104,7 +2104,7 @@ def run_routed_mixed_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tu
     return pd.concat(result_frames, ignore_index=True), pd.concat(summary_frames)
 
 
-def run_manifold_mixed_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+def run_manif_geo_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Sweep fixed product signatures using the requested VR distance."""
     result_frames, summary_frames = [], []
     for signature in _resolved_manifold_signatures(cfg, context):
@@ -4113,7 +4113,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         "--vr-distance",
         choices=sorted(ml_tda_manifold_ph.VR_DISTANCES),
         default="product_manifold",
-        help="Distance used to build VR persistence in manifold_mixed_geo_latent_tda.",
+        help="Distance used to build VR persistence in manif_geo_latent_tda.",
     )
     parser.add_argument("--triangle-knn", type=_parse_int_list, default=[4, 8, 12])
     parser.add_argument("--triangle-samples", type=int, default=10_000)
@@ -4385,8 +4385,8 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
         return run_mixed_geo_latent_tda(cfg, context)
     if cfg.scenario == "routed_mixed_geo_latent_tda":
         return run_routed_mixed_geo_latent_tda(cfg, context)
-    if cfg.scenario == "manifold_mixed_geo_latent_tda":
-        return run_manifold_mixed_geo_latent_tda(cfg, context)
+    if cfg.scenario == "manif_geo_latent_tda":
+        return run_manif_geo_latent_tda(cfg, context)
     if cfg.scenario == "triangle_curvature":
         return run_triangle_curvature(cfg, context)
     if cfg.scenario == "geo_latent_spectrum":

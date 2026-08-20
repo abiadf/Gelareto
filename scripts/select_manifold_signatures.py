@@ -32,7 +32,7 @@ DEFAULT_DATASETS = (
 
 def make_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig:
     argv = [
-        "--scenario", "manifold_mixed_geo_latent_tda",
+        "--scenario", "manif_geo_latent_tda",
         "--dataset", dataset,
         "--device", args.device,
         "--modes", "z_both",
@@ -56,6 +56,12 @@ def make_cfg(dataset: str, args: argparse.Namespace) -> ml_runner.RunConfig:
         "--no-save",
     ]
     cfg = ml_runner._apply_tuned_hparams(ml_runner.parse_args(argv))
+    if dataset in args.candidate_signatures:
+        cfg = replace(
+            cfg,
+            manifold_signature_policy="manual",
+            manifold_signatures=args.candidate_signatures[dataset],
+        )
     return replace(
         cfg,
         retrain_encoder=True,
@@ -105,7 +111,11 @@ def select_dataset(dataset: str, args: argparse.Namespace) -> tuple[pd.DataFrame
         "val_mse": float(best["val_mse"]),
         "val_mse_std": float(best["val_mse_std"]),
         "n_runs": int(best["n_runs"]),
-        "selection": "training-only triangle candidates; lowest z_both validation MSE",
+        "selection": (
+            "skeleton-triangle candidates; lowest z_both validation MSE"
+            if dataset in args.candidate_signatures
+            else "training-only triangle candidates; lowest z_both validation MSE"
+        ),
     }
     print(f"\nSelected {dataset}: {selected}")
     return candidates, selected
@@ -131,8 +141,17 @@ def main() -> None:
     parser.add_argument("--triangle-max-points", type=int, default=512)
     parser.add_argument("--hparam-file", type=Path, default=Path("results/hparam_search/latent_z_best_hparams.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("results/signature_selection"))
+    parser.add_argument(
+        "--candidate-signatures-json",
+        type=Path,
+        help="Optional dataset-to-signature-list JSON, e.g. skeleton-derived video candidates.",
+    )
     args = parser.parse_args()
     args.datasets = parse_csv_strs(args.datasets)
+    args.candidate_signatures = (
+        json.loads(args.candidate_signatures_json.read_text())
+        if args.candidate_signatures_json else {}
+    )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     torch.set_num_threads(4)
 
