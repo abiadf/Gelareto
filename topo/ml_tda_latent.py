@@ -1277,9 +1277,11 @@ def features_for_latent_tda_mode_pair(train_payload, test_payload, mode, train_c
 
 
 def _fit_standardizer(x, eps=1e-6):
-    """Fit one scalar standardizer to remove arbitrary encoder-level scale."""
-    mean = x.mean().reshape(1, 1, 1)
-    std = x.std().clamp_min(eps).reshape(1, 1, 1)
+    """Fit one training-only mean and scale per feature coordinate."""
+    # mean = x.mean().reshape(1, 1, 1)
+    # std  = x.std().clamp_min(eps).reshape(1, 1, 1)
+    mean = x.mean(dim=(0, 1), keepdim=True)
+    std  = x.std(dim=(0, 1), keepdim=True).clamp_min(eps)
     return mean, std
 
 
@@ -1505,9 +1507,9 @@ def train_or_load_latent_tda_predictor(
         if not STANDARDIZE_LATENT_PREDICTOR:
             standardizer_tag = "raw"
         elif _uses_z_h0_h1_standardizer(mode):
-            standardizer_tag = "zh0h1std"
+            standardizer_tag = "pczh0h1std"
         else:
-            standardizer_tag = "gstdz"
+            standardizer_tag = "pcstdz"
         if mode.startswith("z_fuse_"):
             architecture_tag = "fusion"
         elif mode.startswith("z_gate_"):
