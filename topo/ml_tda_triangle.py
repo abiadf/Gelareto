@@ -58,8 +58,15 @@ def gu_triangle_curvature_samples_from_adjacency(
     *,
     n_samples: int = 10_000,
     seed: int = 0,
+    anchor_distance_quantile: float = 0.0,
 ) -> tuple[np.ndarray, dict]:
-    """Apply Gu et al.'s triangle proxy directly to a known graph."""
+    """Apply Gu et al.'s triangle proxy directly to a known graph.
+
+    ``anchor_distance_quantile`` optionally rejects anchors that are too close
+    to the triangle centre.  This fixed multiscale variant reduces flat scores
+    caused by raster-scale, nearly degenerate triangles; zero exactly recovers
+    the original sampling rule.
+    """
     n_components, labels = connected_components(adjacency, directed=False)
     counts = np.bincount(labels)
     largest_label = int(np.argmax(counts))
@@ -78,6 +85,13 @@ def gu_triangle_curvature_samples_from_adjacency(
         m = int(rng.choice(centers))
         b, c = rng.choice(neighbours[m], size=2, replace=False)
         candidates = np.delete(np.arange(len(keep)), m)
+        quantile = float(anchor_distance_quantile)
+        if quantile > 0.0:
+            candidate_distances = distances[m, candidates]
+            cutoff = np.quantile(candidate_distances[np.isfinite(candidate_distances)], quantile)
+            distant = candidates[candidate_distances >= cutoff]
+            if len(distant):
+                candidates = distant
         a = int(rng.choice(candidates))
         d_am = distances[a, m]
         xi = d_am**2 + distances[b, c]**2 / 4.0
@@ -88,6 +102,7 @@ def gu_triangle_curvature_samples_from_adjacency(
         "n_graph_points": int(len(keep)),
         "n_components": int(n_components),
         "largest_component_fraction": float(retained_fraction),
+        "anchor_distance_quantile": float(anchor_distance_quantile),
     }
     return values, metadata
 
