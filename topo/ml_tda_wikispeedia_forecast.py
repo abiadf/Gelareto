@@ -15,6 +15,7 @@ from scipy.sparse.csgraph import shortest_path
 
 from topo.ml_tda_wikispeedia import load_wikispeedia, validate_wikispeedia
 from topo.ml_tda_retailrocket import load_retailrocket, validate_retailrocket
+from topo.ml_tda_diginetica import load_diginetica, validate_diginetica
 from topo.ml_tda_latent import _finite_diagram, betti_curve_from_diag
 from topo.ml_tda_manifold_ph import vr_distance_matrix
 from topo.ml_tda_mixedgeo import product_pairwise_distances
@@ -151,12 +152,15 @@ def run_graph_next_node(cfg, dataset_config: dict) -> tuple[pd.DataFrame, pd.Dat
     if dataset_config["kind"] == "retailrocket":
         data = load_retailrocket(dataset_config, force_rebuild=cfg.force_rebuild_data_cache)
         print("Retailrocket:", validate_retailrocket(data))
+    elif dataset_config["kind"] == "diginetica":
+        data = load_diginetica(dataset_config, force_rebuild=cfg.force_rebuild_data_cache)
+        print("Diginetica:", validate_diginetica(data))
     else:
         data = load_wikispeedia(dataset_config, force_rebuild=cfg.force_rebuild_data_cache)
         print("Wikispeedia:", validate_wikispeedia(data))
     context_length = int(cfg.latent_tda_window or dataset_config.get("LATENT_TDA_WINDOW", 5))
     if int(cfg.horizon or dataset_config.get("HORIZON", 1)) != 1:
-        raise ValueError("The basic Wikispeedia runner supports --horizon 1 only.")
+        raise ValueError("The graph next-item runner supports --horizon 1 only.")
     train_x, train_y = _windows(data["train_paths"], context_length)
     val_x, val_y = _windows(data["val_paths"], context_length)
     test_x, test_y = _windows(data["test_paths"], context_length)
@@ -171,7 +175,7 @@ def run_graph_next_node(cfg, dataset_config: dict) -> tuple[pd.DataFrame, pd.Dat
     valid_modes = {"z", "graph_geo", "graph_mixed", "graph_mixed_tda"}
     unknown = set(modes) - valid_modes
     if unknown:
-        raise ValueError(f"Unknown Wikispeedia modes: {sorted(unknown)}")
+        raise ValueError(f"Unknown graph next-item modes: {sorted(unknown)}")
     signature = str(dataset_config.get("MANIFOLD_SIGNATURE", "h8_e8"))
     geo_lambda = float(dataset_config.get("GRAPH_GEO_LAMBDA", cfg.geo_ae_lambda))
     pair_batch = int(dataset_config.get("GRAPH_GEO_PAIR_BATCH", 64))

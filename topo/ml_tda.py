@@ -1544,6 +1544,10 @@ def load_video_dataset(config):
         from topo.ml_tda_hirros import load_hirros
 
         return load_hirros(config)
+    elif config["kind"] == "youtube_sequences":
+        from topo.ml_tda_youtube import load_youtube_sequences
+
+        return load_youtube_sequences(config)
     elif config["kind"] == "synthetic_motion_classification":
         train_parts = []
         test_parts = []

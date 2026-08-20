@@ -1986,7 +1986,7 @@ def _triangle_diagnostic(
             seed=seed,
             knn=knn,
         )
-    if context.dataset_config.get("kind") == "hirros":
+    if context.dataset_config.get("kind") in {"hirros", "youtube_sequences"}:
         return ml_tda_triangle.sequence_triangle_curvature_diagnostic(
             context.x_train,
             latent_dim=context.latent_dim,
@@ -4431,8 +4431,8 @@ def _run_one_config(cfg: RunConfig) -> tuple[pd.DataFrame | None, pd.DataFrame |
     if cfg.scenario in {"wikispeedia_next_node", "wikispeedia_triangle", "graph_next_node"}:
         if cfg.scenario != "graph_next_node" and cfg.dataset != "wikispeedia":
             raise ValueError(f"{cfg.scenario} requires --dataset wikispeedia")
-        if cfg.scenario == "graph_next_node" and cfg.dataset not in {"wikispeedia", "retailrocket"}:
-            raise ValueError("graph_next_node requires wikispeedia or retailrocket")
+        if cfg.scenario == "graph_next_node" and cfg.dataset not in {"wikispeedia", "retailrocket", "diginetica"}:
+            raise ValueError("graph_next_node requires wikispeedia, retailrocket, or diginetica")
         from topo.ml_tda_wikispeedia_forecast import (
             run_graph_next_node, run_wikispeedia_next_node, run_wikispeedia_triangle,
         )

@@ -83,10 +83,10 @@ mkdir -p "$MPLCONFIGDIR"
 
 args=(
   # Sequential graph: embed five category/page nodes and predict the next.
-  --scenario latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda #graph_next_node
-  --dataset hela_fluo #growing_tree,moving_mnist,lorenz96,electric_devices #bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks #retailrocket,wikispeedia
-  --seeds 0,1,2,3,4
-  --modes z,z_both #graph_geo,graph_mixed,graph_mixed_tda
+  --scenario graph_next_node # latent_tda,geo_latent_tda,manifold_mixed_geo_latent_tda #graph_next_node
+  --dataset diginetica #growing_tree,moving_mnist,lorenz96,electric_devices,hela,hela_fluo #bouncing_rings,bouncing_disks,orbiting_rings,orbiting_disks #retailrocket,wikispeedia
+  --seeds 0,1,2 #,3,4
+  --modes z,graph_geo,graph_mixed,graph_mixed_tda #z,z_both 
   --latent-dim 16
 
   # Candidate signatures come from the training-only triangle diagnostic and
@@ -107,8 +107,8 @@ args=(
   --geo-ae-lambda 0.1
   --learning-rate 1e-3
   --hparam-file results/hparam_search/latent_z_best_hparams.json
-  --horizon 5
-  --latent-tda-window 15
+  --horizon 1 #5
+  --latent-tda-window 5 #15
   --latent-tda-bins 16
   --output-dir results/mixed_curvature_cpu
 

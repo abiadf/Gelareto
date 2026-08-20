@@ -1,5 +1,30 @@
 """Config file of datasets and their params"""
 DATASET_CONFIGS = {
+    "diginetica": {
+        "kind": "diginetica",
+        "root": "datasets/2D/diginetica",
+        "cache_path": "datasets/2D/diginetica/processed/diginetica.pt",
+        "max_items": 5_000,
+        "min_path_length": 6,
+        "train_fraction": 0.70,
+        "val_fraction": 0.15,
+        "HORIZON": 1,
+        "LATENT_TDA_WINDOW": 5,
+        "LATENT_DIM": 16,
+        # Selected on chronological validation sessions using the z-only mode.
+        "HIDDEN_DIM": 64,
+        "PREDICTOR_EPOCHS": 5,
+        "learning_rate": 5e-3,
+        "BATCH_SIZE": 256,
+        "MAX_TRAIN_WINDOWS": 50_000,
+        "GRAPH_GEO_LAMBDA": 0.1,
+        "GRAPH_GEO_PAIR_BATCH": 64,
+        # Validation winner among candidates guided by the h3_s10_e3 diagnosis.
+        "MANIFOLD_SIGNATURE": "h2_s7_e7",
+        "TDA_BINS": 8,
+        "TDA_FUSION_EPOCHS": 3,
+        "RUN_SEEDS": list(range(5)),
+    },
     "retailrocket": {
         "kind": "retailrocket",
         "root": "datasets/2D/retailrocket",
@@ -622,3 +647,15 @@ DATASET_CONFIGS["natops"] = {
     "CLASSIFICATION_TASKS": ["gesture"],
     "CLASSIFICATION_MODES": ["z", "h0", "h1", "both", "z_h0", "z_h1", "z_both", "z_h0_shuffle", "z_h1_shuffle"],
 }
+
+# Prepared YouTube datasets are registered dynamically. Running
+# ``scripts/prepare_youtube_sequences.py`` creates metadata and makes each video
+# available on the next invocation as ``--dataset youtube_<name>``.
+try:
+    from topo.ml_tda_youtube import discover_youtube_dataset_configs
+
+    DATASET_CONFIGS.update(discover_youtube_dataset_configs())
+except ImportError:
+    # Keep lightweight config inspection usable before optional video
+    # dependencies have been installed.
+    pass
