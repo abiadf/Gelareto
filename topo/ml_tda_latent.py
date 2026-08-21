@@ -55,6 +55,7 @@ LATENT_TDA_PREDICTOR_EPOCHS = 10
 LATENT_TDA_LR = 3e-4
 RETRAIN_LATENT_TDA_PREDICTOR = True
 RECOMPUTE_LATENT_TDA_FEATURES = True
+# Global-scalar predictor normalization; PH/manifold computations still use raw z.
 STANDARDIZE_LATENT_PREDICTOR = True
 PERSISTENCE_IMAGE_RESOLUTION = (8, 8)
 PERSISTENCE_IMAGE_BANDWIDTH = 0.1
@@ -1277,12 +1278,37 @@ def features_for_latent_tda_mode_pair(train_payload, test_payload, mode, train_c
 
 
 def _fit_standardizer(x, eps=1e-6):
-    """Fit one training-only mean and scale per feature coordinate."""
-    # mean = x.mean().reshape(1, 1, 1)
-    # std  = x.std().clamp_min(eps).reshape(1, 1, 1)
-    mean = x.mean(dim=(0, 1), keepdim=True)
-    std  = x.std(dim=(0, 1), keepdim=True).clamp_min(eps)
+    """Fit one training-only scalar mean and scale across all coordinates."""
+    # Global-scalar normalization is preferred for mixed-curvature predictors z, since the
+    # curvature coordinates are not commensurate with the Euclidean coordinates. However, we
+    # retain the per-coordinate alternative for later ablation.
+    mean = x.mean().reshape(1, 1, 1)
+    std = x.std().clamp_min(eps).reshape(1, 1, 1)
+    # Per-coordinate alternative, retained for later ablation:
+    # mean = x.mean(dim=(0, 1), keepdim=True)
+    # std = x.std(dim=(0, 1), keepdim=True).clamp_min(eps)
     return mean, std
+
+
+def _fit_factor_standardizer(x, factor_dims, eps=1e-6):
+    """Global-scalar normalization for mixed-curvature predictor z."""
+    # Factor-wise alternative, retained for later ablation:
+    # factor_dims = tuple(int(width) for width in factor_dims)
+    # if any(width <= 0 for width in factor_dims) or sum(factor_dims) != x.shape[-1]:
+    #     raise ValueError(
+    #         f"factor_dims={factor_dims} must be positive and sum to feature width {x.shape[-1]}"
+    #     )
+    # means, stds = [], []
+    # start = 0
+    # for width in factor_dims:
+    #     block = x[..., start:start + width]
+    #     mean = block.mean().reshape(1, 1, 1)
+    #     std = block.std().clamp_min(eps).reshape(1, 1, 1)
+    #     means.append(mean.expand(1, 1, width))
+    #     stds.append(std.expand(1, 1, width))
+    #     start += width
+    # return torch.cat(means, dim=-1), torch.cat(stds, dim=-1)
+    return _fit_standardizer(x, eps=eps)
 
 
 def _fit_z_h0_h1_standardizer(x, latent_dim, eps=1e-6):
@@ -1303,6 +1329,21 @@ def _fit_z_h0_h1_standardizer(x, latent_dim, eps=1e-6):
         stds.append(std.expand(1, 1, width))
         start += width
     return torch.cat(means, dim=-1), torch.cat(stds, dim=-1)
+
+
+def _fit_factor_z_h0_h1_standardizer(x, latent_dim, factor_dims, eps=1e-6):
+    """Factor-normalize z, retaining the existing H0/H1 block handling."""
+    z_mean, z_std = _fit_factor_standardizer(x[..., :latent_dim], factor_dims, eps=eps)
+    if x.shape[-1] == latent_dim:
+        return z_mean, z_std
+    # Global scalar z statistics must be expanded before concatenating H0/H1.
+    z_mean = z_mean.expand(1, 1, latent_dim)
+    z_std = z_std.expand(1, 1, latent_dim)
+    topo_mean, topo_std = _fit_z_h0_h1_standardizer(x, latent_dim, eps=eps)
+    return (
+        torch.cat([z_mean, topo_mean[..., latent_dim:]], dim=-1),
+        torch.cat([z_std, topo_std[..., latent_dim:]], dim=-1),
+    )
 
 
 def _uses_z_h0_h1_standardizer(mode):
@@ -1488,6 +1529,7 @@ def train_or_load_latent_tda_predictor(
     *,
     predictor_seed_namespace=None,
     deterministic=None,
+    factor_dims=None,
 ):
     """Train/load a predictor, optionally forcing a paired-ablation seed."""
     with _profile_phase("predictor"):
@@ -1507,9 +1549,9 @@ def train_or_load_latent_tda_predictor(
         if not STANDARDIZE_LATENT_PREDICTOR:
             standardizer_tag = "raw"
         elif _uses_z_h0_h1_standardizer(mode):
-            standardizer_tag = "pczh0h1std"
+            standardizer_tag = "globalzh0h1std"
         else:
-            standardizer_tag = "pcstdz"
+            standardizer_tag = "globalstd"
         if mode.startswith("z_fuse_"):
             architecture_tag = "fusion"
         elif mode.startswith("z_gate_"):
@@ -1556,6 +1598,9 @@ def train_or_load_latent_tda_predictor(
         source_features = train_features[:-HORIZON]
         source_targets = train_z[HORIZON:]
         if STANDARDIZE_LATENT_PREDICTOR:
+            # Original global-scaling path. Factor-wise normalization remains
+            # available in _fit_factor_* helpers for a future ablation, but is
+            # intentionally not active in the main experiment.
             if _uses_z_h0_h1_standardizer(mode):
                 feature_mean, feature_std = _fit_z_h0_h1_standardizer(
                     source_features,

@@ -1804,14 +1804,15 @@ def run_geo_latent_tda(
     is_routed = encoder_kind == "routed_mixedgeo"
     is_manifold_ph = encoder_kind == "manifold_mixedgeo"
     signature = cfg.manifold_signatures[0] if is_mixedgeo else None
+    factor_dims = None
+    if is_mixedgeo:
+        factors = ml_tda_mixedgeo.parse_manifold_signature(signature, context.latent_dim)
+        factor_dims = tuple(factor.dim for factor in factors)
     if is_manifold_ph:
-        ml_tda_mixedgeo.parse_manifold_signature(signature, context.latent_dim)
         model_namespace = f"{_mixedgeo_model_namespace(cfg, signature)}_vr_{cfg.vr_distance}"
     elif is_routed:
-        ml_tda_mixedgeo.parse_manifold_signature(signature, context.latent_dim)
         model_namespace = _routed_mixedgeo_model_namespace(cfg, signature)
     elif is_mixedgeo:
-        ml_tda_mixedgeo.parse_manifold_signature(signature, context.latent_dim)
         model_namespace = _mixedgeo_model_namespace(cfg, signature)
     elif is_pwgeo:
         model_namespace = _pwgeo_model_namespace(cfg)
@@ -1921,6 +1922,7 @@ def run_geo_latent_tda(
                 train_payload["z"],
                 predictor_seed_namespace=paired_seed_namespace,
                 deterministic=True if is_manifold_ph else None,
+                factor_dims=factor_dims,
             )
             test_mse, per_frame_mse, latent_r2 = ml_tda_latent.eval_latent_tda_predictor(
                 model,

@@ -84,7 +84,7 @@ mkdir -p "$MPLCONFIGDIR"
 args=(
   # Final YouTube-video comparison: ordinary AE, GeoAE, and selected product-manifold GeoAE.
   --scenario latent_tda,geo_latent_tda,manif_geo_latent_tda
-  --dataset glioblastoma,growing_tree,yt_diffusion,yt_dendrite #moving_mnist,lorenz96,electric_devices,hela,hela_fluo #bouncing_rings,orbiting_disks # hirros,yt_instability
+  --dataset bouncing_rings,orbiting_disks # glioblastoma,growing_tree,yt_diffusion,yt_dendrite #moving_mnist,lorenz96,electric_devices,hela,hela_fluo #bouncing_rings,orbiting_disks # hirros,yt_instability
   --seeds 0,1,2,3,4
   --modes z,z_both
   --latent-dim 16
