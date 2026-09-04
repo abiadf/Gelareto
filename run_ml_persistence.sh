@@ -83,10 +83,10 @@ mkdir -p "$MPLCONFIGDIR"
 
 args=(
   # Final YouTube-video comparison: ordinary AE, GeoAE, and selected product-manifold GeoAE.
-  --scenario latent_tda,geo_latent_tda,manif_geo_latent_tda
-  --dataset bouncing_rings,orbiting_disks # glioblastoma,growing_tree,yt_diffusion,yt_dendrite #moving_mnist,lorenz96,electric_devices,hela,hela_fluo #bouncing_rings,orbiting_disks # hirros,yt_instability
+  --scenario latent_tda,manif_latent_tda #geo_latent_tda,manif_geo_latent_tda
+  --dataset glioblastoma,growing_tree,yt_diffusion,yt_dendrite # orbiting_disks,bouncing_rings, #,moving_mnist,lorenz96,electric_devices,hela,hela_fluo #glioblastoma,growing_tree,yt_diffusion,yt_dendrite # hirros,yt_instability
   --seeds 0,1,2,3,4
-  --modes z,z_both
+  --modes z,z_both 
   --latent-dim 16
 
   # Candidate signatures come from the training-only triangle diagnostic and
@@ -100,7 +100,7 @@ args=(
   --manifold-signature-file results/signature_selection/selected_manifold_signatures.json
 
   # product_manifold: H/S/E geodesics; euclidean: ordinary cdist on the same z.
-  --vr-distance euclidean #product_manifold
+  --vr-distance product_manifold #euclidean
   --device cpu
   --geo-ae-epochs 10
   --ae-epochs 10

@@ -169,7 +169,14 @@ def _finite_diagram(diag):
     return finite.astype(np.float64, copy=False)
 
 
-def latent_window_betti_features(z_features, window=6, n_bins=16, return_diagrams=False):
+def latent_window_betti_features(
+    z_features,
+    window=6,
+    n_bins=16,
+    return_diagrams=False,
+    distance_kind="euclidean",
+    manifold_signature=None,
+):
     T, B, _ = z_features.shape
     h0 = np.zeros((T, B, n_bins), dtype=np.float32)
     h1 = np.zeros((T, B, n_bins), dtype=np.float32)
@@ -186,8 +193,17 @@ def latent_window_betti_features(z_features, window=6, n_bins=16, return_diagram
             pts = pts - pts.mean(axis=0, keepdims=True)
             scale = pts.std(axis=0, keepdims=True).mean() + 1e-6
             pts = pts / scale
-            diffs = pts[:, None, :] - pts[None, :, :]
-            dmat = np.sqrt(np.sum(diffs * diffs, axis=-1)).astype(np.float32)
+            if distance_kind == "product_manifold":
+                if not manifold_signature:
+                    raise ValueError("product_manifold persistence requires a manifold signature")
+                from topo.ml_tda_mixedgeo import product_pairwise_distances
+
+                dmat = product_pairwise_distances(
+                    torch.from_numpy(pts), manifold_signature
+                ).detach().cpu().numpy().astype(np.float32)
+            else:
+                diffs = pts[:, None, :] - pts[None, :, :]
+                dmat = np.sqrt(np.sum(diffs * diffs, axis=-1)).astype(np.float32)
             dgms = ripser(dmat, maxdim=1, distance_matrix=True)["dgms"]
             dgm0 = _finite_diagram(dgms[0])
             dgm1 = _finite_diagram(dgms[1]) if len(dgms) > 1 else np.empty((0, 2), dtype=np.float64)
@@ -502,13 +518,14 @@ def run_latent_stability_diagnostic(
     return results_df, summary_df
 
 
-def latent_tda_cache_path(seed, split_name, X_subset):
+def latent_tda_cache_path(seed, split_name, X_subset, distance_kind="euclidean", manifold_signature=None):
     cache_dir = Path("models") / DATASET / "latent_tda_features"
     cache_dir.mkdir(parents=True, exist_ok=True)
     tag = (
         f"seed{seed}_{split_name}_T{X_subset.shape[0]}_B{X_subset.shape[1]}_"
         f"H{X_subset.shape[-2]}_W{X_subset.shape[-1]}_latent{LATENT_DIM}_"
-        f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}"
+        f"win{LATENT_TDA_WINDOW}_bins{LATENT_TDA_BINS}_{distance_kind}_"
+        f"{manifold_signature or 'none'}"
     )
     return cache_dir / f"{tag}.pt"
 
@@ -539,11 +556,21 @@ def load_or_compute_latent_z_features(seed, split_name, X_subset, encoder):
     return payload
 
 
-def load_or_compute_latent_tda_features(seed, split_name, X_subset, encoder, require_persistence=True):
+def load_or_compute_latent_tda_features(
+    seed,
+    split_name,
+    X_subset,
+    encoder,
+    require_persistence=True,
+    distance_kind="euclidean",
+    manifold_signature=None,
+):
     if not require_persistence:
         return load_or_compute_latent_z_features(seed, split_name, X_subset, encoder)
 
-    cache_path = latent_tda_cache_path(seed, split_name, X_subset)
+    cache_path = latent_tda_cache_path(
+        seed, split_name, X_subset, distance_kind, manifold_signature
+    )
     if cache_path.exists() and not RECOMPUTE_LATENT_TDA_FEATURES:
         print(f"Loading latent TDA cache: {cache_path}")
         try:
@@ -558,6 +585,8 @@ def load_or_compute_latent_tda_features(seed, split_name, X_subset, encoder, req
         window=LATENT_TDA_WINDOW,
         n_bins=LATENT_TDA_BINS,
         return_diagrams=True,
+        distance_kind=distance_kind,
+        manifold_signature=manifold_signature,
     )
     payload = {"z": z, "h0": h0, "h1": h1, "diagrams": diagrams}
     torch.save(payload, cache_path)
@@ -1362,6 +1391,87 @@ def _attach_latent_standardizers(model, feature_mean, feature_std, target_mean, 
     return model
 
 
+@torch.no_grad()
+def predict_latent_tda_raw(model, test_features, test_z):
+    """Return raw-coordinate latent predictions and targets for geometry metrics."""
+    if HORIZON >= test_features.shape[0]:
+        raise ValueError(
+            f"HORIZON={HORIZON} must be smaller than sequence length {test_features.shape[0]}"
+        )
+    device = ml_tda.get_runtime_device()
+    model.eval().to(device)
+    features = _standardize(
+        test_features[:-HORIZON].to(device),
+        model.feature_mean.to(device),
+        model.feature_std.to(device),
+    )
+    pred_standardized = model(features)
+    target = test_z[HORIZON:].to(device)
+    pred = pred_standardized * model.target_std.to(device) + model.target_mean.to(device)
+    return pred.detach().cpu().float(), target.detach().cpu().float()
+
+
+def _frechet_mean_product(points, signature, steps=64, learning_rate=0.05):
+    """Approximate a product-manifold Fréchet mean in tangent coordinates."""
+    from topo.ml_tda_mixedgeo import product_pairwise_distances
+
+    mean = points.mean(dim=0, keepdim=True).clone().requires_grad_(True)
+    optimizer = optim.Adam([mean], lr=learning_rate)
+    for _ in range(int(steps)):
+        optimizer.zero_grad()
+        all_points = torch.cat([mean, points], dim=0)
+        distances = product_pairwise_distances(all_points, signature)[0, 1:]
+        loss = distances.square().mean()
+        loss.backward()
+        optimizer.step()
+    return mean.detach()
+
+
+def intrinsic_latent_metrics(pred, target, *, distance_kind="euclidean", signature=None):
+    """Compute geometry-aware R² and raw latent variance-spectrum diagnostics."""
+    pred = pred.reshape(-1, pred.shape[-1]).float()
+    target = target.reshape(-1, target.shape[-1]).float()
+    if distance_kind == "product_manifold":
+        if not signature:
+            raise ValueError("product_manifold metrics require a manifold signature")
+        from topo.ml_tda_mixedgeo import product_pairwise_distances
+
+        all_points = torch.cat([pred, target], dim=0)
+        distances = product_pairwise_distances(all_points, signature)
+        n = len(pred)
+        sse = distances[:n, n:].diagonal().square().mean().item()
+        frechet_mean = _frechet_mean_product(target, signature)
+        baseline_points = torch.cat([frechet_mean, target], dim=0)
+        baseline_distances = product_pairwise_distances(baseline_points, signature)[0, 1:]
+        variance = baseline_distances.square().mean().item()
+    else:
+        sse = (pred - target).square().sum(dim=-1).mean().item()
+        frechet_mean = target.mean(dim=0, keepdim=True)
+        variance = (target - frechet_mean).square().sum(dim=-1).mean().item()
+
+    centered = target - target.mean(dim=0, keepdim=True)
+    covariance = centered.T @ centered / max(len(target) - 1, 1)
+    eigenvalues = torch.linalg.eigvalsh(covariance).clamp_min(0.0).flip(0)
+    total_variance = eigenvalues.sum().item()
+    if total_variance > 1e-12:
+        probabilities = eigenvalues / total_variance
+        effective_rank = torch.exp(
+            -(probabilities * probabilities.clamp_min(1e-12).log()).sum()
+        ).item()
+        top1_fraction = (eigenvalues[0] / total_variance).item()
+    else:
+        effective_rank = 0.0
+        top1_fraction = 0.0
+
+    return {
+        "intrinsic_r2": 1.0 - sse / max(variance, 1e-12),
+        "intrinsic_sse": sse,
+        "frechet_variance": variance,
+        "latent_effective_rank": effective_rank,
+        "latent_top1_variance_fraction": top1_fraction,
+    }
+
+
 class TopologicalFusion(nn.Module):
     """Fuse latent visual state and topology features into one learned representation."""
 
@@ -1469,7 +1579,17 @@ def latent_result_metric_columns(results_df):
     Gate diagnostics are intentionally summarized separately because they are
     not applicable to the non-gated ablations.
     """
-    return ["test_mse", "latent_r2"]
+    columns = ["test_mse", "latent_r2"]
+    for name in (
+        "intrinsic_r2",
+        "intrinsic_sse",
+        "frechet_variance",
+        "latent_effective_rank",
+        "latent_top1_variance_fraction",
+    ):
+        if name in results_df.columns:
+            columns.append(name)
+    return columns
 
 
 def _stable_int_seed(*parts):
@@ -1781,6 +1901,8 @@ def run_latent_tda_trajectory_experiment(
     max_test=None,
     display_fn=None,
     compute_diagnostics=True,
+    distance_kind="euclidean",
+    manifold_signature=None,
 ):
     if X_train is None or X_test is None:
         print(
@@ -1809,6 +1931,8 @@ def run_latent_tda_trajectory_experiment(
             Xtr,
             encoder,
             require_persistence=require_persistence,
+            distance_kind=distance_kind,
+            manifold_signature=manifold_signature,
         )
         test_payload = load_or_compute_latent_tda_features(
             seed,
@@ -1816,6 +1940,8 @@ def run_latent_tda_trajectory_experiment(
             Xte,
             encoder,
             require_persistence=require_persistence,
+            distance_kind=distance_kind,
+            manifold_signature=manifold_signature,
         )
         diagnostics = latent_geometry_diagnostics(Xte, test_payload["z"]) if compute_diagnostics else {}
 
@@ -1833,6 +1959,17 @@ def run_latent_tda_trajectory_experiment(
                 test_features,
                 test_payload["z"],
             )
+            raw_pred, raw_target = predict_latent_tda_raw(
+                model,
+                test_features,
+                test_payload["z"],
+            )
+            geometry_metrics = intrinsic_latent_metrics(
+                raw_pred,
+                raw_target,
+                distance_kind=distance_kind,
+                signature=manifold_signature,
+            )
             row = {
                 "dataset": DATASET,
                 "seed": seed,
@@ -1840,6 +1977,7 @@ def run_latent_tda_trajectory_experiment(
                 "horizon": HORIZON,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
+                **geometry_metrics,
                 **topology_gate_statistics(model),
                 **diagnostics,
             }

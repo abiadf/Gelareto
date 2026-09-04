@@ -82,6 +82,8 @@ RUNNER_SCENARIOS = {
     "mixed_geo_latent_tda",
     "routed_mixed_geo_latent_tda",
     "manif_geo_latent_tda",
+    "manif_latent_tda",
+    "manif_decode_z",
     "triangle_curvature",
     "geo_latent_spectrum",
     "topo_latent_tda",
@@ -1016,18 +1018,30 @@ def _evaluate_decode_z_to_future_x(
     test_z: torch.Tensor,
     x_test: torch.Tensor,
     context: VideoContext,
+    *,
+    max_decode_times: int | None = None,
+    max_decode_sequences: int | None = None,
 ) -> dict[str, float | torch.Tensor]:
     device = ml_tda.get_runtime_device()
     model.to(device).eval()
     with torch.no_grad():
         pred_z = model(test_z[:-context.horizon].to(device)).cpu()
 
+    target_z = test_z[context.horizon:]
+    target_x = ml_tda_pixel.target_frames(x_test[context.horizon:]).cpu()
+    if max_decode_times is not None or max_decode_sequences is not None:
+        n_times = pred_z.shape[0] if max_decode_times is None else min(max_decode_times, pred_z.shape[0])
+        n_sequences = pred_z.shape[1] if max_decode_sequences is None else min(max_decode_sequences, pred_z.shape[1])
+        time_idx = torch.linspace(0, pred_z.shape[0] - 1, n_times).long()
+        seq_idx = torch.linspace(0, pred_z.shape[1] - 1, n_sequences).long()
+        pred_z = pred_z[time_idx][:, seq_idx]
+        target_z = target_z[time_idx][:, seq_idx]
+        target_x = target_x[time_idx][:, seq_idx]
     pred_x = _decode_sequence(decoder, pred_z)
     # This is the best image the same decoder can produce when it receives the
     # *true* future latent.  Comparing against it separates decoder error from
     # latent-forecast error.
-    oracle_x = _decode_sequence(decoder, test_z[context.horizon:])
-    target_x = ml_tda_pixel.target_frames(x_test[context.horizon:]).cpu()
+    oracle_x = _decode_sequence(decoder, target_z)
     weighted_mse, pixel_mse, fg_mse, bg_mse = ml_tda_pixel.pixel_losses(pred_x, target_x)
     _, pixel_r2 = _mse_r2(pred_x, target_x)
     _, oracle_pixel_mse, _, _ = ml_tda_pixel.pixel_losses(oracle_x, target_x)
@@ -1097,6 +1111,42 @@ def _save_decode_comparison_figure(
     fig.savefig(output_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
     return output_path
+
+
+def _evaluate_decoded_latent_predictions(
+    pred_z: torch.Tensor,
+    target_z: torch.Tensor,
+    decoder: SpatialDecoder,
+    target_x: torch.Tensor,
+    *,
+    max_decode_times: int = 3,
+    max_decode_sequences: int = 8,
+) -> dict[str, float | torch.Tensor]:
+    """Decode only a small representative subset of latent predictions."""
+    n_times = min(max_decode_times, pred_z.shape[0])
+    n_sequences = min(max_decode_sequences, pred_z.shape[1])
+    time_idx = torch.linspace(0, pred_z.shape[0] - 1, n_times).long()
+    seq_idx = torch.linspace(0, pred_z.shape[1] - 1, n_sequences).long()
+    pred_z = pred_z[time_idx][:, seq_idx]
+    target_z = target_z[time_idx][:, seq_idx]
+    target_x = ml_tda_pixel.target_frames(target_x)[time_idx][:, seq_idx].cpu()
+    pred_x = _decode_sequence(decoder, pred_z)
+    oracle_x = _decode_sequence(decoder, target_z)
+    weighted_mse, pixel_mse, fg_mse, bg_mse = ml_tda_pixel.pixel_losses(pred_x, target_x)
+    _, pixel_r2 = _mse_r2(pred_x, target_x)
+    _, oracle_pixel_mse, _, _ = ml_tda_pixel.pixel_losses(oracle_x, target_x)
+    return {
+        "weighted_mse": float(weighted_mse),
+        "pixel_mse": float(pixel_mse),
+        "pixel_r2": float(pixel_r2),
+        "foreground_mse": float(fg_mse),
+        "background_mse": float(bg_mse),
+        "oracle_pixel_mse": float(oracle_pixel_mse),
+        "forecast_to_oracle_mse": float(torch.mean((pred_x - oracle_x) ** 2)),
+        "target_x": target_x,
+        "oracle_x": oracle_x,
+        "pred_x": pred_x,
+    }
 
 
 def _geo_feature_dim(mode: str, context: VideoContext) -> tuple[bool, int]:
@@ -1571,7 +1621,13 @@ def run_aux_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd
     return results_df, summary_df
 
 
-def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+def run_latent_tda(
+    cfg: RunConfig,
+    context: VideoContext,
+    *,
+    distance_kind="euclidean",
+    manifold_signature=None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     modes = _override(
         cfg.modes,
         context.dataset_config.get(
@@ -1622,6 +1678,7 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
         f"window={window}, bins={bins}, predictor_epochs={latent_epochs}, lr={latent_lr}, "
         f"horizon={context.horizon}, "
         f"max_train={max_train}, max_test={max_test}, recompute_features={recompute_features}"
+        f", distance={distance_kind}, signature={manifold_signature}"
     )
     results_df, summary_df, _ = ml_tda_latent.run_latent_tda_trajectory_experiment(
         X_train=context.x_train,
@@ -1632,6 +1689,116 @@ def run_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame,
         max_test=max_test,
         display_fn=None,
         compute_diagnostics=not cfg.profile_run,
+        distance_kind=distance_kind,
+        manifold_signature=manifold_signature,
+    )
+    return results_df, summary_df
+
+
+def run_manif_latent_tda(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Ordinary-AE control evaluated with the requested latent VR distance."""
+    if cfg.vr_distance not in {"euclidean", "product_manifold"}:
+        raise ValueError(f"Unsupported manif_latent_tda distance: {cfg.vr_distance}")
+    signatures = _resolved_manifold_signatures(cfg, context)
+    if len(signatures) != 1:
+        raise ValueError("manif_latent_tda requires exactly one manifold signature")
+    results, summary = run_latent_tda(
+        cfg,
+        context,
+        distance_kind=cfg.vr_distance,
+        manifold_signature=signatures[0],
+    )
+    results["manifold_signature"] = signatures[0]
+    results["vr_distance"] = cfg.vr_distance
+    summary["manifold_signature"] = signatures[0]
+    summary["vr_distance"] = cfg.vr_distance
+    return results, summary
+
+
+def run_manif_decode_z(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Decode ordinary-AE predictions with product-manifold latent TDA features."""
+    if cfg.vr_distance != "product_manifold":
+        raise ValueError("manif_decode_z currently requires --vr-distance product_manifold")
+    signatures = _resolved_manifold_signatures(cfg, context)
+    if len(signatures) != 1:
+        raise ValueError("manif_decode_z requires exactly one manifold signature")
+    signature = signatures[0]
+    modes = ["z_both"]
+    seeds = _override(cfg.run_seeds, context.dataset_config.get("RUN_SEEDS", list(range(3))))
+    window = int(_override(cfg.latent_tda_window, context.dataset_config.get("LATENT_TDA_WINDOW", 20)))
+    bins = int(_override(cfg.latent_tda_bins, context.dataset_config.get("LATENT_TDA_BINS", 16)))
+    ml_tda.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HORIZON=context.horizon,
+        DEVICE=_select_device(cfg.device),
+        AE_EPOCHS=context.ae_epochs,
+        AE_FRAME_BATCH_SIZE=context.ae_frame_batch_size,
+        AE_MAX_FRAMES_PER_EPOCH=context.ae_max_frames_per_epoch,
+    )
+    ml_tda_pixel.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        HORIZON=context.horizon,
+        PIXEL_TDA_FG_WEIGHT=10.0,
+        PIXEL_TDA_FG_THRESHOLD=0.05,
+    )
+    ml_tda_latent.configure_runtime(
+        DATASET=cfg.dataset,
+        LATENT_DIM=context.latent_dim,
+        HIDDEN_DIM=context.hidden_dim,
+        RETRAIN_ENCODER=cfg.retrain_encoder,
+        HORIZON=context.horizon,
+        LATENT_TDA_WINDOW=window,
+        LATENT_TDA_BINS=bins,
+        LATENT_TDA_PREDICTOR_EPOCHS=context.predictor_epochs,
+        LATENT_TDA_LR=context.predictor_learning_rate,
+        RETRAIN_LATENT_TDA_PREDICTOR=cfg.retrain_predictor,
+        RECOMPUTE_LATENT_TDA_FEATURES=cfg.recompute_latent_tda_features,
+    )
+    rows = []
+    for seed in tqdm_progress_bar(seeds, desc="manif_decode_z seeds", total=len(seeds), leave=True):
+        _set_all_seeds(seed)
+        encoder, decoder, encoder_path, decoder_path = _load_or_train_baseline_autoencoder(cfg, context, seed)
+        train_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+            seed, "train", context.x_train, encoder, require_persistence=True,
+            distance_kind="product_manifold", manifold_signature=signature,
+        )
+        test_payload = ml_tda_latent.load_or_compute_latent_tda_features(
+            seed, "test", context.x_test, encoder, require_persistence=True,
+            distance_kind="product_manifold", manifold_signature=signature,
+        )
+        train_features, test_features = ml_tda_latent.features_for_latent_tda_mode_pair(
+            train_payload, test_payload, "z_both", train_control_seed=seed, test_control_seed=seed + 10_000
+        )
+        model = ml_tda_latent.train_or_load_latent_tda_predictor(
+            seed, "z_both", train_features, train_payload["z"],
+            predictor_seed_namespace=f"manif_decode_{signature}",
+        )
+        raw_pred, raw_target = ml_tda_latent.predict_latent_tda_raw(model, test_features, test_payload["z"])
+        metrics = _evaluate_decoded_latent_predictions(
+            raw_pred, raw_target, decoder, context.x_test[context.horizon:],
+        )
+        figure_path = _save_decode_comparison_figure(
+            metrics, dataset=cfg.dataset, encoder="manif_latent_tda", seed=seed,
+        )
+        rows.append({
+            "dataset": cfg.dataset, "scenario": "manif_decode_z", "encoder": "baseline_ae",
+            "seed": seed, "mode": "z_both_decode", "horizon": context.horizon,
+            "manifold_signature": signature, "vr_distance": "product_manifold",
+            "pixel_mse": metrics["pixel_mse"], "pixel_r2": metrics["pixel_r2"],
+            "weighted_mse": metrics["weighted_mse"], "foreground_mse": metrics["foreground_mse"],
+            "background_mse": metrics["background_mse"], "oracle_pixel_mse": metrics["oracle_pixel_mse"],
+            "forecast_to_oracle_mse": metrics["forecast_to_oracle_mse"],
+            "encoder_path": str(encoder_path), "decoder_path": str(decoder_path),
+            "figure_path": str(figure_path),
+        })
+    results_df = pd.DataFrame(rows)
+    summary_df = ml_tda.summarize_metric_runs(
+        results_df, group_cols="mode",
+        metric_cols=["pixel_mse", "pixel_r2", "weighted_mse", "foreground_mse", "oracle_pixel_mse", "forecast_to_oracle_mse"],
+        sort_metric="weighted_mse",
     )
     return results_df, summary_df
 
@@ -1929,6 +2096,17 @@ def run_geo_latent_tda(
                 test_features,
                 test_payload["z"],
             )
+            raw_pred, raw_target = ml_tda_latent.predict_latent_tda_raw(
+                model,
+                test_features,
+                test_payload["z"],
+            )
+            geometry_metrics = ml_tda_latent.intrinsic_latent_metrics(
+                raw_pred,
+                raw_target,
+                distance_kind=cfg.vr_distance if is_manifold_ph else "euclidean",
+                signature=signature if is_manifold_ph else None,
+            )
             row = {
                 "dataset": cfg.dataset,
                 "encoder": "routed_mixed_geo_ae" if is_routed else ("mixed_geo_ae" if is_mixedgeo else ("pwgeo_ae" if is_pwgeo else "geo_ae")),
@@ -1948,6 +2126,7 @@ def run_geo_latent_tda(
                 "horizon": context.horizon,
                 "test_mse": float(test_mse),
                 "latent_r2": float(latent_r2),
+                **geometry_metrics,
                 "encoder_path": str(encoder_path),
                 **ml_tda_latent.topology_gate_statistics(model),
                 **diagnostics,
@@ -3198,7 +3377,15 @@ def _run_decode_z(
             seed,
             train_z,
         )
-        metrics = _evaluate_decode_z_to_future_x(model, decoder, test_z, context.x_test, context)
+        metrics = _evaluate_decode_z_to_future_x(
+            model,
+            decoder,
+            test_z,
+            context.x_test,
+            context,
+            max_decode_times=3,
+            max_decode_sequences=8,
+        )
         figure_path = _save_decode_comparison_figure(
             metrics,
             dataset=cfg.dataset,
@@ -4115,7 +4302,7 @@ def parse_args(argv: list[str] | None = None) -> RunConfig:
         "--vr-distance",
         choices=sorted(ml_tda_manifold_ph.VR_DISTANCES),
         default="product_manifold",
-        help="Distance used to build VR persistence in manif_geo_latent_tda.",
+        help="Distance used to build VR persistence in manif_geo_latent_tda and manif_latent_tda.",
     )
     parser.add_argument("--triangle-knn", type=_parse_int_list, default=[4, 8, 12])
     parser.add_argument("--triangle-samples", type=int, default=10_000)
@@ -4367,6 +4554,10 @@ def _run_scenario(cfg: RunConfig, context: VideoContext) -> tuple[pd.DataFrame |
         return run_topo_real_tda(cfg, context)
     if cfg.scenario == "latent_tda":
         return run_latent_tda(cfg, context)
+    if cfg.scenario == "manif_latent_tda":
+        return run_manif_latent_tda(cfg, context)
+    if cfg.scenario == "manif_decode_z":
+        return run_manif_decode_z(cfg, context)
     if cfg.scenario == "latent_stability":
         return run_latent_stability(cfg, context)
     if cfg.scenario == "geo_latent_stability":
@@ -4500,13 +4691,21 @@ def _drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _format_mean_std(value: object, std: object) -> str:
+    def format_number(number: object) -> str:
+        """Keep very small/large diagnostics visible in aggregate tables."""
+        number = float(number)
+        magnitude = abs(number)
+        if number != 0.0 and (magnitude < 1e-4 or magnitude >= 1e4):
+            return f"{number:.5e}"
+        return f"{number:.5f}"
+
     if pd.isna(value) and pd.isna(std):
         return "—"
     if pd.isna(std):
-        return f"{float(value):.5f}"
+        return format_number(value)
     if pd.isna(value):
-        return f"{float(std):.5f}"
-    return f"{float(value):.5f} {float(std):.5f}"
+        return format_number(std)
+    return f"{format_number(value)} +/- {format_number(std)}"
 
 
 def _combine_summary_mean_std_columns(df: pd.DataFrame) -> pd.DataFrame:
