@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pechstre"
+name = "gelareto"
 version = "0.1.0"
-description = "Streaming persistent homology and topology-aware video representation experiments"
+description = "Geometry-preserving representation learning with topological signals for prediction"
 readme = "readme.md"
 requires-python = ">=3.10"
 authors = [
@@ -45,8 +45,41 @@ dependencies = [
   "yt-dlp",
 ]
 
+# Previously considered or outdated dependencies, retained for reference:
+# adjustText
+# catboost
+# category_encoders
+# dtype_diet
+# einops
+# fvcore
+# geomstats
+# lightgbm
+# metasynth
+# memory-profiler
+# numexpr
+# pyriemann
+# ray[data,train,tune,serve]
+# hpbandster
+# ConfigSpace
+# optuna
+# scikit-learn==1.4.2
+# scikit-dimension
+# statsmodels
+# torchaudio
+# torchmetrics
+# torch-geometric
+# torch-scatter
+# torch-sparse
+# torch-cluster
+# torch-spline-conv
+# tslearn
+# pykeops
+# wandb
+# giotto-tda>=0.6.1
+# momentfm
+
 [project.urls]
-Repository = "https://github.com/abiadf/Pechstre"
+Repository = "https://github.com/abiadf/Gelareto"
 
 [project.optional-dependencies]
 test = [
