@@ -17,12 +17,14 @@
 src/cuda*
 
 # data
-# images/
 public_datasets/2D
 public_datasets/3D
 datasets/*
 results/*
 models/*
-# latex_tables
 latent_images/
 decoded_images/
+
+images/
+latex_tables/*
+
